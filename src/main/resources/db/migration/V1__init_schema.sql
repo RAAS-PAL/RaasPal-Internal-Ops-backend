@@ -43,21 +43,43 @@ CREATE TABLE robots (
 );
 
 -- ─── Robot Specs ─────────────────────────────────────────────────────────────
--- Core specs used by the hard-filter engine
+-- Core specs used by the hard-filter and recommendation engine
+-- All spec fields are nullable — data is collected incrementally
 -- pricing_type: SALE | RENTAL | BOTH
 -- rental_price_thb is per month
 CREATE TABLE robot_specs (
-    id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
-    robot_id            UUID          NOT NULL UNIQUE REFERENCES robots(id),
-    max_payload_kg      DECIMAL(10,2),
-    reach_mm            INTEGER,
-    environment         VARCHAR(20),
-    pricing_type        VARCHAR(10)   NOT NULL DEFAULT 'BOTH',
-    sale_price_thb      DECIMAL(15,2),
-    rental_price_thb    DECIMAL(15,2),
-    additional_specs    TEXT,
-    created_at          TIMESTAMP     NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMP     NOT NULL DEFAULT NOW()
+    id                        UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    robot_id                  UUID          NOT NULL UNIQUE REFERENCES robots(id),
+
+    -- Physical
+    weight_kg                 DECIMAL(8,2),
+    cleaning_width_mm         INTEGER,
+
+    -- Performance
+    cleaning_efficiency_sqm_h INTEGER,
+    speed_ms                  DECIMAL(5,2),
+    noise_db                  DECIMAL(5,1),
+
+    -- Battery
+    battery_work_time_h       DECIMAL(5,2),
+    charging_time_h           DECIMAL(5,2),
+
+    -- Navigation & Environment
+    navigation_type           VARCHAR(20),
+    environment               VARCHAR(20),
+    ip_rating                 VARCHAR(20),
+    min_passable_width_mm     INTEGER,
+
+    -- Pricing
+    pricing_type              VARCHAR(10)   NOT NULL DEFAULT 'BOTH',
+    sale_price_thb            DECIMAL(15,2),
+    rental_price_thb          DECIMAL(15,2),
+
+    -- Catch-all for remaining specs not yet promoted to columns
+    additional_specs          TEXT,
+
+    created_at                TIMESTAMP     NOT NULL DEFAULT NOW(),
+    updated_at                TIMESTAMP     NOT NULL DEFAULT NOW()
 );
 
 -- ─── Requirements ────────────────────────────────────────────────────────────
