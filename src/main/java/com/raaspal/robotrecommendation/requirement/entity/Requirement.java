@@ -1,10 +1,8 @@
 package com.raaspal.robotrecommendation.requirement.entity;
 
-import com.raaspal.robotrecommendation.common.enums.BudgetBand;
-import com.raaspal.robotrecommendation.common.enums.Environment;
-import com.raaspal.robotrecommendation.common.enums.RequirementStatus;
-import com.raaspal.robotrecommendation.common.enums.RobotType;
+import com.raaspal.robotrecommendation.common.enums.*;
 import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
+import com.raaspal.robotrecommendation.file.entity.FileUpload;
 import com.raaspal.robotrecommendation.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
@@ -21,10 +19,13 @@ import java.util.UUID;
  * Ownership is anchored to customer_profile_id — all ownership checks use:
  *   requirement.customerProfile.id == currentUser.customerProfileId
  *
- * The structured fields drive the hard filter and scoring.
- * The free-text description feeds the AI semantic matching.
- * As Raas Pal adds delivery/security robots, robot_type directs the engine
- * to the correct spec table, but ownership and status structure stay identical.
+ * Three intake paths all produce the same structured entity:
+ *   WEB_FORM       → fields filled directly via the wizard
+ *   CSV_IMPORT     → service parses CSV rows into this entity
+ *   FILE_EXTRACTED → AI reads a PDF/image and pre-fills fields; customer reviews
+ *
+ * Supporting files (floor plans, site photos) are stored separately in
+ * file_uploads with entity_type='requirement' and entity_id=this.id.
  */
 @Entity
 @Table(name = "requirements")
@@ -43,7 +44,7 @@ public class Requirement {
     @JoinColumn(name = "customer_profile_id", nullable = false)
     private CustomerProfile customerProfile;
 
-    /** Directs the engine to the correct spec table / scoring config. */
+    /** Directs the engine to the correct spec table and scoring config. */
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "robot_type", nullable = false, length = 20)
@@ -58,28 +59,27 @@ public class Requirement {
 
     // ── Hard constraints (drive the hard filter) ──────────────────────────────
 
-    /** Site environment — hard constraint for environment-fit scoring. */
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     private Environment environment;
 
     /**
-     * Which cleaning functions the customer needs (e.g. sweep, scrub, mop, vacuum).
-     * Multi-select from the wizard; stored as a PostgreSQL TEXT array.
+     * Cleaning functions the customer needs (e.g. sweep, scrub, mop, vacuum).
+     * Stored as a PostgreSQL TEXT array; populated from multi-select wizard step.
      */
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "cleaning_functions", columnDefinition = "text[]")
     private String[] cleaningFunctions;
 
     /**
-     * Floor surface types at the customer's site (e.g. marble, ceramic, vinyl).
-     * Multi-select from the wizard; stored as a PostgreSQL TEXT array.
+     * Floor surface types at the site (e.g. marble, ceramic, vinyl).
+     * Stored as a PostgreSQL TEXT array; populated from multi-select wizard step.
      */
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "floor_types", columnDefinition = "text[]")
     private String[] floorTypes;
 
-    /** Narrowest doorway/corridor the robot must pass through. */
+    /** Narrowest doorway or corridor the robot must fit through. */
     @Column(name = "min_passable_width_mm")
     private Integer minPassableWidthMm;
 
@@ -89,13 +89,29 @@ public class Requirement {
     @Column(name = "coverage_area_sqm")
     private Integer coverageAreaSqm;
 
-    /** Coarse budget guide — soft constraint mapped to robot price_band. */
+    /** Coarse budget guide mapped to robot price_band for scoring. */
     @Enumerated(EnumType.STRING)
     @Column(name = "budget_band", length = 10)
     private BudgetBand budgetBand;
 
     @Column(name = "priority_notes", columnDefinition = "TEXT")
     private String priorityNotes;
+
+    // ── Input source tracking ─────────────────────────────────────────────────
+
+    /** How this requirement was created — for traceability and UX display. */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "input_source", nullable = false, length = 20)
+    private InputSource inputSource = InputSource.WEB_FORM;
+
+    /**
+     * The CSV or PDF/image file that generated this requirement.
+     * Null when input_source = WEB_FORM.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_file_id")
+    private FileUpload sourceFile;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 

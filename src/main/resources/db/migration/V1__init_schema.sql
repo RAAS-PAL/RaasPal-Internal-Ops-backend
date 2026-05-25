@@ -36,12 +36,12 @@ CREATE TABLE customer_profiles (
 -- price_band is a coarse guide for budget scoring (LOW | MODERATE | HIGH).
 -- test_status distinguishes "not yet tested" from "verified".
 CREATE TABLE robots (
-    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     brand         VARCHAR(255) NOT NULL,
     model         VARCHAR(255) NOT NULL,
-    robot_type    VARCHAR(20)  NOT NULL,                    -- CLEANING | DELIVERY | SECURITY
-    test_status   VARCHAR(20)  NOT NULL DEFAULT 'DRAFT',    -- DRAFT | UNDER_TESTING | VERIFIED
-    price_band    VARCHAR(10),                              -- LOW | MODERATE | HIGH
+    robot_type    VARCHAR(20)  NOT NULL,                   -- CLEANING | DELIVERY | SECURITY
+    test_status   VARCHAR(20)  NOT NULL DEFAULT 'DRAFT',   -- DRAFT | UNDER_TESTING | VERIFIED
+    price_band    VARCHAR(10),                             -- LOW | MODERATE | HIGH
     image_url     VARCHAR(500),
     datasheet_url VARCHAR(500),
     created_at    TIMESTAMP    NOT NULL DEFAULT NOW()
@@ -64,15 +64,15 @@ CREATE TABLE robot_specs (
     brush_pressure_kg      DECIMAL(6,2),
     vacuum_pressure_kpa    DECIMAL(6,2),
 
-    -- ── Dimension 1 – Capability: cleaning functions (booleans) ──────────────
-    func_sweep             BOOLEAN,   -- sweep without vacuum
-    func_sweep_vacuum      BOOLEAN,   -- sweep with vacuum
+    -- ── Dimension 1 – Capability: cleaning functions ──────────────────────────
+    func_sweep             BOOLEAN,
+    func_sweep_vacuum      BOOLEAN,
     func_dry_mop           BOOLEAN,
     func_wet_mop           BOOLEAN,
     func_roller_scrub      BOOLEAN,
     func_disc_scrub        BOOLEAN,
 
-    -- ── Dimension 2 – Capability: cleaning efficiency (m²/h per mode) ────────
+    -- ── Dimension 1 – Capability: efficiency (m²/h per mode) ─────────────────
     efficiency_sweep_sqm_h         INTEGER,
     efficiency_scrub_sqm_h         INTEGER,
     efficiency_mop_sqm_h           INTEGER,
@@ -87,16 +87,16 @@ CREATE TABLE robot_specs (
     speed_ms               DECIMAL(5,2),
 
     -- ── Battery ───────────────────────────────────────────────────────────────
-    battery_type           VARCHAR(20),
-    battery_voltage_v      DECIMAL(6,1),
-    battery_capacity_ah    DECIMAL(8,2),
-    charging_time_hr       DECIMAL(5,2),
-    battery_work_hr        DECIMAL(5,2),
-    work_time_sweep_hr     DECIMAL(5,2),
-    work_time_scrub_hr     DECIMAL(5,2),
+    battery_type              VARCHAR(20),
+    battery_voltage_v         DECIMAL(6,1),
+    battery_capacity_ah       DECIMAL(8,2),
+    charging_time_hr          DECIMAL(5,2),
+    battery_work_hr           DECIMAL(5,2),
+    work_time_sweep_hr        DECIMAL(5,2),
+    work_time_scrub_hr        DECIMAL(5,2),
     work_time_sweep_vacuum_hr DECIMAL(5,2),
 
-    -- ── Dimension 4 – Size & access ───────────────────────────────────────────
+    -- ── Dimension 2 – Size & access ───────────────────────────────────────────
     min_passable_width_mm  INTEGER,
     min_passable_height_mm INTEGER,
     max_narrow_cross_mm    INTEGER,
@@ -105,7 +105,7 @@ CREATE TABLE robot_specs (
     max_step_height_mm     INTEGER,
     slope_angle_deg        DECIMAL(5,1),
 
-    -- ── Dimension 5 – Floor suitability (boolean flags) ─────────────────────
+    -- ── Dimension 4 – Floor suitability ───────────────────────────────────────
     floor_paving_blocks    BOOLEAN,
     floor_granite          BOOLEAN,
     floor_marble           BOOLEAN,
@@ -132,13 +132,13 @@ CREATE TABLE robot_specs (
     layout_12x12           BOOLEAN,
     layout_20x20           BOOLEAN,
 
-    -- ── Dimension 6 – Environment fit ────────────────────────────────────────
+    -- ── Dimension 5 – Environment fit ─────────────────────────────────────────
     is_indoor              BOOLEAN,
     is_outdoor             BOOLEAN,
     ip_rating              VARCHAR(20),
     hepa                   BOOLEAN,
 
-    -- ── Dimension 7 – Operational quality ────────────────────────────────────
+    -- ── Dimension 6 – Operational quality ─────────────────────────────────────
     noise_db               DECIMAL(5,1),
     nav_lidar_2d           BOOLEAN,
     nav_lidar_3d           BOOLEAN,
@@ -152,11 +152,31 @@ CREATE TABLE robot_specs (
     updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- ─── File Uploads ─────────────────────────────────────────────────────────────
+-- Defined before requirements so source_file_id FK can reference it.
+-- entity_type + entity_id link any file to any record (requirement, report, etc.)
+CREATE TABLE file_uploads (
+    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    original_filename  VARCHAR(500) NOT NULL,
+    stored_filename    VARCHAR(500) NOT NULL,
+    content_type       VARCHAR(100),
+    file_size          BIGINT,
+    entity_type        VARCHAR(50),   -- e.g. "requirement", "report"
+    entity_id          UUID,
+    uploaded_by        UUID         REFERENCES users(id),
+    is_locked          BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at         TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
 -- ─── Requirements ────────────────────────────────────────────────────────────
 -- Central intake entity. Ownership anchored to customer_profile_id.
--- Fields reflect the cleaning-robot domain. As other robot types are added,
--- each type gets its own requirement profile but shares ownership + status.
 -- cleaning_functions and floor_types are TEXT[] — multi-select from the wizard.
+--
+-- input_source tracks how the requirement was created:
+--   WEB_FORM       → customer/team filled the structured web form
+--   CSV_IMPORT     → parsed from an uploaded CSV file
+--   FILE_EXTRACTED → AI pre-filled fields from an uploaded PDF or image
+-- source_file_id links back to the file that generated this requirement (nullable).
 CREATE TABLE requirements (
     id                    UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_profile_id   UUID         NOT NULL REFERENCES customer_profiles(id),
@@ -166,10 +186,12 @@ CREATE TABLE requirements (
     environment           VARCHAR(20),           -- INDOOR | OUTDOOR | CLEANROOM | HAZARDOUS
     cleaning_functions    TEXT[],                -- e.g. {sweep,scrub,mop,vacuum}
     floor_types           TEXT[],                -- e.g. {marble,ceramic,vinyl}
-    min_passable_width_mm INTEGER,               -- narrowest doorway/corridor
-    coverage_area_sqm     INTEGER,               -- area to clean per shift
+    min_passable_width_mm INTEGER,
+    coverage_area_sqm     INTEGER,
     budget_band           VARCHAR(10),           -- LOW | MODERATE | HIGH
     priority_notes        TEXT,
+    input_source          VARCHAR(20)  NOT NULL DEFAULT 'WEB_FORM',
+    source_file_id        UUID         REFERENCES file_uploads(id),
     status                VARCHAR(20)  NOT NULL DEFAULT 'DRAFT',
     created_by            UUID         REFERENCES users(id),
     created_at            TIMESTAMP    NOT NULL DEFAULT NOW(),
@@ -212,20 +234,6 @@ CREATE TABLE scores (
     created_at              TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
--- ─── File Uploads ─────────────────────────────────────────────────────────────
-CREATE TABLE file_uploads (
-    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    original_filename  VARCHAR(500) NOT NULL,
-    stored_filename    VARCHAR(500) NOT NULL,
-    content_type       VARCHAR(100),
-    file_size          BIGINT,
-    entity_type        VARCHAR(50),
-    entity_id          UUID,
-    uploaded_by        UUID         REFERENCES users(id),
-    is_locked          BOOLEAN      NOT NULL DEFAULT FALSE,
-    created_at         TIMESTAMP    NOT NULL DEFAULT NOW()
-);
-
 -- ─── Reports ─────────────────────────────────────────────────────────────────
 CREATE TABLE reports (
     id                 UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -261,15 +269,16 @@ CREATE INDEX idx_robots_type                          ON robots(robot_type);
 CREATE INDEX idx_robots_test_status                   ON robots(test_status);
 CREATE INDEX idx_robot_specs_robot_id                 ON robot_specs(robot_id);
 CREATE INDEX idx_robot_specs_environment              ON robot_specs(is_indoor, is_outdoor);
+CREATE INDEX idx_file_uploads_entity                  ON file_uploads(entity_type, entity_id);
 CREATE INDEX idx_requirements_customer_profile_id     ON requirements(customer_profile_id);
 CREATE INDEX idx_requirements_status                  ON requirements(status);
 CREATE INDEX idx_requirements_robot_type              ON requirements(robot_type);
+CREATE INDEX idx_requirements_input_source            ON requirements(input_source);
 CREATE INDEX idx_recommendations_requirement_id       ON recommendations(requirement_id);
 CREATE INDEX idx_recommendations_status               ON recommendations(status);
 CREATE INDEX idx_recommendation_items_recommendation  ON recommendation_items(recommendation_id);
 CREATE INDEX idx_recommendation_items_robot           ON recommendation_items(robot_id);
 CREATE INDEX idx_scores_recommendation_item           ON scores(recommendation_item_id);
-CREATE INDEX idx_file_uploads_entity                  ON file_uploads(entity_type, entity_id);
 CREATE INDEX idx_reports_recommendation_id            ON reports(recommendation_id);
 CREATE INDEX idx_audit_logs_entity                    ON audit_logs(entity_type, entity_id);
 CREATE INDEX idx_audit_logs_actor                     ON audit_logs(actor_id);
