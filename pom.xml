@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.0.6</version>
+		<version>3.4.5</version>
 		<relativePath/>
 	</parent>
 	<groupId>com.raaspal</groupId>
@@ -16,7 +16,6 @@
 
 	<properties>
 		<java.version>21</java.version>
-		<spring-ai.version>2.0.0-M6</spring-ai.version>
 		<jjwt.version>0.12.6</jjwt.version>
 		<springdoc.version>2.8.3</springdoc.version>
 	</properties>
@@ -25,7 +24,7 @@
 		<!-- Web -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webmvc</artifactId>
+			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
 		<!-- Data JPA -->
@@ -50,12 +49,6 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
-		</dependency>
-
-		<!-- Spring AI - Claude -->
-		<dependency>
-			<groupId>org.springframework.ai</groupId>
-			<artifactId>spring-ai-starter-model-anthropic</artifactId>
 		</dependency>
 
 		<!-- PostgreSQL driver -->
@@ -120,18 +113,6 @@
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
-
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>org.springframework.ai</groupId>
-				<artifactId>spring-ai-bom</artifactId>
-				<version>${spring-ai.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
 
 	<build>
 		<plugins>

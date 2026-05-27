@@ -15,6 +15,8 @@ public interface RequirementRepository extends JpaRepository<Requirement, UUID> 
 
     Page<Requirement> findByStatus(RequirementStatus status, Pageable pageable);
 
+    Page<Requirement> findByCreatedById(UUID createdById, Pageable pageable);
+
     Page<Requirement> findByCustomerProfileIdAndStatus(
             UUID customerProfileId, RequirementStatus status, Pageable pageable);
 

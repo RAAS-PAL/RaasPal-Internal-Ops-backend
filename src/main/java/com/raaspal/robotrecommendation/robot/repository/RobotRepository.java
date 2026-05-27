@@ -14,14 +14,12 @@ import java.util.UUID;
 @Repository
 public interface RobotRepository extends JpaRepository<Robot, UUID> {
 
-    Page<Robot> findAllByIsActiveTrue(Pageable pageable);
+    Page<Robot> findAllByBrandIgnoreCase(String brand, Pageable pageable);
 
-    Optional<Robot> findByIdAndIsActiveTrue(UUID id);
+    Optional<Robot> findByBrandIgnoreCaseAndModelIgnoreCase(String brand, String model);
 
-    Page<Robot> findAllByManufacturerIgnoreCaseAndIsActiveTrue(String manufacturer, Pageable pageable);
-
-    @Query("SELECT r FROM Robot r WHERE r.isActive = true AND " +
-           "(LOWER(r.model) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
-           "LOWER(r.manufacturer) LIKE LOWER(CONCAT('%', :keyword, '%')))")
+    @Query("SELECT r FROM Robot r WHERE " +
+            "LOWER(r.model) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
+            "LOWER(r.brand) LIKE LOWER(CONCAT('%', :keyword, '%'))")
     Page<Robot> search(@Param("keyword") String keyword, Pageable pageable);
 }
