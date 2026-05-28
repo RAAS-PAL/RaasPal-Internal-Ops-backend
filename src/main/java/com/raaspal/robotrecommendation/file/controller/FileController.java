@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.file.controller;
 
+import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.common.response.PagedResponse;
 import com.raaspal.robotrecommendation.file.dto.FileUploadMetadataRequest;
@@ -13,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,10 +49,11 @@ public class FileController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(required = false) String entityType,
             @RequestParam(required = false) UUID entityId,
-            @RequestParam(required = false) UUID uploadedById
+            @AuthenticationPrincipal UserPrincipal principal
     ) {
         FileUploadMetadataRequest metadata = new FileUploadMetadataRequest(entityType, entityId);
-        return ApiResponse.success("File uploaded", fileUploadService.store(file, metadata, uploadedById));
+        return ApiResponse.success("File uploaded",
+                fileUploadService.store(file, metadata, principal.getId()));
     }
 
     @GetMapping("/{id}/download")

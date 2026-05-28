@@ -1,7 +1,6 @@
 package com.raaspal.robotrecommendation.requirement.entity;
 
 import com.raaspal.robotrecommendation.common.enums.*;
-import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
 import com.raaspal.robotrecommendation.file.entity.FileUpload;
 import com.raaspal.robotrecommendation.user.entity.User;
 import jakarta.persistence.*;
@@ -16,16 +15,11 @@ import java.util.UUID;
 
 /**
  * Central intake entity capturing what the customer needs.
- * Ownership is anchored to customer_profile_id — all ownership checks use:
- *   requirement.customerProfile.id == currentUser.customerProfileId
  *
  * Three intake paths all produce the same structured entity:
  *   WEB_FORM       → fields filled directly via the wizard
  *   CSV_IMPORT     → service parses CSV rows into this entity
- *   FILE_EXTRACTED → AI reads a PDF/image and pre-fills fields; customer reviews
- *
- * Supporting files (floor plans, site photos) are stored separately in
- * file_uploads with entity_type='requirement' and entity_id=this.id.
+ *   FILE_EXTRACTED → AI reads a PDF/image and pre-fills fields; team reviews
  */
 @Entity
 @Table(name = "requirements")
@@ -40,10 +34,6 @@ public class Requirement {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "customer_profile_id", nullable = false)
-    private CustomerProfile customerProfile;
-
     /** Directs the engine to the correct spec table and scoring config. */
     @Builder.Default
     @Enumerated(EnumType.STRING)
@@ -53,11 +43,11 @@ public class Requirement {
     @Column(nullable = false)
     private String title;
 
-    /** Free-text needs — embedded as a vector for AI semantic matching. */
+    /** Free-text needs description. */
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    // ── Hard constraints (drive the hard filter) ──────────────────────────────
+    // ── Hard constraints ──────────────────────────────────────────────────────
 
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
@@ -65,7 +55,7 @@ public class Requirement {
 
     /**
      * Cleaning functions the customer needs (e.g. sweep, scrub, mop, vacuum).
-     * Stored as a PostgreSQL TEXT array; populated from multi-select wizard step.
+     * Stored as a PostgreSQL TEXT array.
      */
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "cleaning_functions", columnDefinition = "text[]")
@@ -73,7 +63,7 @@ public class Requirement {
 
     /**
      * Floor surface types at the site (e.g. marble, ceramic, vinyl).
-     * Stored as a PostgreSQL TEXT array; populated from multi-select wizard step.
+     * Stored as a PostgreSQL TEXT array.
      */
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "floor_types", columnDefinition = "text[]")
@@ -83,13 +73,13 @@ public class Requirement {
     @Column(name = "min_passable_width_mm")
     private Integer minPassableWidthMm;
 
-    // ── Soft constraints (influence scoring) ──────────────────────────────────
+    // ── Soft constraints ──────────────────────────────────────────────────────
 
-    /** Area to clean per shift — drives coverage capacity scoring. */
+    /** Area to clean per shift. */
     @Column(name = "coverage_area_sqm")
     private Integer coverageAreaSqm;
 
-    /** Coarse budget guide mapped to robot price_band for scoring. */
+    /** Coarse budget guide mapped to robot price_band. */
     @Enumerated(EnumType.STRING)
     @Column(name = "budget_band", length = 10)
     private BudgetBand budgetBand;
@@ -99,7 +89,6 @@ public class Requirement {
 
     // ── Input source tracking ─────────────────────────────────────────────────
 
-    /** How this requirement was created — for traceability and UX display. */
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "input_source", nullable = false, length = 20)

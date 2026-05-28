@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.requirement.controller;
 
+import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.common.response.PagedResponse;
 import com.raaspal.robotrecommendation.requirement.dto.ExtractRequirementRequest;
@@ -9,13 +10,13 @@ import com.raaspal.robotrecommendation.requirement.service.RequirementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -40,9 +41,10 @@ public class RequirementController {
     @PostMapping
     public ApiResponse<RequirementResponse> create(
             @Valid @RequestBody RequirementRequest request,
-            @RequestParam(required = false) UUID createdById
+            @AuthenticationPrincipal UserPrincipal principal
     ) {
-        return ApiResponse.success("Requirement created", requirementService.create(request, createdById));
+        return ApiResponse.success("Requirement created",
+                requirementService.create(request, principal.getId()));
     }
 
     @PutMapping("/{id}")
@@ -57,11 +59,9 @@ public class RequirementController {
     public ApiResponse<RequirementResponse> extractFromFile(
             @PathVariable UUID fileId,
             @Valid @RequestBody ExtractRequirementRequest request,
-            @RequestParam(required = false) UUID createdById
+            @AuthenticationPrincipal UserPrincipal principal
     ) {
-        return ApiResponse.success(
-                "Requirement extracted",
-                requirementService.extractFromFile(fileId, request, createdById)
-        );
+        return ApiResponse.success("Requirement extracted",
+                requirementService.extractFromFile(fileId, request, principal.getId()));
     }
 }

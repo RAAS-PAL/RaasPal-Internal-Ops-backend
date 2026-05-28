@@ -5,6 +5,7 @@ import com.raaspal.robotrecommendation.ai.dto.AiRecommendationResult;
 import com.raaspal.robotrecommendation.ai.dto.RobotCatalogData;
 import com.raaspal.robotrecommendation.ai.service.RobotRecommendationAiService;
 import com.raaspal.robotrecommendation.common.enums.RecommendationStatus;
+import com.raaspal.robotrecommendation.common.enums.TestStatus;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.recommendation.dto.GenerateRecommendationRequest;
 import com.raaspal.robotrecommendation.recommendation.dto.RecommendationItemResponse;
@@ -84,7 +85,8 @@ public class RecommendationService {
     ) {
         Requirement requirement = requirementService.getEntity(requirementId);
         List<Robot> robots = robotRepository.findAll().stream()
-                .filter(robot -> robot.getRobotType() == requirement.getRobotType())
+                .filter(robot -> robot.getRobotType() == requirement.getRobotType()
+                        && robot.getTestStatus() == TestStatus.VERIFIED)
                 .toList();
         List<RobotCatalogData> catalog = robots.stream().map(this::toCatalogData).toList();
         int optionCount = request == null || request.optionCount() == null ? 3 : request.optionCount();

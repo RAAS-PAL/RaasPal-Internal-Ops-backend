@@ -5,8 +5,6 @@ import com.raaspal.robotrecommendation.ai.service.RequirementExtractionService;
 import com.raaspal.robotrecommendation.common.enums.InputSource;
 import com.raaspal.robotrecommendation.common.enums.RequirementStatus;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
-import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
-import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
 import com.raaspal.robotrecommendation.file.entity.FileUpload;
 import com.raaspal.robotrecommendation.file.service.FileUploadService;
 import com.raaspal.robotrecommendation.requirement.dto.ExtractRequirementRequest;
@@ -29,7 +27,6 @@ import java.util.UUID;
 public class RequirementService {
 
     private final RequirementRepository requirementRepository;
-    private final CustomerProfileRepository customerProfileRepository;
     private final FileUploadService fileUploadService;
     private final UserService userService;
     private final RequirementExtractionService requirementExtractionService;
@@ -53,7 +50,6 @@ public class RequirementService {
     @Transactional
     public RequirementResponse create(RequirementRequest request, UUID createdById) {
         Requirement requirement = Requirement.builder()
-                .customerProfile(getCustomerProfile(request.customerProfileId()))
                 .robotType(request.robotType())
                 .title(request.title())
                 .description(request.description())
@@ -80,7 +76,6 @@ public class RequirementService {
 
         User createdBy = createdById == null ? null : userService.getEntity(createdById);
         Requirement requirement = Requirement.builder()
-                .customerProfile(getCustomerProfile(request.customerProfileId()))
                 .robotType(extracted.robotType())
                 .title(extracted.title())
                 .description(extracted.description())
@@ -103,7 +98,6 @@ public class RequirementService {
     @Transactional
     public RequirementResponse update(UUID id, RequirementRequest request) {
         Requirement requirement = getEntity(id);
-        requirement.setCustomerProfile(getCustomerProfile(request.customerProfileId()));
         requirement.setRobotType(request.robotType());
         requirement.setTitle(request.title());
         requirement.setDescription(request.description());
@@ -119,11 +113,6 @@ public class RequirementService {
         requirement.setStatus(request.status() == null ? requirement.getStatus() : request.status());
 
         return RequirementResponse.from(requirementRepository.save(requirement));
-    }
-
-    private CustomerProfile getCustomerProfile(UUID id) {
-        return customerProfileRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("CustomerProfile", "id", id));
     }
 
     private String[] toArray(java.util.List<String> values) {

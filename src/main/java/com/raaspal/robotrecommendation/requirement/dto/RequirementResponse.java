@@ -12,7 +12,6 @@ import java.util.UUID;
 
 public record RequirementResponse(
         UUID id,
-        UUID customerProfileId,
         RobotType robotType,
         String title,
         String description,
@@ -31,15 +30,8 @@ public record RequirementResponse(
         LocalDateTime updatedAt
 ) {
     public static RequirementResponse from(Requirement requirement) {
-        UUID customerProfileId = requirement.getCustomerProfile() == null
-                ? null
-                : requirement.getCustomerProfile().getId();
-        UUID sourceFileId = requirement.getSourceFile() == null ? null : requirement.getSourceFile().getId();
-        UUID createdById = requirement.getCreatedBy() == null ? null : requirement.getCreatedBy().getId();
-
         return new RequirementResponse(
                 requirement.getId(),
-                customerProfileId,
                 requirement.getRobotType(),
                 requirement.getTitle(),
                 requirement.getDescription(),
@@ -51,9 +43,9 @@ public record RequirementResponse(
                 requirement.getBudgetBand(),
                 requirement.getPriorityNotes(),
                 requirement.getInputSource(),
-                sourceFileId,
+                requirement.getSourceFile() == null ? null : requirement.getSourceFile().getId(),
                 requirement.getStatus(),
-                createdById,
+                requirement.getCreatedBy() == null ? null : requirement.getCreatedBy().getId(),
                 requirement.getCreatedAt(),
                 requirement.getUpdatedAt()
         );
