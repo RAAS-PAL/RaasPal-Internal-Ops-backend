@@ -14,4 +14,6 @@ public interface RecommendationRepository extends JpaRepository<Recommendation, 
     List<Recommendation> findByRequirementId(UUID requirementId);
 
     Page<Recommendation> findByStatus(RecommendationStatus status, Pageable pageable);
+
+    Page<Recommendation> findByCreatedById(UUID createdById, Pageable pageable);
 }

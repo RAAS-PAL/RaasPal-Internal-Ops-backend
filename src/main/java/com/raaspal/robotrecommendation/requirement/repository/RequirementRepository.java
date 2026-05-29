@@ -11,12 +11,9 @@ import java.util.UUID;
 
 public interface RequirementRepository extends JpaRepository<Requirement, UUID> {
 
-    Page<Requirement> findByCustomerProfileId(UUID customerProfileId, Pageable pageable);
-
     Page<Requirement> findByStatus(RequirementStatus status, Pageable pageable);
 
-    Page<Requirement> findByCustomerProfileIdAndStatus(
-            UUID customerProfileId, RequirementStatus status, Pageable pageable);
+    Page<Requirement> findByCreatedById(UUID createdById, Pageable pageable);
 
     Page<Requirement> findByRobotType(RobotType robotType, Pageable pageable);
 }

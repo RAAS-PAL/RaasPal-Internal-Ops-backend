@@ -35,3 +35,4 @@ build/
 ### Local secrets — never commit ───────────────────────────────────────────
 application-local.properties
 .env
+uploads/

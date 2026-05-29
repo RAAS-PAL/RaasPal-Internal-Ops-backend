@@ -46,6 +46,33 @@ public class RecommendationItem {
     @Column(name = "ai_reasoning", columnDefinition = "TEXT")
     private String aiReasoning;
 
+    @Column(name = "fit_level", length = 50)
+    private String fitLevel;
+
+    @Column(name = "proposal_title", length = 500)
+    private String proposalTitle;
+
+    @Column(name = "proposal_summary", columnDefinition = "TEXT")
+    private String proposalSummary;
+
+    @Column(name = "why_recommended", columnDefinition = "TEXT")
+    private String whyRecommended;
+
+    @Column(name = "matched_requirements", columnDefinition = "TEXT")
+    private String matchedRequirements;
+
+    @Column(name = "business_value", columnDefinition = "TEXT")
+    private String businessValue;
+
+    @Column(columnDefinition = "TEXT")
+    private String limitations;
+
+    @Column(name = "missing_information", columnDefinition = "TEXT")
+    private String missingInformation;
+
+    @Column(name = "suggested_next_step", columnDefinition = "TEXT")
+    private String suggestedNextStep;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
