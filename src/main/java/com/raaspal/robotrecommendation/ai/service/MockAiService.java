@@ -11,7 +11,7 @@ import com.raaspal.robotrecommendation.common.enums.RobotType;
 import com.raaspal.robotrecommendation.file.entity.FileUpload;
 import com.raaspal.robotrecommendation.requirement.dto.RequirementResponse;
 import com.raaspal.robotrecommendation.robot.dto.RobotSpecResponse;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -19,7 +19,7 @@ import java.util.Comparator;
 import java.util.List;
 
 @Service
-@ConditionalOnMissingBean(RequirementExtractionService.class)
+@ConditionalOnExpression("'${app.anthropic.api-key:}' == ''")
 public class MockAiService implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService {
 
     @Override
