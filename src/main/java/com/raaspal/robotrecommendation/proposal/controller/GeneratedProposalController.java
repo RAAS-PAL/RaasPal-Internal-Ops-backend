@@ -5,10 +5,15 @@ import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.common.response.PagedResponse;
 import com.raaspal.robotrecommendation.proposal.dto.GenerateProposalRequest;
 import com.raaspal.robotrecommendation.proposal.dto.GeneratedProposalResponse;
+import com.raaspal.robotrecommendation.proposal.entity.GeneratedProposal;
 import com.raaspal.robotrecommendation.proposal.service.GeneratedProposalService;
+import com.raaspal.robotrecommendation.proposal.service.ProposalExportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.util.UUID;
 
 @RestController
@@ -25,6 +31,7 @@ import java.util.UUID;
 public class GeneratedProposalController {
 
     private final GeneratedProposalService generatedProposalService;
+    private final ProposalExportService proposalExportService;
 
     @GetMapping
     public ApiResponse<PagedResponse<GeneratedProposalResponse>> getAll(Pageable pageable) {
@@ -34,6 +41,18 @@ public class GeneratedProposalController {
     @GetMapping("/{id}")
     public ApiResponse<GeneratedProposalResponse> getById(@PathVariable UUID id) {
         return ApiResponse.success(generatedProposalService.getById(id));
+    }
+
+    @GetMapping("/{id}/export/pptx")
+    public ResponseEntity<byte[]> exportPptx(@PathVariable UUID id) throws IOException {
+        GeneratedProposal proposal = generatedProposalService.getEntity(id);
+        byte[] pptx = proposalExportService.exportToPptx(proposal);
+        String filename = "proposal-" + id + ".pptx";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
+                .body(pptx);
     }
 
     @PostMapping("/generate")
