@@ -54,15 +54,18 @@ public class ClaudeAiService
     private final ObjectMapper objectMapper;
     private final Path         uploadDir;
     private final String       model;
+    private final String       proposalModel;
 
     public ClaudeAiService(
             @Value("${app.anthropic.api-key}") String apiKey,
             @Value("${app.file.upload-dir}") String uploadDir,
             @Value("${app.anthropic.model:claude-sonnet-4-6}") String model,
+            @Value("${app.anthropic.proposal-model:claude-opus-4-8}") String proposalModel,
             ObjectMapper objectMapper) {
-        this.uploadDir    = Path.of(uploadDir);
-        this.model        = model;
-        this.objectMapper = objectMapper;
+        this.uploadDir     = Path.of(uploadDir);
+        this.model         = model;
+        this.proposalModel = proposalModel;
+        this.objectMapper  = objectMapper;
         this.restClient   = RestClient.builder()
                 .baseUrl(ANTHROPIC_API_URL)
                 .defaultHeader("x-api-key", apiKey)
@@ -80,7 +83,7 @@ public class ClaudeAiService
             String system = AiPromptTemplates.extractionSystemPrompt();
             String user   = buildExtractionUserPrompt(robotType);
 
-            String response = callClaude(system, user, bytes, fileUpload.getContentType());
+            String response = callClaude(system, user, bytes, fileUpload.getContentType(), model);
             return parseExtraction(response, robotType);
         } catch (IOException e) {
             log.error("Cannot read uploaded file for AI extraction: {}", fileUpload.getStoredFilename(), e);
@@ -145,7 +148,7 @@ public class ClaudeAiService
             String system = AiPromptTemplates.recommendationSystemPrompt(requirement);
             String user   = buildRecommendationUserPrompt(requirement, robotCatalog, optionCount);
 
-            String response = callClaude(system, user, null, null);
+            String response = callClaude(system, user, null, null, model);
             return parseRecommendation(response);
         } catch (JsonProcessingException e) {
             log.error("Failed to serialise recommendation request", e);
@@ -210,7 +213,7 @@ public class ClaudeAiService
     public AiProposalResult generateProposal(AiProposalRequest request) {
         String system  = AiPromptTemplates.proposalSystemPrompt();
         String user    = buildProposalUserPrompt(request);
-        String content = callClaude(system, user, null, null);
+        String content = callClaude(system, user, null, null, proposalModel);
 
         var opt = request.selectedOption();
         String title = opt.proposalTitle() != null && !opt.proposalTitle().isBlank()
@@ -280,10 +283,10 @@ public class ClaudeAiService
 
     // ─── HTTP ─────────────────────────────────────────────────────────────────
 
-    private String callClaude(String systemPrompt, String userPrompt, byte[] fileBytes, String contentType) {
+    private String callClaude(String systemPrompt, String userPrompt, byte[] fileBytes, String contentType, String claudeModel) {
         List<Map<String, Object>> contentBlocks = buildContentBlocks(userPrompt, fileBytes, contentType);
         Map<String, Object> requestBody = Map.of(
-                "model", model,
+                "model", claudeModel,
                 "max_tokens", 4096,
                 "system", systemPrompt,
                 "messages", List.of(Map.of("role", "user", "content", contentBlocks))
