@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.robot.service;
 
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.common.enums.TestStatus;
+import com.raaspal.robotrecommendation.recommendation.repository.RecommendationItemRepository;
 import com.raaspal.robotrecommendation.robot.dto.RobotRequest;
 import com.raaspal.robotrecommendation.robot.dto.RobotResponse;
 import com.raaspal.robotrecommendation.robot.dto.RobotSpecRequest;
@@ -25,6 +26,7 @@ public class RobotService {
 
     private final RobotRepository robotRepository;
     private final RobotSpecRepository robotSpecRepository;
+    private final RecommendationItemRepository recommendationItemRepository;
 
     @Transactional(readOnly = true)
     public Page<RobotResponse> getAll(Pageable pageable) {
@@ -96,6 +98,10 @@ public class RobotService {
     @Transactional
     public void delete(UUID id) {
         Robot robot = getEntity(id);
+        if (recommendationItemRepository.existsByRobot_Id(id)) {
+            throw new IllegalStateException("Cannot delete robot: it is referenced by existing recommendations.");
+        }
+        robotSpecRepository.findByRobot_Id(id).ifPresent(robotSpecRepository::delete);
         robotRepository.delete(robot);
     }
 

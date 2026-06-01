@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface RecommendationItemRepository extends JpaRepository<RecommendationItem, UUID> {
 
     List<RecommendationItem> findByRecommendationIdOrderByRankPositionAsc(UUID recommendationId);
+
+    boolean existsByRobot_Id(UUID robotId);
 }
