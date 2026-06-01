@@ -7,6 +7,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -44,6 +45,12 @@ public class Robot {
     @Enumerated(EnumType.STRING)
     @Column(name = "price_band", length = 10)
     private BudgetBand priceBand;
+
+    @Column(name = "rental_price", precision = 12, scale = 2)
+    private BigDecimal rentalPrice;
+
+    @Column(name = "selling_price", precision = 12, scale = 2)
+    private BigDecimal sellingPrice;
 
     @Column(name = "image_url", length = 500)
     private String imageUrl;
