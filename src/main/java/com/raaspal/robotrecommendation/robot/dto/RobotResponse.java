@@ -5,6 +5,7 @@ import com.raaspal.robotrecommendation.common.enums.RobotType;
 import com.raaspal.robotrecommendation.common.enums.TestStatus;
 import com.raaspal.robotrecommendation.robot.entity.Robot;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -15,6 +16,8 @@ public record RobotResponse(
         RobotType robotType,
         TestStatus testStatus,
         BudgetBand priceBand,
+        BigDecimal rentalPrice,
+        BigDecimal sellingPrice,
         String imageUrl,
         String datasheetUrl,
         LocalDateTime createdAt,
@@ -28,6 +31,8 @@ public record RobotResponse(
                 robot.getRobotType(),
                 robot.getTestStatus(),
                 robot.getPriceBand(),
+                robot.getRentalPrice(),
+                robot.getSellingPrice(),
                 robot.getImageUrl(),
                 robot.getDatasheetUrl(),
                 robot.getCreatedAt(),
@@ -43,6 +48,8 @@ public record RobotResponse(
                 robot.getRobotType(),
                 robot.getTestStatus(),
                 robot.getPriceBand(),
+                robot.getRentalPrice(),
+                robot.getSellingPrice(),
                 robot.getImageUrl(),
                 robot.getDatasheetUrl(),
                 robot.getCreatedAt(),

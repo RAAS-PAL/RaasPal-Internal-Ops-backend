@@ -55,6 +55,8 @@ public class RobotService {
                 .robotType(request.robotType())
                 .testStatus(request.testStatus() == null ? TestStatus.DRAFT : request.testStatus())
                 .priceBand(request.priceBand())
+                .rentalPrice(request.rentalPrice())
+                .sellingPrice(request.sellingPrice())
                 .imageUrl(request.imageUrl())
                 .datasheetUrl(request.datasheetUrl())
                 .build();
@@ -75,6 +77,8 @@ public class RobotService {
         robot.setRobotType(request.robotType());
         robot.setTestStatus(request.testStatus() == null ? TestStatus.DRAFT : request.testStatus());
         robot.setPriceBand(request.priceBand());
+        robot.setRentalPrice(request.rentalPrice());
+        robot.setSellingPrice(request.sellingPrice());
         robot.setImageUrl(request.imageUrl());
         robot.setDatasheetUrl(request.datasheetUrl());
 
