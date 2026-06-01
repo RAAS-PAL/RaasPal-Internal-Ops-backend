@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.auth.controller;
 
 import com.raaspal.robotrecommendation.auth.dto.AuthResponse;
 import com.raaspal.robotrecommendation.auth.dto.LoginRequest;
+import com.raaspal.robotrecommendation.auth.dto.VerifyPasswordRequest;
 import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
 import com.raaspal.robotrecommendation.auth.service.AuthService;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
@@ -27,6 +28,14 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.success("Login successful", authService.login(request));
+    }
+
+    @PostMapping("/verify-password")
+    public ApiResponse<Void> verifyPassword(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @Valid @RequestBody VerifyPasswordRequest request) {
+        authService.verifyPassword(principal.getUsername(), request);
+        return ApiResponse.success("Password verified");
     }
 
     @PostMapping("/logout")
