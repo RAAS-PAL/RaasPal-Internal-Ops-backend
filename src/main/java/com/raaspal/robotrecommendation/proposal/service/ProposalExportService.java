@@ -152,7 +152,7 @@ public class ProposalExportService {
         return text
                 .replaceAll("\\*\\*(.+?)\\*\\*", "$1")
                 .replaceAll("\\*(.+?)\\*", "$1")
-                .replaceAll("^#{1,6}\\s+", "")
+                .replaceAll("(?m)^#{1,6}\\s+", "")
                 .replaceAll("`(.+?)`", "$1")
                 .trim();
     }
@@ -163,13 +163,13 @@ public class ProposalExportService {
         String currentTitle = null;
         StringBuilder currentBody = new StringBuilder();
         for (String line : markdown.split("\n")) {
-            if (line.startsWith("## ")) {
+            if (line.matches("^#{1,6}\\s+.*")) {
                 if (currentTitle != null) {
                     sections.add(new String[]{currentTitle, currentBody.toString().trim()});
                     currentBody = new StringBuilder();
                 }
-                currentTitle = line.substring(3).trim();
-            } else if (!line.startsWith("# ") && currentTitle != null) {
+                currentTitle = line.replaceFirst("^#{1,6}\\s+", "").trim();
+            } else if (currentTitle != null) {
                 currentBody.append(line).append("\n");
             }
         }
