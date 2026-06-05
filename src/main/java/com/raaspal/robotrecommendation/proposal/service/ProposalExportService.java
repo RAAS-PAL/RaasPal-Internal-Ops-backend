@@ -244,6 +244,19 @@ public class ProposalExportService {
         if (currentTitle != null) {
             sections.add(new String[]{currentTitle, currentBody.toString().trim()});
         }
+        // Fallback: if no ## headers found (e.g. plain-text stored proposals),
+        // split by blank-line blocks and treat the first line of each as the title.
+        if (sections.isEmpty()) {
+            for (String block : markdown.split("\\n\\n+")) {
+                block = block.trim();
+                if (block.isBlank()) continue;
+                String[] lines = block.split("\\n", 2);
+                sections.add(new String[]{
+                        lines[0].trim(),
+                        lines.length > 1 ? lines[1].trim() : ""
+                });
+            }
+        }
         return sections;
     }
 }
