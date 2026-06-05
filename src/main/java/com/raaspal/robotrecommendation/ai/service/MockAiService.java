@@ -93,24 +93,25 @@ public class MockAiService implements RequirementExtractionService, RobotRecomme
                 ? robotName + " Proposal"
                 : request.selectedOption().proposalTitle();
         String content = """
+                ## Executive Summary
                 %s
 
-                Customer Requirement
+                ## Customer Requirement
                 %s
 
-                Recommended Robot
+                ## Recommended Robot
                 %s
 
-                Why Recommended
+                ## Why Recommended
                 %s
 
-                Business Value
+                ## Business Value
                 %s
 
-                Limitations / Missing Information
+                ## Limitations / Missing Information
                 %s
 
-                Suggested Next Step
+                ## Suggested Next Step
                 %s
                 """.formatted(
                 title,
