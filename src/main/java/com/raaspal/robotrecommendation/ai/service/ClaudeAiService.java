@@ -8,6 +8,7 @@ import com.raaspal.robotrecommendation.ai.dto.AiProposalResult;
 import com.raaspal.robotrecommendation.ai.dto.AiRecommendationResult;
 import com.raaspal.robotrecommendation.ai.dto.ExtractedRequirementData;
 import com.raaspal.robotrecommendation.ai.dto.RobotCatalogData;
+import com.raaspal.robotrecommendation.proposal.dto.SlideManifest;
 import com.raaspal.robotrecommendation.ai.prompt.AiPromptRules;
 import com.raaspal.robotrecommendation.ai.prompt.AiPromptTemplates;
 import com.raaspal.robotrecommendation.common.enums.RobotType;
@@ -279,6 +280,89 @@ public class ClaudeAiService
                 robot.brand(), robot.model(),
                 AiPromptRules.NEEDS_CONFIRMATION
         );
+    }
+
+    // ─── ProposalGenerationAiService: slide manifest ──────────────────────────
+
+    private static final String SLIDE_MODEL = "claude-haiku-4-5-20251001";
+
+    @Override
+    public SlideManifest generateSlideManifest(String proposalContent) {
+        if (proposalContent == null || proposalContent.isBlank()) return null;
+        String system = "You are a professional PowerPoint slide deck designer for RAASPAL, a robot solution company.";
+        String user   = buildSlideManifestPrompt(proposalContent);
+        try {
+            String response = callClaude(system, user, null, null, SLIDE_MODEL);
+            return parseSlideManifest(response);
+        } catch (Exception e) {
+            log.warn("Slide manifest generation failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String buildSlideManifestPrompt(String proposalContent) {
+        return """
+                Convert the following robot solution proposal into a structured JSON slide manifest \
+                for a RAASPAL customer-facing PowerPoint presentation.
+
+                Return ONLY a valid JSON object — no explanation, no markdown code fences:
+                {
+                  "slides": [
+                    {
+                      "type": "title",
+                      "title": "short compelling title (max 10 words)",
+                      "subtitle": "customer / site name extracted from the proposal"
+                    },
+                    {
+                      "type": "key_stats",
+                      "title": "Key Numbers",
+                      "stats": [
+                        {"label": "metric name", "value": "numeric value with unit"}
+                      ]
+                    },
+                    {
+                      "type": "content",
+                      "title": "section heading",
+                      "bullets": ["concise point (max 15 words)", "..."]
+                    },
+                    {
+                      "type": "table",
+                      "title": "Robot Specifications",
+                      "headers": ["Specification", "Details"],
+                      "rows": [["spec name", "value"], "..."]
+                    },
+                    {
+                      "type": "closing",
+                      "title": "Next Steps",
+                      "bullets": ["action item", "..."]
+                    }
+                  ]
+                }
+
+                Rules:
+                - First slide must be type "title".
+                - Include exactly 1 "key_stats" slide with 3-4 measurable numbers.
+                - Include "content" slides for Executive Summary, Business Value, Limitations.
+                - Include 1 "table" slide for robot specifications.
+                - Last slide must be type "closing" with title "Next Steps".
+                - Total 7-10 slides.
+                - Bullets max 6 per slide, max 15 words each.
+                - Extract real values from the proposal — do not invent data.
+                - Use "Needs confirmation" for unknown values.
+
+                PROPOSAL:
+                %s
+                """.formatted(proposalContent);
+    }
+
+    private SlideManifest parseSlideManifest(String text) {
+        try {
+            String json = extractJson(text);
+            return objectMapper.readValue(json, SlideManifest.class);
+        } catch (JsonProcessingException e) {
+            log.warn("Could not parse slide manifest JSON: {}", e.getMessage());
+            return null;
+        }
     }
 
     // ─── HTTP ─────────────────────────────────────────────────────────────────
