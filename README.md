@@ -11,8 +11,8 @@ flowchart TD
     A([Team member logs in]) --> B[Team Dashboard]
     B --> C[Click **Start here** → Generate Solution]
 
-    C --> D[Name the solution\ne.g. ABC Mall Cleaning Project]
-    D --> E[Select robot type\nCleaning · Delivery · Mowing]
+    C --> D[Select robot type\nCleaning · Delivery · Factory]
+    D --> E[Name the solution\ne.g. ABC Mall Cleaning Project]
     E --> F[Upload customer survey\nExcel · PDF · Image]
 
     F --> G[[AI extracts customer requirements]]
