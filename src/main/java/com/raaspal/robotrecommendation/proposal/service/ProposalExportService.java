@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.proposal.service;
 
 import com.raaspal.robotrecommendation.proposal.entity.GeneratedProposal;
+import org.apache.poi.sl.usermodel.ShapeType;
 import org.apache.poi.sl.usermodel.TextParagraph.TextAlign;
 import org.apache.poi.xslf.usermodel.*;
 import org.springframework.stereotype.Service;
@@ -17,9 +18,8 @@ import java.util.List;
 @Service
 public class ProposalExportService {
 
-    // Slide canvas: 720pt × 540pt (default POI, 10" × 7.5")
-    private static final double W = 720;
-    private static final double H = 540;
+    private static final double W = 720;   // slide width  (points, 10 in)
+    private static final double H = 540;   // slide height (points, 7.5 in)
 
     private static final Color DARK_BLUE  = new Color(8,   62, 146);
     private static final Color WHITE      = new Color(241, 245, 249);
@@ -28,20 +28,16 @@ public class ProposalExportService {
     private static final Color DARK_MUTED = new Color(71,  85, 105);
 
     public byte[] exportToPptx(GeneratedProposal proposal) throws IOException {
-        // Build entirely from scratch — no template file, no removeSlide calls.
         try (XMLSlideShow ppt = new XMLSlideShow()) {
             ppt.setPageSize(new Dimension((int) W, (int) H));
 
-            // 1. Title slide
             addTitleSlide(ppt, proposal);
 
-            // 2. Content slides — one per AI-generated section
             List<String[]> sections = parseMarkdownSections(proposal.getProposalContent());
             for (String[] section : sections) {
                 addContentSlide(ppt, section[0], section[1]);
             }
 
-            // 3. Closing slide
             addClosingSlide(ppt);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -54,68 +50,58 @@ public class ProposalExportService {
 
     private void addTitleSlide(XMLSlideShow ppt, GeneratedProposal proposal) {
         XSLFSlide slide = ppt.createSlide();
-        slide.getBackground().setFillColor(DARK_BLUE);
+
+        // Full-slide background rectangle (safer than getBackground().setFillColor)
+        fillBackground(slide, DARK_BLUE);
 
         String title = (proposal.getTitle() != null && !proposal.getTitle().isBlank())
                 ? proposal.getTitle() : "Robot Solution Proposal";
-        String date  = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
+        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
 
-        // Brand bar at top
-        addRect(slide, 0, 0, W, 8, CYAN);
+        // Top cyan bar
+        addRect(slide, 0, 0, W, 7, CYAN);
 
-        // RAAS PAL wordmark
         addText(slide, "RAAS PAL",
-                new Rectangle2D.Double(60, 30, 600, 80),
-                42, true, WHITE, TextAlign.LEFT);
+                rect(60, 30, 600, 80), 42, true, WHITE, TextAlign.LEFT);
 
         addText(slide, "Robot Solution & Proposal Generator",
-                new Rectangle2D.Double(60, 108, 600, 36),
-                16, false, MUTED, TextAlign.LEFT);
+                rect(60, 110, 600, 34), 16, false, MUTED, TextAlign.LEFT);
 
-        // Divider
-        addRect(slide, 60, 150, 600, 1.5, CYAN);
+        // Accent divider
+        addRect(slide, 60, 152, 580, 2, CYAN);
 
-        // Proposal title
         addText(slide, title,
-                new Rectangle2D.Double(60, 170, 600, 100),
-                22, true, WHITE, TextAlign.LEFT);
+                rect(60, 168, 580, 120), 22, true, WHITE, TextAlign.LEFT);
 
-        // Meta
         addText(slide, "Prepared by: RAASPAL Team",
-                new Rectangle2D.Double(60, 310, 600, 28),
-                13, false, MUTED, TextAlign.LEFT);
+                rect(60, 320, 580, 26), 12, false, MUTED, TextAlign.LEFT);
         addText(slide, "Date: " + date,
-                new Rectangle2D.Double(60, 338, 600, 28),
-                13, false, MUTED, TextAlign.LEFT);
+                rect(60, 346, 580, 26), 12, false, MUTED, TextAlign.LEFT);
 
-        // Footer disclaimer
         addText(slide, "CONFIDENTIAL — For internal RAASPAL use only",
-                new Rectangle2D.Double(60, H - 50, 600, 28),
-                9, false, DARK_MUTED, TextAlign.LEFT);
+                rect(60, H - 46, 580, 26), 9, false, DARK_MUTED, TextAlign.LEFT);
     }
 
     private void addContentSlide(XMLSlideShow ppt, String title, String body) {
         XSLFSlide slide = ppt.createSlide();
-        slide.getBackground().setFillColor(DARK_BLUE);
+        fillBackground(slide, DARK_BLUE);
 
-        // Section title
         addText(slide, title,
-                new Rectangle2D.Double(50, 22, W - 100, 54),
-                22, true, WHITE, TextAlign.LEFT);
+                rect(50, 20, W - 100, 52), 20, true, WHITE, TextAlign.LEFT);
 
-        // Cyan accent bar
-        addRect(slide, 50, 80, W - 100, 2.5, CYAN);
+        addRect(slide, 50, 78, W - 100, 2, CYAN);
 
-        // Content body
         String clean = cleanMarkdown(body);
         XSLFTextBox contentBox = slide.createTextBox();
-        contentBox.setAnchor(new Rectangle2D.Double(50, 94, W - 100, H - 130));
-        contentBox.clearText();
+        contentBox.setAnchor(rect(50, 90, W - 100, H - 126));
 
+        boolean first = true;
         for (String line : clean.split("\n")) {
             if (line.isBlank()) continue;
             boolean isBullet = line.startsWith("- ") || line.startsWith("• ");
-            XSLFTextParagraph para = contentBox.addNewTextParagraph();
+            XSLFTextParagraph para = first ? contentBox.getTextParagraphs().get(0)
+                                           : contentBox.addNewTextParagraph();
+            first = false;
             para.setSpaceBefore(0.0);
             if (isBullet) {
                 para.setBullet(true);
@@ -123,56 +109,67 @@ public class ProposalExportService {
             }
             XSLFTextRun run = para.addNewTextRun();
             run.setText(line);
-            run.setFontSize(13.0);
+            run.setFontSize(12.0);
             run.setFontFamily("Calibri");
             run.setFontColor(isBullet ? MUTED : WHITE);
         }
 
-        // Watermark bottom-right
+        // If no content was added, write a placeholder in the first paragraph
+        if (first) {
+            XSLFTextParagraph para = contentBox.getTextParagraphs().get(0);
+            XSLFTextRun run = para.addNewTextRun();
+            run.setText("");
+        }
+
         addText(slide, "RAASPAL · Confidential",
-                new Rectangle2D.Double(W - 220, H - 28, 200, 20),
-                8, false, DARK_MUTED, TextAlign.RIGHT);
+                rect(W - 220, H - 26, 200, 18), 8, false, DARK_MUTED, TextAlign.RIGHT);
     }
 
     private void addClosingSlide(XMLSlideShow ppt) {
         XSLFSlide slide = ppt.createSlide();
-        slide.getBackground().setFillColor(DARK_BLUE);
+        fillBackground(slide, DARK_BLUE);
 
-        addRect(slide, 0, 0, W, 8, CYAN);
+        addRect(slide, 0, 0, W, 7, CYAN);
 
         addText(slide, "Thank You",
-                new Rectangle2D.Double(80, 150, W - 160, 110),
-                52, true, WHITE, TextAlign.CENTER);
+                rect(80, 150, W - 160, 100), 52, true, WHITE, TextAlign.CENTER);
 
         addText(slide, "RAASPAL — Robot Solution Specialists",
-                new Rectangle2D.Double(80, 278, W - 160, 50),
-                20, false, CYAN, TextAlign.CENTER);
+                rect(80, 272, W - 160, 48), 20, false, CYAN, TextAlign.CENTER);
 
         addText(slide, "Explore · Innovate · Inspire",
-                new Rectangle2D.Double(80, 338, W - 160, 36),
-                13, false, MUTED, TextAlign.CENTER);
+                rect(80, 330, W - 160, 34), 13, false, MUTED, TextAlign.CENTER);
 
         addText(slide, "Final specifications and pricing are subject to RAASPAL verification and site survey.",
-                new Rectangle2D.Double(80, 430, W - 160, 50),
-                10, false, DARK_MUTED, TextAlign.CENTER);
+                rect(80, 428, W - 160, 48), 10, false, DARK_MUTED, TextAlign.CENTER);
     }
 
     // ─── Shape helpers ────────────────────────────────────────────────────────
 
+    /** Use a full-slide auto-shape rect as background — more reliable than getBackground(). */
+    private void fillBackground(XSLFSlide slide, Color color) {
+        XSLFAutoShape bg = slide.createAutoShape();
+        bg.setShapeType(ShapeType.RECT);
+        bg.setAnchor(rect(0, 0, W, H));
+        bg.setFillColor(color);
+        bg.setLineColor(color);
+    }
+
+    /** Solid-color rectangle using an auto-shape (not a text box). */
     private void addRect(XSLFSlide slide, double x, double y, double w, double h, Color color) {
-        XSLFTextBox box = slide.createTextBox();
-        box.setAnchor(new Rectangle2D.Double(x, y, w, h));
-        box.setFillColor(color);
-        box.setLineColor(color);
-        box.clearText();
+        XSLFAutoShape shape = slide.createAutoShape();
+        shape.setShapeType(ShapeType.RECT);
+        shape.setAnchor(rect(x, y, w, h));
+        shape.setFillColor(color);
+        shape.setLineColor(color);
     }
 
     private void addText(XSLFSlide slide, String text, Rectangle2D.Double anchor,
                          double size, boolean bold, Color color, TextAlign align) {
         XSLFTextBox box = slide.createTextBox();
         box.setAnchor(anchor);
-        box.clearText();
-        XSLFTextParagraph para = box.addNewTextParagraph();
+        // Use the first paragraph that POI creates automatically
+        XSLFTextParagraph para = box.getTextParagraphs().get(0);
         para.setTextAlign(align);
         XSLFTextRun run = para.addNewTextRun();
         run.setText(text != null ? text : "");
@@ -180,6 +177,10 @@ public class ProposalExportService {
         run.setBold(bold);
         run.setFontColor(color);
         run.setFontFamily("Calibri");
+    }
+
+    private static Rectangle2D.Double rect(double x, double y, double w, double h) {
+        return new Rectangle2D.Double(x, y, w, h);
     }
 
     // ─── Markdown helpers ─────────────────────────────────────────────────────
