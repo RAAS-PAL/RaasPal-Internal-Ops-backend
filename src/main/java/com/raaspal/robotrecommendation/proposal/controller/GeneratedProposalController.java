@@ -46,7 +46,7 @@ public class GeneratedProposalController {
 
     @GetMapping("/{id}/export/pptx")
     public ResponseEntity<byte[]> exportPptx(@PathVariable UUID id) throws IOException {
-        GeneratedProposal proposal = generatedProposalService.getEntity(id);
+        GeneratedProposal proposal = generatedProposalService.getEntityForExport(id);
         byte[] pptx = proposalExportService.exportToPptx(proposal);
         String filename = "proposal-" + id + ".pptx";
         return ResponseEntity.ok()

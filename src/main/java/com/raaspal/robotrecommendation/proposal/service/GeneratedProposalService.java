@@ -47,6 +47,12 @@ public class GeneratedProposalService {
     }
 
     @Transactional(readOnly = true)
+    public GeneratedProposal getEntityForExport(UUID id) {
+        return generatedProposalRepository.findByIdForExport(id)
+                .orElseThrow(() -> new ResourceNotFoundException("GeneratedProposal", "id", id));
+    }
+
+    @Transactional(readOnly = true)
     public GeneratedProposalResponse getById(UUID id) {
         return GeneratedProposalResponse.from(getEntity(id));
     }
