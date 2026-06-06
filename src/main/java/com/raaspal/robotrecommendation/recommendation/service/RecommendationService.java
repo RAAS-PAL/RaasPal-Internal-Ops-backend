@@ -93,6 +93,8 @@ public class RecommendationService {
 
         Recommendation recommendation = Recommendation.builder()
                 .requirement(requirement)
+                .name(request != null && request.name() != null && !request.name().isBlank()
+                        ? request.name().strip() : null)
                 .status(RecommendationStatus.IN_PROGRESS)
                 .createdBy(createdById == null ? null : userService.getEntity(createdById))
                 .build();

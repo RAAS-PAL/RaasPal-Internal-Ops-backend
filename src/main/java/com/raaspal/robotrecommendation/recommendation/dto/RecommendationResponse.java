@@ -9,6 +9,7 @@ import java.util.UUID;
 
 public record RecommendationResponse(
         UUID id,
+        String name,
         UUID requirementId,
         RecommendationStatus status,
         String aiExplanation,
@@ -34,6 +35,7 @@ public record RecommendationResponse(
 
         return new RecommendationResponse(
                 recommendation.getId(),
+                recommendation.getName(),
                 requirementId,
                 recommendation.getStatus(),
                 recommendation.getAiExplanation(),

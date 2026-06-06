@@ -52,6 +52,14 @@ public class GeneratedProposalService {
     }
 
     @Transactional
+    public void delete(UUID id) {
+        if (!generatedProposalRepository.existsById(id)) {
+            throw new ResourceNotFoundException("GeneratedProposal", "id", id);
+        }
+        generatedProposalRepository.deleteById(id);
+    }
+
+    @Transactional
     public GeneratedProposalResponse generate(GenerateProposalRequest request, UUID generatedById) {
         RecommendationItem item = recommendationService.getItemEntity(request.recommendationItemId());
         Recommendation recommendation = item.getRecommendation();

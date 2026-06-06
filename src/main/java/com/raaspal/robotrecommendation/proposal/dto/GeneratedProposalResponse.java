@@ -8,6 +8,7 @@ import java.util.UUID;
 public record GeneratedProposalResponse(
         UUID id,
         UUID recommendationId,
+        String recommendationName,
         UUID recommendationItemId,
         UUID requirementId,
         UUID proposalTemplateId,
@@ -23,6 +24,9 @@ public record GeneratedProposalResponse(
         UUID recommendationId = proposal.getRecommendation() == null
                 ? null
                 : proposal.getRecommendation().getId();
+        String recommendationName = proposal.getRecommendation() == null
+                ? null
+                : proposal.getRecommendation().getName();
         UUID recommendationItemId = proposal.getRecommendationItem() == null
                 ? null
                 : proposal.getRecommendationItem().getId();
@@ -35,6 +39,7 @@ public record GeneratedProposalResponse(
         return new GeneratedProposalResponse(
                 proposal.getId(),
                 recommendationId,
+                recommendationName,
                 recommendationItemId,
                 requirementId,
                 proposalTemplateId,

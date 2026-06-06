@@ -33,6 +33,9 @@ public class Recommendation {
     @Column(nullable = false, length = 20)
     private RecommendationStatus status = RecommendationStatus.PENDING;
 
+    @Column(name = "name", length = 255)
+    private String name;
+
     /** AI-generated narrative explaining the full ranked result set. */
     @Column(name = "ai_explanation", columnDefinition = "TEXT")
     private String aiExplanation;
