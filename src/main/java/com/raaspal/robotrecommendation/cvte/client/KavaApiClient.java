@@ -164,7 +164,7 @@ public class KavaApiClient {
                 textOrNull(node.get("factorySn")),
                 textOrNull(node.get("deviceName")),
                 textOrNull(node.get("deviceRunningState")),
-                doubleOrNull(node.get("electricity")),
+                batteryPercentage(node.get("electricity")),
                 booleanOrNull(node.get("onlineStatus"))
         );
     }
@@ -175,6 +175,20 @@ public class KavaApiClient {
 
     private static Double doubleOrNull(JsonNode node) {
         return (node == null || node.isNull() || node.isMissingNode()) ? null : node.asDouble();
+    }
+
+    /**
+     * The live Kava gateway sends "electricity" as a 0.0-1.0 fraction of charge
+     * (e.g. 1.0 = 100%), despite the API doc describing it as an already-scaled
+     * percentage like 85.5 — confirmed by comparing against CVTE's own app, which
+     * showed 100% for a device the gateway reported as "electricity": 1.0.
+     */
+    private static Double batteryPercentage(JsonNode node) {
+        Double value = doubleOrNull(node);
+        if (value == null) {
+            return null;
+        }
+        return value <= 1.0 ? value * 100 : value;
     }
 
     private static String textOrNull(JsonNode node) {
