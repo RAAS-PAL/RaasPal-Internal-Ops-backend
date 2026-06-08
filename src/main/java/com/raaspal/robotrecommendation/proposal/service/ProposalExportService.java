@@ -1,9 +1,9 @@
 package com.raaspal.robotrecommendation.proposal.service;
 
-import com.raaspal.robotrecommendation.ai.service.ProposalGenerationAiService;
-import com.raaspal.robotrecommendation.proposal.dto.SlideManifest;
-import com.raaspal.robotrecommendation.proposal.dto.SlideManifest.SlideData;
 import com.raaspal.robotrecommendation.proposal.entity.GeneratedProposal;
+import com.raaspal.robotrecommendation.recommendation.entity.RecommendationItem;
+import com.raaspal.robotrecommendation.robot.entity.Robot;
+import org.apache.poi.sl.usermodel.PictureData.PictureType;
 import org.apache.poi.sl.usermodel.ShapeType;
 import org.apache.poi.sl.usermodel.TextParagraph.TextAlign;
 import org.apache.poi.xslf.usermodel.*;
@@ -15,6 +15,10 @@ import java.awt.*;
 import java.awt.geom.Rectangle2D;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigDecimal;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -28,37 +32,56 @@ public class ProposalExportService {
     private static final double W = 720;
     private static final double H = 540;
 
-    private static final Color DARK_BLUE  = new Color(8,   62, 146);
-    private static final Color MID_BLUE   = new Color(12,  82, 170);
-    private static final Color WHITE      = new Color(241, 245, 249);
-    private static final Color CYAN       = new Color(6,  182, 212);
-    private static final Color MUTED      = new Color(148, 163, 184);
-    private static final Color DARK_MUTED = new Color(71,  85, 105);
+    private static final Color BG_DARK   = new Color(8,   62, 146);
+    private static final Color BG_MID    = new Color(12,  82, 170);
+    private static final Color WHITE     = new Color(241, 245, 249);
+    private static final Color CYAN      = new Color(6,  182, 212);
+    private static final Color MUTED     = new Color(148, 163, 184);
+    private static final Color DIM       = new Color(71,  85, 105);
+    private static final Color DARK_CYAN = new Color(8,  145, 178);
 
-    private final ProposalGenerationAiService aiService;
+    private record ProposalSection(String title, List<String> bullets) {}
 
-    public ProposalExportService(ProposalGenerationAiService aiService) {
-        this.aiService = aiService;
+    private record RobotCtx(Robot robot, RecommendationItem item,
+                             byte[] imageBytes, PictureType pictureType) {
+        boolean hasImage() { return imageBytes != null; }
     }
 
+    // ─── Entry point ──────────────────────────────────────────────────────────
+
     public byte[] exportToPptx(GeneratedProposal proposal) throws IOException {
-        SlideManifest manifest = null;
-        try {
-            manifest = aiService.generateSlideManifest(proposal.getProposalContent());
-        } catch (Exception e) {
-            log.warn("Slide manifest AI call failed — using text fallback: {}", e.getMessage());
+        RecommendationItem item = proposal.getRecommendationItem();
+        Robot robot = item != null ? item.getRobot() : null;
+
+        byte[] imageBytes = null;
+        PictureType pictureType = PictureType.JPEG;
+        if (robot != null && robot.getImageUrl() != null && !robot.getImageUrl().isBlank()) {
+            try {
+                pictureType = detectPictureType(robot.getImageUrl());
+                imageBytes = downloadImageBytes(robot.getImageUrl());
+                log.info("Robot image loaded from {}", robot.getImageUrl());
+            } catch (Exception e) {
+                log.warn("Could not load robot image: {}", e.getMessage());
+            }
         }
+
+        RobotCtx ctx = new RobotCtx(robot, item, imageBytes, pictureType);
+        List<ProposalSection> sections = parseProposalSections(proposal.getProposalContent());
 
         try (XMLSlideShow ppt = new XMLSlideShow()) {
             ppt.setPageSize(new Dimension((int) W, (int) H));
 
-            if (manifest != null && manifest.slides() != null && !manifest.slides().isEmpty()) {
-                log.info("Building PPTX from AI manifest ({} slides)", manifest.slides().size());
-                buildFromManifest(ppt, manifest, proposal);
-            } else {
-                log.info("Building PPTX from text fallback");
-                buildFallback(ppt, proposal);
+            buildTitleSlide(ppt, proposal, ctx);
+
+            if (robot != null) {
+                buildRobotProfileSlide(ppt, ctx);
             }
+
+            for (ProposalSection section : sections) {
+                buildContentSlide(ppt, section.title(), section.bullets());
+            }
+
+            buildClosingSlide(ppt, ctx);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ppt.write(out);
@@ -66,231 +89,129 @@ public class ProposalExportService {
         }
     }
 
-    // ─── Manifest-based rendering ─────────────────────────────────────────────
+    // ─── Slide builders ───────────────────────────────────────────────────────
 
-    private void buildFromManifest(XMLSlideShow ppt, SlideManifest manifest, GeneratedProposal proposal) {
-        for (SlideData slide : manifest.slides()) {
-            switch (slide.type() != null ? slide.type() : "content") {
-                case "title"     -> buildTitleSlide(ppt, slide, proposal);
-                case "key_stats" -> buildKeyStatsSlide(ppt, slide);
-                case "table"     -> buildTableSlide(ppt, slide);
-                case "closing"   -> buildClosingSlide(ppt, slide);
-                default          -> buildContentSlide(ppt, slide);
-            }
-        }
-    }
-
-    private void buildTitleSlide(XMLSlideShow ppt, SlideData data, GeneratedProposal proposal) {
+    private void buildTitleSlide(XMLSlideShow ppt, GeneratedProposal proposal, RobotCtx ctx) {
         XSLFSlide slide = ppt.createSlide();
-        fillBackground(slide, DARK_BLUE);
+        fillBg(slide, BG_DARK);
 
-        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
-        String title = data.title() != null ? data.title()
-                : (proposal.getTitle() != null ? proposal.getTitle() : "Robot Solution Proposal");
-        String subtitle = data.subtitle() != null ? data.subtitle() : "RAASPAL Customer Proposal";
+        String title   = safe(proposal.getTitle(), "Robot Solution Proposal");
+        String robTag  = robotLabel(ctx.robot());
+        String recName = proposal.getRecommendation() != null
+                && proposal.getRecommendation().getName() != null
+                ? proposal.getRecommendation().getName() : "";
+        String date    = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
 
-        // Top cyan bar
+        boolean hasImg = ctx.hasImage();
+        double textW = hasImg ? W * 0.55 : W - 80;
+
         addRect(slide, 0, 0, W, 8, CYAN);
 
-        // "PREPARED BY" small label
-        addText(slide, "PREPARED BY RAASPAL",
-                rect(60, 22, 600, 20), 9, false, MUTED, TextAlign.LEFT);
+        addText(slide, "PREPARED BY  RAASPAL",
+                rect(60, 20, textW, 20), 9, false, MUTED, TextAlign.LEFT);
 
-        // Main title
         addText(slide, title,
-                rect(60, 46, W - 80, 120), 30, true, WHITE, TextAlign.LEFT);
+                rect(60, 44, textW - 20, 130), 28, true, WHITE, TextAlign.LEFT);
 
-        // Cyan divider
-        addRect(slide, 60, 178, 400, 2, CYAN);
+        addRect(slide, 60, 182, Math.min(380, textW - 40), 2, CYAN);
 
-        // Subtitle
-        addText(slide, subtitle,
-                rect(60, 190, 580, 36), 15, false, MUTED, TextAlign.LEFT);
+        if (!robTag.isBlank()) {
+            addText(slide, robTag,
+                    rect(60, 192, textW - 20, 28), 13, true, CYAN, TextAlign.LEFT);
+        }
+        if (!recName.isBlank()) {
+            addText(slide, recName,
+                    rect(60, 218, textW - 20, 24), 11, false, MUTED, TextAlign.LEFT);
+        }
 
-        // Date
         addText(slide, date,
-                rect(60, 232, 580, 26), 12, false, DARK_MUTED, TextAlign.LEFT);
+                rect(60, 248, textW - 20, 22), 11, false, DIM, TextAlign.LEFT);
 
-        // Bottom accent band
-        addRect(slide, 0, H - 56, W, 56, MID_BLUE);
-        addText(slide, "RAASPAL · AI Robot Solution & Proposal Generator",
-                rect(30, H - 42, W - 60, 28), 11, false, MUTED, TextAlign.LEFT);
+        if (hasImg) {
+            addPicture(slide, ppt, ctx.imageBytes(), ctx.pictureType(),
+                    W * 0.57, 10, W * 0.40, H * 0.76);
+        }
+
+        addRect(slide, 0, H - 52, W, 52, BG_MID);
+        addText(slide, "RAASPAL  ·  AI Robot Solution & Proposal Generator",
+                rect(28, H - 38, W - 56, 26), 10, false, MUTED, TextAlign.LEFT);
         addText(slide, "CONFIDENTIAL",
-                rect(30, H - 42, W - 60, 28), 11, true, CYAN, TextAlign.RIGHT);
+                rect(28, H - 38, W - 56, 26), 10, true, CYAN, TextAlign.RIGHT);
     }
 
-    private void buildKeyStatsSlide(XMLSlideShow ppt, SlideData data) {
+    private void buildRobotProfileSlide(XMLSlideShow ppt, RobotCtx ctx) {
+        Robot robot = ctx.robot();
+        RecommendationItem item = ctx.item();
         XSLFSlide slide = ppt.createSlide();
-        fillBackground(slide, DARK_BLUE);
-
-        String title = data.title() != null ? data.title() : "Key Numbers";
-        addText(slide, title,
-                rect(50, 22, W - 100, 46), 22, true, WHITE, TextAlign.LEFT);
-        addRect(slide, 50, 72, W - 100, 2, CYAN);
-
-        List<SlideManifest.StatItem> stats = data.stats() != null ? data.stats() : List.of();
-        int count = Math.min(stats.size(), 4);
-        if (count == 0) return;
-
-        // Layout: up to 4 boxes in a row, centred
-        double boxW  = 160;
-        double boxH  = 130;
-        double gap   = 20;
-        double totalW = count * boxW + (count - 1) * gap;
-        double startX = (W - totalW) / 2.0;
-        double startY = 170;
-
-        for (int i = 0; i < count; i++) {
-            SlideManifest.StatItem stat = stats.get(i);
-            double bx = startX + i * (boxW + gap);
-
-            // Box background (slightly lighter)
-            addRoundRect(slide, bx, startY, boxW, boxH, MID_BLUE);
-
-            // Cyan top accent on each box
-            addRect(slide, bx, startY, boxW, 4, CYAN);
-
-            // Value in large cyan
-            String value = stat.value() != null ? stat.value() : "—";
-            addText(slide, value,
-                    rect(bx + 8, startY + 14, boxW - 16, 60), 24, true, CYAN, TextAlign.CENTER);
-
-            // Label below
-            String label = stat.label() != null ? stat.label() : "";
-            addText(slide, label,
-                    rect(bx + 8, startY + 80, boxW - 16, 40), 11, false, MUTED, TextAlign.CENTER);
-        }
-
-        footerText(slide);
-    }
-
-    private void buildContentSlide(XMLSlideShow ppt, SlideData data) {
-        XSLFSlide slide = ppt.createSlide();
-        fillBackground(slide, DARK_BLUE);
-
-        String title = data.title() != null ? data.title() : "";
-        addText(slide, title,
-                rect(50, 22, W - 100, 46), 20, true, WHITE, TextAlign.LEFT);
-        addRect(slide, 50, 72, W - 100, 2, CYAN);
-
-        List<String> bullets = data.bullets() != null ? data.bullets() : List.of();
-        if (!bullets.isEmpty()) {
-            XSLFTextBox box = slide.createTextBox();
-            box.setAnchor(rect(60, 88, W - 110, H - 132));
-
-            boolean first = true;
-            for (String bullet : bullets) {
-                if (bullet == null || bullet.isBlank()) continue;
-                XSLFTextParagraph para = first
-                        ? box.getTextParagraphs().get(0)
-                        : box.addNewTextParagraph();
-                first = false;
-                para.setBullet(true);
-                para.setSpaceBefore(4.0);
-                XSLFTextRun run = para.addNewTextRun();
-                run.setText(bullet);
-                run.setFontSize(13.5);
-                run.setFontFamily("Calibri");
-                run.setFontColor(WHITE);
-            }
-            if (first) {
-                // no bullets written — write empty placeholder
-                box.getTextParagraphs().get(0).addNewTextRun().setText("");
-            }
-        }
-
-        footerText(slide);
-    }
-
-    private void buildTableSlide(XMLSlideShow ppt, SlideData data) {
-        XSLFSlide slide = ppt.createSlide();
-        fillBackground(slide, DARK_BLUE);
-
-        String title = data.title() != null ? data.title() : "Specifications";
-        addText(slide, title,
-                rect(50, 22, W - 100, 46), 20, true, WHITE, TextAlign.LEFT);
-        addRect(slide, 50, 72, W - 100, 2, CYAN);
-
-        List<String>       headers = data.headers() != null ? data.headers() : List.of("Feature", "Details");
-        List<List<String>> rows    = data.rows()    != null ? data.rows()    : List.of();
-
-        int numCols = headers.size();
-        int numRows = rows.size() + 1; // +1 for header row
-        if (numCols == 0 || numRows <= 1) {
-            footerText(slide);
-            return;
-        }
-
-        double tableX = 50;
-        double tableY = 86;
-        double tableW = W - 100;
-        double rowH   = Math.min(32, (H - tableY - 60) / numRows);
-
-        XSLFTable table = slide.createTable(numRows, numCols);
-        table.setAnchor(rect(tableX, tableY, tableW, rowH * numRows));
-
-        double colW = tableW / numCols;
-        for (int c = 0; c < numCols; c++) {
-            table.setColumnWidth(c, colW);
-        }
-
-        // Header row
-        for (int c = 0; c < numCols; c++) {
-            XSLFTableCell cell = table.getCell(0, c);
-            cell.setFillColor(CYAN);
-            cell.setBorderColor(XSLFTableCell.BorderEdge.bottom, DARK_BLUE);
-            cell.setBorderWidth(XSLFTableCell.BorderEdge.bottom, 1.0);
-            XSLFTextParagraph para = cell.getTextParagraphs().isEmpty()
-                    ? cell.addNewTextParagraph() : cell.getTextParagraphs().get(0);
-            para.setTextAlign(TextAlign.LEFT);
-            XSLFTextRun run = para.addNewTextRun();
-            run.setText(c < headers.size() ? headers.get(c) : "");
-            run.setFontSize(12.0);
-            run.setBold(true);
-            run.setFontFamily("Calibri");
-            run.setFontColor(DARK_BLUE);
-        }
-
-        // Data rows
-        for (int r = 0; r < rows.size(); r++) {
-            List<String> row = rows.get(r);
-            Color bg = r % 2 == 0 ? DARK_BLUE : MID_BLUE;
-            for (int c = 0; c < numCols; c++) {
-                XSLFTableCell cell = table.getCell(r + 1, c);
-                cell.setFillColor(bg);
-                cell.setBorderColor(XSLFTableCell.BorderEdge.bottom, new Color(30, 70, 140));
-                cell.setBorderWidth(XSLFTableCell.BorderEdge.bottom, 0.5);
-                XSLFTextParagraph para = cell.getTextParagraphs().isEmpty()
-                        ? cell.addNewTextParagraph() : cell.getTextParagraphs().get(0);
-                para.setTextAlign(TextAlign.LEFT);
-                XSLFTextRun run = para.addNewTextRun();
-                run.setText(c < row.size() ? row.get(c) : "");
-                run.setFontSize(11.5);
-                run.setFontFamily("Calibri");
-                run.setFontColor(WHITE);
-            }
-        }
-
-        footerText(slide);
-    }
-
-    private void buildClosingSlide(XMLSlideShow ppt, SlideData data) {
-        XSLFSlide slide = ppt.createSlide();
-        fillBackground(slide, DARK_BLUE);
+        fillBg(slide, BG_DARK);
         addRect(slide, 0, 0, W, 8, CYAN);
 
-        String title = data.title() != null ? data.title() : "Next Steps";
-        addText(slide, title,
-                rect(80, 30, W - 160, 60), 36, true, WHITE, TextAlign.CENTER);
-        addRect(slide, 200, 98, W - 400, 2, CYAN);
+        addText(slide, robotLabel(robot),
+                rect(50, 16, W - 120, 42), 22, true, WHITE, TextAlign.LEFT);
 
-        List<String> bullets = data.bullets() != null ? data.bullets() : List.of();
+        String fitLevel = item != null && item.getFitLevel() != null
+                ? item.getFitLevel().toUpperCase() : "";
+        if (!fitLevel.isBlank()) {
+            addRect(slide, 50, 62, 120, 22, CYAN);
+            addText(slide, fitLevel, rect(52, 64, 116, 18), 9, true, BG_DARK, TextAlign.CENTER);
+        }
+
+        double ruleY = fitLevel.isBlank() ? 66 : 90;
+        addRect(slide, 50, ruleY, 320, 2, CYAN);
+        double contentY = ruleY + 10;
+
+        if (ctx.hasImage()) {
+            addPicture(slide, ppt, ctx.imageBytes(), ctx.pictureType(),
+                    42, contentY, 292, H - contentY - 68);
+
+            double rx = 350;
+            double rw = W - rx - 26;
+
+            String why = item != null ? safe(item.getWhyRecommended(), "") : "";
+            if (!why.isBlank()) {
+                addText(slide, "WHY THIS ROBOT",
+                        rect(rx, contentY, rw, 20), 9, true, CYAN, TextAlign.LEFT);
+                String t = why.length() > 500 ? why.substring(0, 497) + "…" : why;
+                addText(slide, t, rect(rx, contentY + 24, rw, 230), 11, false, WHITE, TextAlign.LEFT);
+            }
+
+            double metaY = H - 104;
+            addMetaBox(slide, rx, metaY, rw / 2 - 5, robotType(robot), "TYPE");
+            addMetaBox(slide, rx + rw / 2 + 5, metaY, rw / 2 - 5, priceBand(robot), "PRICE BAND");
+
+            String price = formatPrice(robot);
+            if (!price.isBlank()) {
+                addText(slide, price, rect(rx, metaY + 52, rw, 20), 10, false, MUTED, TextAlign.LEFT);
+            }
+        } else {
+            String why = item != null ? safe(item.getWhyRecommended(), "") : "";
+            if (!why.isBlank()) {
+                addText(slide, "WHY THIS ROBOT",
+                        rect(50, contentY, W - 80, 20), 9, true, CYAN, TextAlign.LEFT);
+                String t = why.length() > 800 ? why.substring(0, 797) + "…" : why;
+                addText(slide, t, rect(50, contentY + 24, W - 80, 300), 12, false, WHITE, TextAlign.LEFT);
+            }
+        }
+
+        footer(slide);
+    }
+
+    private void buildContentSlide(XMLSlideShow ppt, String title, List<String> bullets) {
+        XSLFSlide slide = ppt.createSlide();
+        fillBg(slide, BG_DARK);
+
+        addRect(slide, 0, 0, 6, H, CYAN);
+
+        addText(slide, title.toUpperCase(),
+                rect(24, 20, W - 44, 40), 18, true, WHITE, TextAlign.LEFT);
+        addRect(slide, 24, 66, W - 48, 2, DARK_CYAN);
+
         if (!bullets.isEmpty()) {
             XSLFTextBox box = slide.createTextBox();
-            box.setAnchor(rect(100, 118, W - 200, H - 210));
+            box.setAnchor(rect(32, 78, W - 70, H - 118));
             boolean first = true;
-            for (String bullet : bullets) {
-                if (bullet == null || bullet.isBlank()) continue;
+            for (String b : bullets) {
+                if (b == null || b.isBlank()) continue;
                 XSLFTextParagraph para = first
                         ? box.getTextParagraphs().get(0)
                         : box.addNewTextParagraph();
@@ -298,64 +219,122 @@ public class ProposalExportService {
                 para.setBullet(true);
                 para.setSpaceBefore(6.0);
                 XSLFTextRun run = para.addNewTextRun();
-                run.setText(bullet);
-                run.setFontSize(13.0);
+                run.setText(b);
+                run.setFontSize(12.5);
                 run.setFontFamily("Calibri");
-                run.setFontColor(MUTED);
+                run.setFontColor(WHITE);
             }
-            if (first) {
-                box.getTextParagraphs().get(0).addNewTextRun().setText("");
-            }
+            if (first) box.getTextParagraphs().get(0).addNewTextRun().setText("");
         }
 
-        addText(slide, "RAASPAL — Robot Solution Specialists",
-                rect(80, H - 80, W - 160, 30), 13, false, CYAN, TextAlign.CENTER);
-        addText(slide, "Final specifications and pricing require RAASPAL verification and site survey.",
-                rect(80, H - 54, W - 160, 36), 9, false, DARK_MUTED, TextAlign.CENTER);
+        footer(slide);
     }
 
-    // ─── Text-based fallback ──────────────────────────────────────────────────
+    private void buildClosingSlide(XMLSlideShow ppt, RobotCtx ctx) {
+        XSLFSlide slide = ppt.createSlide();
+        fillBg(slide, BG_DARK);
+        addRect(slide, 0, 0, W, 8, CYAN);
+        addRect(slide, 0, H - 8, W, 8, CYAN);
 
-    private void buildFallback(XMLSlideShow ppt, GeneratedProposal proposal) {
-        String title = (proposal.getTitle() != null && !proposal.getTitle().isBlank())
-                ? proposal.getTitle() : "Robot Solution Proposal";
-        String date  = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
+        addText(slide, "NEXT STEPS",
+                rect(60, 28, W - 120, 54), 34, true, WHITE, TextAlign.CENTER);
+        addRect(slide, 200, 88, W - 400, 2, CYAN);
 
-        // Title slide
-        SlideData titleData = new SlideData("title", title, "RAASPAL Customer Proposal",
-                null, null, null, null);
-        buildTitleSlide(ppt, titleData, proposal);
-
-        // Content slides from parsed sections
-        List<String[]> sections = parseMarkdownSections(proposal.getProposalContent());
-        for (String[] section : sections) {
-            List<String> bullets = new ArrayList<>();
-            for (String line : section[1].split("\n")) {
-                line = line.trim();
-                if (line.isBlank()) continue;
-                String stripped = line.replaceFirst("^[-•]\\s*", "");
-                if (!stripped.isBlank()) bullets.add(stripped);
-                if (bullets.size() >= 6) break;
+        List<String> steps = new ArrayList<>();
+        RecommendationItem item = ctx.item();
+        if (item != null && item.getSuggestedNextStep() != null
+                && !item.getSuggestedNextStep().isBlank()) {
+            for (String line : item.getSuggestedNextStep().split("\n")) {
+                line = line.replaceFirst("^[-*•\\d.]+\\s*", "").trim();
+                if (!line.isBlank() && steps.size() < 5) steps.add(line);
             }
-            SlideData sd = new SlideData("content", section[0], null, bullets, null, null, null);
-            buildContentSlide(ppt, sd);
+        }
+        if (steps.isEmpty()) {
+            steps = List.of(
+                    "Schedule a RAASPAL site survey",
+                    "Verify robot specifications and performance with RAASPAL team",
+                    "Confirm budget and contract terms with the customer",
+                    "Present and obtain customer sign-off on the proposal"
+            );
         }
 
-        // Closing
-        SlideData closing = new SlideData("closing", "Next Steps", null,
-                List.of(
-                        "Schedule a RAASPAL site survey",
-                        "Verify robot specifications with the RAASPAL team",
-                        "Confirm budget and timeline with the customer",
-                        "Present the proposal for customer sign-off"
-                ),
-                null, null, null);
-        buildClosingSlide(ppt, closing);
+        XSLFTextBox box = slide.createTextBox();
+        box.setAnchor(rect(100, 106, W - 200, H - 180));
+        boolean first = true;
+        for (String step : steps) {
+            XSLFTextParagraph para = first
+                    ? box.getTextParagraphs().get(0)
+                    : box.addNewTextParagraph();
+            first = false;
+            para.setBullet(true);
+            para.setSpaceBefore(8.0);
+            XSLFTextRun run = para.addNewTextRun();
+            run.setText(step);
+            run.setFontSize(13.0);
+            run.setFontFamily("Calibri");
+            run.setFontColor(MUTED);
+        }
+        if (first) box.getTextParagraphs().get(0).addNewTextRun().setText("");
+
+        addText(slide, "RAASPAL  —  Robot Solution Specialists",
+                rect(60, H - 64, W - 120, 26), 12, false, CYAN, TextAlign.CENTER);
+        addText(slide, "Final specifications and pricing require RAASPAL site verification.",
+                rect(60, H - 42, W - 120, 28), 9, false, DIM, TextAlign.CENTER);
     }
 
-    // ─── Shape helpers ────────────────────────────────────────────────────────
+    // ─── Proposal parser ──────────────────────────────────────────────────────
 
-    private void fillBackground(XSLFSlide slide, Color color) {
+    private List<ProposalSection> parseProposalSections(String markdown) {
+        List<ProposalSection> result = new ArrayList<>();
+        if (markdown == null || markdown.isBlank()) return result;
+
+        String currentTitle = null;
+        List<String> currentBullets = new ArrayList<>();
+        List<String> currentParagraph = new ArrayList<>();
+
+        for (String raw : markdown.split("\n")) {
+            String line = raw.trim();
+            if (line.matches("^#{1,3}\\s+.*")) {
+                flush(result, currentTitle, currentBullets, currentParagraph);
+                currentTitle = line.replaceFirst("^#{1,3}\\s+", "").trim();
+                currentBullets = new ArrayList<>();
+                currentParagraph = new ArrayList<>();
+            } else if (line.startsWith("- ") || line.startsWith("* ") || line.startsWith("• ")) {
+                String b = line.replaceFirst("^[-*•]\\s+", "").trim();
+                if (!b.isBlank() && currentBullets.size() < 6) currentBullets.add(b);
+            } else if (!line.isBlank() && !line.startsWith("|") && !line.startsWith("---")) {
+                currentParagraph.add(line);
+            }
+        }
+        flush(result, currentTitle, currentBullets, currentParagraph);
+        return result;
+    }
+
+    private void flush(List<ProposalSection> result, String title,
+                       List<String> bullets, List<String> paragraph) {
+        if (title == null) return;
+        List<String> out = new ArrayList<>(bullets);
+        if (out.isEmpty()) {
+            String text = String.join(" ", paragraph);
+            for (String s : text.split("(?<=[.!?])\\s+")) {
+                s = s.trim();
+                if (!s.isBlank() && s.length() > 15 && out.size() < 5) out.add(s);
+            }
+        }
+        if (!out.isEmpty()) result.add(new ProposalSection(title, out));
+    }
+
+    // ─── Visual helpers ───────────────────────────────────────────────────────
+
+    private void addMetaBox(XSLFSlide slide, double x, double y, double w,
+                             String value, String label) {
+        addRect(slide, x, y, w, 42, BG_MID);
+        addRect(slide, x, y, w, 3, CYAN);
+        addText(slide, value, rect(x + 4, y + 6, w - 8, 18), 11, true, WHITE, TextAlign.LEFT);
+        addText(slide, label, rect(x + 4, y + 25, w - 8, 15), 8, false, MUTED, TextAlign.LEFT);
+    }
+
+    private void fillBg(XSLFSlide slide, Color color) {
         XSLFAutoShape bg = slide.createAutoShape();
         bg.setShapeType(ShapeType.RECT);
         bg.setAnchor(rect(0, 0, W, H));
@@ -364,23 +343,15 @@ public class ProposalExportService {
     }
 
     private void addRect(XSLFSlide slide, double x, double y, double w, double h, Color color) {
-        XSLFAutoShape shape = slide.createAutoShape();
-        shape.setShapeType(ShapeType.RECT);
-        shape.setAnchor(rect(x, y, w, h));
-        shape.setFillColor(color);
-        shape.setLineColor(color);
-    }
-
-    private void addRoundRect(XSLFSlide slide, double x, double y, double w, double h, Color color) {
-        XSLFAutoShape shape = slide.createAutoShape();
-        shape.setShapeType(ShapeType.ROUND_RECT);
-        shape.setAnchor(rect(x, y, w, h));
-        shape.setFillColor(color);
-        shape.setLineColor(color);
+        XSLFAutoShape s = slide.createAutoShape();
+        s.setShapeType(ShapeType.RECT);
+        s.setAnchor(rect(x, y, w, h));
+        s.setFillColor(color);
+        s.setLineColor(color);
     }
 
     private void addText(XSLFSlide slide, String text, Rectangle2D.Double anchor,
-                         double size, boolean bold, Color color, TextAlign align) {
+                          double size, boolean bold, Color color, TextAlign align) {
         XSLFTextBox box = slide.createTextBox();
         box.setAnchor(anchor);
         XSLFTextParagraph para = box.getTextParagraphs().get(0);
@@ -393,41 +364,77 @@ public class ProposalExportService {
         run.setFontFamily("Calibri");
     }
 
-    private void footerText(XSLFSlide slide) {
-        addText(slide, "RAASPAL · Confidential",
-                rect(W - 220, H - 26, 200, 18), 8, false, DARK_MUTED, TextAlign.RIGHT);
+    private void addPicture(XSLFSlide slide, XMLSlideShow ppt, byte[] bytes,
+                             PictureType type, double x, double y, double w, double h) {
+        try {
+            XSLFPictureData pd = ppt.addPicture(bytes, type);
+            XSLFPictureShape pic = slide.createPicture(pd);
+            pic.setAnchor(rect(x, y, w, h));
+        } catch (Exception e) {
+            log.warn("Could not embed picture: {}", e.getMessage());
+        }
+    }
+
+    private void footer(XSLFSlide slide) {
+        addText(slide, "RAASPAL  ·  Confidential",
+                rect(W - 200, H - 24, 186, 18), 8, false, DIM, TextAlign.RIGHT);
     }
 
     private static Rectangle2D.Double rect(double x, double y, double w, double h) {
         return new Rectangle2D.Double(x, y, w, h);
     }
 
-    // ─── Markdown parser (fallback) ───────────────────────────────────────────
+    // ─── Image helpers ────────────────────────────────────────────────────────
 
-    private List<String[]> parseMarkdownSections(String markdown) {
-        List<String[]> sections = new ArrayList<>();
-        if (markdown == null || markdown.isBlank()) return sections;
-        String currentTitle = null;
-        StringBuilder body  = new StringBuilder();
-        for (String line : markdown.split("\n")) {
-            if (line.matches("^#{1,6}\\s+.*")) {
-                if (currentTitle != null)
-                    sections.add(new String[]{ currentTitle, body.toString().trim() });
-                currentTitle = line.replaceFirst("^#{1,6}\\s+", "").trim();
-                body = new StringBuilder();
-            } else if (currentTitle != null) {
-                body.append(line).append("\n");
-            }
+    private byte[] downloadImageBytes(String imageUrl) throws IOException {
+        var url = URI.create(imageUrl).toURL();
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setConnectTimeout(5000);
+        conn.setReadTimeout(8000);
+        conn.setRequestProperty("User-Agent", "RAASPAL-PPTX/1.0");
+        try (InputStream is = conn.getInputStream()) {
+            return is.readAllBytes();
+        } finally {
+            conn.disconnect();
         }
-        if (currentTitle != null) sections.add(new String[]{ currentTitle, body.toString().trim() });
-        if (sections.isEmpty()) {
-            for (String block : markdown.split("\\n\\n+")) {
-                block = block.trim();
-                if (block.isBlank()) continue;
-                String[] lines = block.split("\\n", 2);
-                sections.add(new String[]{ lines[0].trim(), lines.length > 1 ? lines[1].trim() : "" });
-            }
-        }
-        return sections;
+    }
+
+    private PictureType detectPictureType(String url) {
+        String lower = url.toLowerCase();
+        if (lower.contains(".png"))  return PictureType.PNG;
+        if (lower.contains(".gif"))  return PictureType.GIF;
+        if (lower.contains(".bmp"))  return PictureType.BMP;
+        if (lower.contains(".tiff") || lower.contains(".tif")) return PictureType.TIFF;
+        return PictureType.JPEG;
+    }
+
+    // ─── Robot data helpers ───────────────────────────────────────────────────
+
+    private String robotLabel(Robot robot) {
+        if (robot == null) return "";
+        return ((robot.getBrand() != null ? robot.getBrand() : "") + " "
+                + (robot.getModel() != null ? robot.getModel() : "")).trim();
+    }
+
+    private String robotType(Robot robot) {
+        return (robot == null || robot.getRobotType() == null) ? "—" : robot.getRobotType().name();
+    }
+
+    private String priceBand(Robot robot) {
+        return (robot == null || robot.getPriceBand() == null) ? "—" : robot.getPriceBand().name();
+    }
+
+    private String formatPrice(Robot robot) {
+        if (robot == null) return "";
+        List<String> parts = new ArrayList<>();
+        BigDecimal r = robot.getRentalPrice();
+        BigDecimal s = robot.getSellingPrice();
+        if (r != null) parts.add("Rental: " + r.toPlainString());
+        if (s != null) parts.add("Purchase: " + s.toPlainString());
+        return String.join("   ·   ", parts);
+    }
+
+    private static String safe(String v, String fallback) {
+        return (v != null && !v.isBlank()) ? v : fallback;
     }
 }
