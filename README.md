@@ -133,6 +133,10 @@ The API starts on `http://localhost:8080`.
 | `POST` | `/api/v1/proposals/generate` | AI generates customer proposal |
 | `GET` | `/api/v1/proposals/{id}/export/pptx` | Download proposal as PowerPoint |
 | `GET` | `/api/v1/robots` | List robot catalog |
+| `GET` | `/api/v1/cvte/devices` | List/search tracked CVTE C3 devices (online/offline status) |
+| `POST` | `/api/v1/cvte/devices/sync` | Search Kava by factory SN / device name / org code and start tracking matches |
+| `POST` | `/api/v1/cvte/devices/poll-now` | Refresh status for every tracked CVTE device |
+| `POST` | `/api/v1/cvte/devices/{deviceId}/poll-now` | Refresh status for a single tracked CVTE device |
 
 All endpoints (except login) require `Authorization: Bearer <token>`.
 
@@ -151,6 +155,32 @@ All endpoints (except login) require `Authorization: Bearer <token>`.
 | `ANTHROPIC_PROPOSAL_MODEL` | Override proposal generation model |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated list of allowed frontend URLs |
 | `FILE_UPLOAD_DIR` | Directory for uploaded survey files |
+| `CVTE_KAVA_BASE_URL` | Base URL of the Kava Open Gateway API |
+| `CVTE_KAVA_APP_ID` | Kava app ID (sent as `x-kv-app-id`) |
+| `CVTE_KAVA_APP_SECRET` | Kava app secret — used only to compute request signatures, never logged or stored |
+| `CVTE_KAVA_SIGN_TYPE` | Signing algorithm: `md5` or `hmac` (default `hmac`) |
+| `CVTE_KAVA_POLLING_ENABLED` | `true` to enable background refresh of tracked devices (default `false`, manual sync/poll works either way) |
+| `CVTE_KAVA_POLLING_INTERVAL_MS` | Interval between scheduled polls in milliseconds (default `60000`) |
+
+---
+
+## CVTE C3 Online/Offline Status
+
+A small, separate module ([[CvteDevice]], `com.raaspal.robotrecommendation.cvte.*`) tracks CVTE C3 robot
+online/offline status via the Kava Open Gateway API. It does not touch the Robot/RobotSpec catalog.
+
+To start tracking a device:
+
+1. Set `CVTE_KAVA_BASE_URL`, `CVTE_KAVA_APP_ID`, and `CVTE_KAVA_APP_SECRET` (and optionally `CVTE_KAVA_SIGN_TYPE`).
+2. Call `POST /api/v1/cvte/devices/sync` with any of `factorySn`, `deviceName`, or `orgCode` — the backend
+   searches Kava and saves matching devices locally (deviceId, factory SN, name, online status, running
+   state, battery %, last checked time, last API message).
+3. Use `GET /api/v1/cvte/devices` to list/search tracked devices, or `POST /api/v1/cvte/devices/poll-now`
+   (all devices) / `POST /api/v1/cvte/devices/{deviceId}/poll-now` (one device) to refresh their status on demand.
+4. Set `CVTE_KAVA_POLLING_ENABLED=true` to additionally refresh tracked devices automatically in the background.
+
+The frontend exposes this at **CVTE C3 Status** in the sidebar (`/cvte`), plus a compact summary on the
+Team Dashboard, and only ever calls this Spring Boot backend — never the Kava API directly.
 
 ---
 
