@@ -7,7 +7,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -57,22 +56,22 @@ public class KavaApiClient {
         return hasText(baseUrl) && hasText(appId) && hasText(appSecret);
     }
 
-    /** POST /v1/device/page — search devices by factory SN, device name, and/or org code. */
+    /** GET /v1/device/page — search devices by factory SN, device name, and/or org code. */
     public KavaApiResult<List<KavaDeviceStatus>> searchDevices(String factorySn, String deviceName, String orgCode, int pageSize) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("current", 1);
-        body.put("pageSize", pageSize);
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("current", "1");
+        query.put("pageSize", String.valueOf(pageSize));
         if (hasText(factorySn)) {
-            body.put("factorySn", factorySn.trim());
+            query.put("factorySn", factorySn.trim());
         }
         if (hasText(deviceName)) {
-            body.put("deviceName", deviceName.trim());
+            query.put("deviceName", deviceName.trim());
         }
         if (hasText(orgCode)) {
-            body.put("orgCode", orgCode.trim());
+            query.put("orgCode", orgCode.trim());
         }
 
-        ParsedResponse response = post(DEVICE_PAGE_PATH, body);
+        ParsedResponse response = get(DEVICE_PAGE_PATH, query);
         List<KavaDeviceStatus> devices = new ArrayList<>();
         JsonNode rows = response.data().path("data");
         if (rows.isArray()) {
@@ -93,35 +92,19 @@ public class KavaApiClient {
 
     // ─── HTTP + signing ───────────────────────────────────────────────────────
 
-    private ParsedResponse post(String path, Map<String, Object> body) {
-        byte[] bodyBytes;
-        try {
-            bodyBytes = objectMapper.writeValueAsBytes(body);
-        } catch (JsonProcessingException e) {
-            throw new KavaApiException("Failed to serialise Kava request body for " + path, e);
-        }
-
-        HttpHeaders headers = signedHeaders(path, bodyBytes);
-        try {
-            String response = restClient.post()
-                    .uri(path)
-                    .headers(h -> h.addAll(headers))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(bodyBytes)
-                    .retrieve()
-                    .body(String.class);
-            return parse(response, path);
-        } catch (RestClientException e) {
-            log.warn("Kava API call failed: POST {} — {}", path, e.getMessage());
-            throw new KavaApiException("Kava API call failed for " + path, e);
-        }
+    private ParsedResponse get(String path) {
+        return get(path, Map.of());
     }
 
-    private ParsedResponse get(String path) {
-        HttpHeaders headers = signedHeaders(path, null);
+    private ParsedResponse get(String path, Map<String, String> queryParams) {
+        HttpHeaders headers = signedHeaders(path, null, queryParams);
         try {
             String response = restClient.get()
-                    .uri(path)
+                    .uri(uriBuilder -> {
+                        uriBuilder.path(path);
+                        queryParams.forEach(uriBuilder::queryParam);
+                        return uriBuilder.build();
+                    })
                     .headers(h -> h.addAll(headers))
                     .retrieve()
                     .body(String.class);
@@ -132,8 +115,16 @@ public class KavaApiClient {
         }
     }
 
-    /** Builds the x-kv-* headers and computes x-kv-sign per the signing rules (Steps 1-3 in the doc). */
     private HttpHeaders signedHeaders(String reqPath, byte[] body) {
+        return signedHeaders(reqPath, body, Map.of());
+    }
+
+    /**
+     * Builds the x-kv-* headers and computes x-kv-sign per the signing rules (Steps 1-3 in the doc).
+     * Query parameters are folded into the signed parameter set alongside the x-kv-* values — per
+     * the spec's "union of header and query signing parameters" rule — without becoming HTTP headers.
+     */
+    private HttpHeaders signedHeaders(String reqPath, byte[] body, Map<String, String> queryParams) {
         Map<String, String> signingParams = new LinkedHashMap<>();
         signingParams.put("x-kv-app-id", appId);
         signingParams.put("x-kv-timestamp", String.valueOf(System.currentTimeMillis()));
@@ -143,7 +134,9 @@ public class KavaApiClient {
             signingParams.put("x-kv-content-md5", KavaSignatureUtil.contentMd5(body));
         }
 
-        String sign = KavaSignatureUtil.sign(signingParams, appSecret, signType);
+        Map<String, String> paramsToSign = new LinkedHashMap<>(signingParams);
+        paramsToSign.putAll(queryParams);
+        String sign = KavaSignatureUtil.sign(paramsToSign, appSecret, signType);
 
         HttpHeaders headers = new HttpHeaders();
         signingParams.forEach(headers::add);
