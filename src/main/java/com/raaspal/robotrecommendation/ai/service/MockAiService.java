@@ -72,6 +72,7 @@ public class MockAiService implements RequirementExtractionService, RobotRecomme
                     robot.brand() + " " + robot.model() + " solution",
                     proposalSummary(robot),
                     whyRecommended(requirement, robot),
+                    null,
                     matchedRequirements(requirement, robot),
                     businessValue(robot),
                     limitations(robot),

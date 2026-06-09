@@ -58,6 +58,9 @@ public class RecommendationItem {
     @Column(name = "why_recommended", columnDefinition = "TEXT")
     private String whyRecommended;
 
+    @Column(name = "customer_summary", columnDefinition = "TEXT")
+    private String customerSummary;
+
     @Column(name = "matched_requirements", columnDefinition = "TEXT")
     private String matchedRequirements;
 

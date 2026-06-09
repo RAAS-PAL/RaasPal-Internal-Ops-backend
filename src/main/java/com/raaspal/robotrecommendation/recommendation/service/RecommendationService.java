@@ -146,6 +146,8 @@ public class RecommendationService {
                 .proposalTitle(option.proposalTitle())
                 .proposalSummary(option.proposalSummary())
                 .whyRecommended(option.whyRecommended())
+                .customerSummary(option.customerSummary() != null
+                        ? String.join("\n", option.customerSummary()) : null)
                 .matchedRequirements(option.matchedRequirements())
                 .businessValue(option.businessValue())
                 .limitations(option.limitations())
