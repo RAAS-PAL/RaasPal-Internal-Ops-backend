@@ -44,7 +44,7 @@ import java.util.Map;
 @Service
 @ConditionalOnExpression("'${app.anthropic.api-key:}' != ''")
 public class ClaudeAiService
-        implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService {
+        implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService, TranslationAiService {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeAiService.class);
 
@@ -363,6 +363,53 @@ public class ClaudeAiService
         } catch (JsonProcessingException e) {
             log.warn("Could not parse slide manifest JSON: {}", e.getMessage());
             return null;
+        }
+    }
+
+    // ─── TranslationAiService ─────────────────────────────────────────────────
+
+    private static final String TRANSLATION_MODEL = "claude-haiku-4-5-20251001";
+
+    @Override
+    public List<String> translateToThai(List<String> texts) {
+        if (texts == null || texts.isEmpty()) return List.of();
+        try {
+            String textsJson = objectMapper.writeValueAsString(texts);
+            String system = "You are a professional Thai translator for a business robotics company. Translate naturally and professionally.";
+            String user = """
+                    Translate the following English texts to Thai (ภาษาไทย).
+
+                    Return ONLY a valid JSON array with exactly %d elements in the same order as the input.
+                    Each element must be the Thai translation of the corresponding input.
+                    No explanation, no markdown, only the JSON array.
+
+                    Input:
+                    %s
+                    """.formatted(texts.size(), textsJson);
+            String response = callClaude(system, user, null, null, TRANSLATION_MODEL);
+            return parseTranslationArray(response, texts);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialise texts for translation", e);
+            return texts;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> parseTranslationArray(String text, List<String> fallback) {
+        try {
+            String trimmed = text.trim();
+            int start = trimmed.indexOf('[');
+            int end   = trimmed.lastIndexOf(']');
+            if (start == -1 || end == -1 || end <= start) return fallback;
+            List<String> result = objectMapper.readValue(trimmed.substring(start, end + 1), List.class);
+            if (result.size() != fallback.size()) {
+                log.warn("Translation returned {} items but expected {}; using originals", result.size(), fallback.size());
+                return fallback;
+            }
+            return result;
+        } catch (JsonProcessingException e) {
+            log.warn("Could not parse translation response; using originals: {}", e.getMessage());
+            return fallback;
         }
     }
 

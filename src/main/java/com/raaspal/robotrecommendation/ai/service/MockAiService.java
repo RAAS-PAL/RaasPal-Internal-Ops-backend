@@ -20,7 +20,7 @@ import java.util.List;
 
 @Service
 @ConditionalOnExpression("'${app.anthropic.api-key:}' == ''")
-public class MockAiService implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService {
+public class MockAiService implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService, TranslationAiService {
 
     @Override
     public ExtractedRequirementData extract(FileUpload fileUpload, RobotType robotType) {
@@ -125,6 +125,11 @@ public class MockAiService implements RequirementExtractionService, RobotRecomme
         );
 
         return new AiProposalResult(title, content, "TEXT");
+    }
+
+    @Override
+    public List<String> translateToThai(List<String> texts) {
+        return texts == null ? List.of() : texts;
     }
 
     private String valueOrNeedsConfirmation(String value) {
