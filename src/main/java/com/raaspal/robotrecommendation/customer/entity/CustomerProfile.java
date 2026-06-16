@@ -41,6 +41,23 @@ public class CustomerProfile {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    /**
+     * @deprecated LINE Notify was shut down 2025-03-31. Use {@link #lineUserId}
+     * with the LINE Messaging API instead.
+     */
+    @Deprecated
+    @Column(name = "line_notify_token")
+    private String lineNotifyToken;
+
+    /**
+     * LINE Messaging API push target for monthly report delivery. Holds a user
+     * id, group id, or room id interchangeably (LINE's push "to" accepts any),
+     * captured by the n8n webhook when the recipient interacts with the
+     * RAASPAL Official Account.
+     */
+    @Column(name = "line_user_id")
+    private String lineUserId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;
