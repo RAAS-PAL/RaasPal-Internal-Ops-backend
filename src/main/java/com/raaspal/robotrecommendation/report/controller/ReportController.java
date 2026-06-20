@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.report.controller;
 
+import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.report.service.MonthlyReportService;
 import com.raaspal.robotrecommendation.report.service.MonthlyReportSummary;
 import lombok.RequiredArgsConstructor;
@@ -29,9 +30,30 @@ public class ReportController {
      * @param testMode when true (default), generate + upload only — do not send to n8n/LINE
      */
     @PostMapping("/monthly/run")
-    public MonthlyReportSummary runMonthly(
+    public ApiResponse<MonthlyReportSummary> runMonthly(
             @RequestParam(required = false) String month,
             @RequestParam(defaultValue = "true") boolean testMode) {
-        return monthlyReportService.generateAndSend(month, testMode);
+        MonthlyReportSummary summary = monthlyReportService.generateAndSend(month, testMode);
+        String mode = testMode ? "Test run" : "Live send";
+        String message = String.format("%s for %s: %d customer(s), %d file(s), %d message(s) sent",
+                mode, summary.reportMonth(), summary.customersProcessed(),
+                summary.robotsReported(), summary.messagesSent());
+        return ApiResponse.success(message, summary);
+    }
+
+    /**
+     * @param weekStart any date {@code "YYYY-MM-DD"} in the target ISO week; defaults to the previous full week when omitted
+     * @param testMode  when true (default), generate + upload only — do not send to n8n/LINE
+     */
+    @PostMapping("/weekly/run")
+    public ApiResponse<MonthlyReportSummary> runWeekly(
+            @RequestParam(required = false) String weekStart,
+            @RequestParam(defaultValue = "true") boolean testMode) {
+        MonthlyReportSummary summary = monthlyReportService.generateAndSendWeekly(weekStart, testMode);
+        String mode = testMode ? "Test run" : "Live send";
+        String message = String.format("%s for week %s: %d customer(s), %d file(s), %d message(s) sent",
+                mode, summary.reportMonth(), summary.customersProcessed(),
+                summary.robotsReported(), summary.messagesSent());
+        return ApiResponse.success(message, summary);
     }
 }

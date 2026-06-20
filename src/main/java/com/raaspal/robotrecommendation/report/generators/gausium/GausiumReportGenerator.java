@@ -21,12 +21,15 @@ import java.util.List;
  * (A-AB), a SimSun 14pt bold header on a Grey25% fill with a thin border box,
  * and plain Calibri 11 body rows (no alternating colors, no freeze panes).
  *
- * <p>Columns "Receive task report time", "Task start mode", "Remarks" and
- * "Task status" are left blank - Gausium's public Task Reports API does not
- * expose them (the reference file appears to be exported from Gausium's own
- * cloud dashboard, which has additional fields). "Task type" is filled with
- * the raw {@code cleaningMode} value, and "Plan running time (s)" reuses the
- * task's working time (same source as "Total time", different format).
+ * <p>Columns "Receive task report time", "Task start mode" and "Remarks" are
+ * left blank - Gausium's public Task Reports API does not expose them (the
+ * reference file appears to be exported from Gausium's own cloud dashboard,
+ * which has additional fields). "Task type" is filled with the raw
+ * {@code cleaningMode} value, and "Plan running time (s)" reuses the task's
+ * working time (same source as "Total time", different format). "Task status"
+ * maps the API's {@code taskEndStatus} code to the supplier's label
+ * (0 Normal completion, 1 Manual termination, 2 Abnormal termination,
+ * 3 Startup failure); unknown/missing codes render blank.
  */
 @Component
 public class GausiumReportGenerator implements ReportGenerator {
@@ -121,7 +124,7 @@ public class GausiumReportGenerator implements ReportGenerator {
                 nullToEmpty(report.getCleaningMode()),
                 "", // Remarks - not available from Gausium API
                 nullToEmpty(report.getTaskReportPngUri()),
-                "", // Task status - awaiting taskEndStatus -> label mapping from supplier
+                formatTaskStatus(report.getTaskEndStatus()),
         };
 
         for (int i = 0; i < values.length; i++) {
@@ -164,6 +167,23 @@ public class GausiumReportGenerator implements ReportGenerator {
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    /**
+     * Maps Gausium's {@code taskEndStatus} code to the supplier's label.
+     * Unknown or missing codes render blank rather than a bare number.
+     */
+    private static String formatTaskStatus(Integer code) {
+        if (code == null) {
+            return "";
+        }
+        return switch (code) {
+            case 0 -> "Normal completion";
+            case 1 -> "Manual termination";
+            case 2 -> "Abnormal termination";
+            case 3 -> "Startup failure";
+            default -> "";
+        };
     }
 
     private static String formatInstant(Instant instant) {

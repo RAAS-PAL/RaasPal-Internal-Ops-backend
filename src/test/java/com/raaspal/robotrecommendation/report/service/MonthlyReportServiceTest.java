@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -122,6 +123,33 @@ class MonthlyReportServiceTest {
         ArgumentCaptor<String> path = ArgumentCaptor.forClass(String.class);
         verify(storageService).uploadAndSign(path.capture(), any());
         assertThat(path.getValue()).isEqualTo(a.getId() + "/2026-05/SERIAL-XYZ.xlsx");
+    }
+
+    @Test
+    void weeklyResolvesIsoWeekRangeAndLabelsObjectPathByWeek() throws IOException {
+        CustomerProfile a = customer("Customer A", "U-line");
+        RobotUnit a1 = robot("SERIAL-XYZ");
+
+        // 2026-06-17 is a Wednesday → ISO week 2026-W25, Monday 2026-06-15 .. next Monday 2026-06-22.
+        when(taskReportRepository.findByStartTimeBetweenWithRefs(any(), any()))
+                .thenReturn(List.of(report(a, a1)));
+        when(generatorRegistry.getGenerator(anyString())).thenReturn(gausiumGenerator);
+        when(gausiumGenerator.generate(any())).thenReturn(new byte[]{1});
+        when(storageService.uploadAndSign(anyString(), any())).thenReturn("https://signed.example/url");
+
+        MonthlyReportSummary summary = service.generateAndSendWeekly("2026-06-17", true);
+
+        ArgumentCaptor<Instant> start = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<Instant> end = ArgumentCaptor.forClass(Instant.class);
+        verify(taskReportRepository).findByStartTimeBetweenWithRefs(start.capture(), end.capture());
+        assertThat(start.getValue()).isEqualTo(Instant.parse("2026-06-15T00:00:00Z"));
+        assertThat(end.getValue()).isEqualTo(Instant.parse("2026-06-22T00:00:00Z"));
+
+        assertThat(summary.reportMonth()).isEqualTo("2026-W25");
+        ArgumentCaptor<String> path = ArgumentCaptor.forClass(String.class);
+        verify(storageService).uploadAndSign(path.capture(), any());
+        assertThat(path.getValue()).isEqualTo(a.getId() + "/2026-W25/SERIAL-XYZ.xlsx");
+        verifyNoInteractions(n8nReportClient);
     }
 
     @Test
