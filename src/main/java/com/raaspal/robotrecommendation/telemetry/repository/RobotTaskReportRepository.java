@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -30,4 +31,17 @@ public interface RobotTaskReportRepository extends JpaRepository<RobotTaskReport
             + "join fetch r.customerProfile "
             + "where r.reportMonth = :month")
     List<RobotTaskReport> findByReportMonthWithRefs(@Param("month") String month);
+
+    /**
+     * Loads reports whose {@code startTime} falls in {@code [start, end)} with
+     * {@code robotUnit} and {@code customerProfile} eagerly fetched. Backs the
+     * weekly (date-range) report run, which can't use the stored
+     * {@code report_month} bucket.
+     */
+    @Query("select r from RobotTaskReport r "
+            + "join fetch r.robotUnit "
+            + "join fetch r.customerProfile "
+            + "where r.startTime >= :start and r.startTime < :end")
+    List<RobotTaskReport> findByStartTimeBetweenWithRefs(@Param("start") Instant start,
+                                                         @Param("end") Instant end);
 }

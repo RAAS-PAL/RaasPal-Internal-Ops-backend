@@ -65,11 +65,39 @@ class GausiumReportGeneratorTest {
             assertThat(cellString(data, 22)).isEqualTo("19.64");
             assertThat(cellString(data, 23)).isEqualTo("00: 12: 07");
             assertThat(cellString(data, 24)).isEqualTo("Floor Washing");
+            // Task status (col AB) maps taskEndStatus 0 -> "Normal completion"
+            assertThat(cellString(data, 27)).isEqualTo("Normal completion");
             // Columns with no source from the Gausium API are left blank
             assertThat(cellString(data, 20)).isEmpty();
             assertThat(cellString(data, 21)).isEmpty();
             assertThat(cellString(data, 25)).isEmpty();
-            assertThat(cellString(data, 27)).isEmpty();
+        }
+    }
+
+    @Test
+    void mapsTaskEndStatusCodesToSupplierLabels() throws IOException {
+        // 0..3 -> labels; an unknown code (9) and null both render blank.
+        Integer[] codes = { 0, 1, 2, 3, 9, null };
+        String[] expected = {
+                "Normal completion", "Manual termination", "Abnormal termination",
+                "Startup failure", "", ""
+        };
+
+        List<RobotTaskReport> reports = java.util.Arrays.stream(codes)
+                .map(code -> {
+                    RobotTaskReport r = sampleReport();
+                    r.setTaskEndStatus(code);
+                    return r;
+                })
+                .toList();
+
+        byte[] xlsx = generator.generate(reports);
+
+        try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(xlsx))) {
+            Sheet sheet = workbook.getSheet("task-queue-list");
+            for (int i = 0; i < expected.length; i++) {
+                assertThat(cellString(sheet.getRow(i + 1), 27)).isEqualTo(expected[i]);
+            }
         }
     }
 
@@ -104,6 +132,7 @@ class GausiumReportGeneratorTest {
                 .suctionBladeResidualPct(new BigDecimal("100.00"))
                 .cleaningMode("Floor Washing")
                 .taskReportPngUri("https://example.com/report.png")
+                .taskEndStatus(0)
                 .build();
     }
 }
