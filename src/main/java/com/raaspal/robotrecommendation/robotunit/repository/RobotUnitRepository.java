@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface RobotUnitRepository extends JpaRepository<RobotUnit, UUID> {
 
     Optional<RobotUnit> findBySerialNumber(String serialNumber);
+
+    boolean existsBySerialNumber(String serialNumber);
 }
