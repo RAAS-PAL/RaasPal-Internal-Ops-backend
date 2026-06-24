@@ -1,5 +1,7 @@
 package com.raaspal.robotrecommendation.telemetry.core;
 
+import com.raaspal.robotrecommendation.common.exception.BadRequestException;
+import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
@@ -31,6 +33,27 @@ public class TelemetrySyncService {
     private final TelemetryAdapterRegistry adapterRegistry;
     private final RobotTaskReportRepository taskReportRepository;
 
+    /** Result of a sync run for one robot. */
+    public record SyncResult(String serialNumber, int saved, int skipped) {
+    }
+
+    /**
+     * Syncs one robot (by serial number) from its brand telemetry API for the
+     * given date range, on demand. Brand telemetry failures (e.g. credentials
+     * not configured, auth, robot not bound to the account) surface as a
+     * {@link BadRequestException} with the underlying message.
+     */
+    @Transactional
+    public SyncResult syncBySerialNumber(String serialNumber, LocalDate from, LocalDate to) {
+        RobotUnit robotUnit = robotUnitRepository.findBySerialNumber(serialNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("RobotUnit", "serialNumber", serialNumber));
+        try {
+            return syncRobotUnit(robotUnit, from, to);
+        } catch (Exception e) {
+            throw new BadRequestException("Telemetry sync failed for " + serialNumber + ": " + e.getMessage());
+        }
+    }
+
     /** Syncs yesterday's task reports for every robot unit. */
     public void syncYesterday() {
         LocalDate yesterday = LocalDate.now(ZoneOffset.UTC).minusDays(1);
@@ -53,11 +76,11 @@ public class TelemetrySyncService {
     }
 
     @Transactional
-    public void syncRobotUnit(RobotUnit robotUnit, LocalDate from, LocalDate to) {
+    public SyncResult syncRobotUnit(RobotUnit robotUnit, LocalDate from, LocalDate to) {
         List<Deployment> deployments = deploymentRepository.findByRobotUnitIdAndIsActiveTrue(robotUnit.getId());
         if (deployments.isEmpty()) {
             log.warn("Skipping robot unit {} - no active deployment", robotUnit.getSerialNumber());
-            return;
+            return new SyncResult(robotUnit.getSerialNumber(), 0, 0);
         }
 
         TelemetryAdapter adapter = adapterRegistry.getAdapter(robotUnit.getBrand());
@@ -79,5 +102,6 @@ public class TelemetrySyncService {
             saved++;
         }
         log.info("Synced robot unit {}: {} saved, {} duplicate(s) skipped", robotUnit.getSerialNumber(), saved, skipped);
+        return new SyncResult(robotUnit.getSerialNumber(), saved, skipped);
     }
 }
