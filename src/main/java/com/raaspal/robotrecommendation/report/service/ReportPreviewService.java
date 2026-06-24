@@ -183,14 +183,25 @@ public class ReportPreviewService {
         }
     }
 
-    /** Friendly display names for Gausium's raw cleaning-mode codes. */
-    private static final Map<String, String> MODE_LABELS = Map.of(
-            "mop", "Mopping",
-            "mop_wet", "Wet Mopping",
-            "sweep", "Sweeping",
-            "vacuum", "Vacuuming",
-            "scrub", "Scrubbing",
-            "sweep_vacuum", "Sweep & Vacuum");
+    /**
+     * Friendly English display names for raw cleaning-mode codes. Gausium returns
+     * some modes in Chinese (and sometimes underscore-prefixed, e.g. "__尘推"),
+     * so both English codes and Chinese terms are mapped to English here.
+     */
+    private static final Map<String, String> MODE_LABELS = Map.ofEntries(
+            Map.entry("mop", "Mopping"),
+            Map.entry("mop_wet", "Wet Mopping"),
+            Map.entry("sweep", "Sweeping"),
+            Map.entry("vacuum", "Vacuuming"),
+            Map.entry("scrub", "Scrubbing"),
+            Map.entry("sweep_vacuum", "Sweep & Vacuum"),
+            Map.entry("洗地", "Floor Washing"),
+            Map.entry("尘推", "Dust Push"),
+            Map.entry("推尘", "Dust Push"),
+            Map.entry("扫地", "Sweeping"),
+            Map.entry("吸尘", "Vacuuming"),
+            Map.entry("拖地", "Mopping"),
+            Map.entry("洗扫", "Wash & Sweep"));
 
     /**
      * Every cleaning mode used in the month with its run count, most-frequent
@@ -208,11 +219,12 @@ public class ReportPreviewService {
                 .collect(Collectors.joining(", "));
     }
 
-    /** Maps a raw mode code to a friendly label, or title-cases an unknown one. */
+    /** Maps a raw mode code (English or Chinese) to a friendly English label. */
     private static String modeLabel(String mode) {
-        String mapped = MODE_LABELS.get(mode.trim().toLowerCase());
+        String key = mode.trim().toLowerCase().replaceFirst("^_+", ""); // drop any leading "__"
+        String mapped = MODE_LABELS.get(key);
         if (mapped != null) return mapped;
-        String spaced = mode.trim().replace('_', ' ');
+        String spaced = key.replace('_', ' ');
         return spaced.isEmpty() ? spaced : Character.toUpperCase(spaced.charAt(0)) + spaced.substring(1);
     }
 
