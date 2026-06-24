@@ -48,6 +48,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Auth endpoints are public
                         .requestMatchers("/api/v1/auth/login").permitAll()
+                        // Public customer report links (the monthly email URL) — no account
+                        .requestMatchers("/api/v1/reports/public/**").permitAll()
                         // Swagger UI
                         .requestMatchers(
                                 "/swagger-ui/**",

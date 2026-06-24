@@ -14,7 +14,6 @@ public record ReportPreviewResponse(
         String robotName,
         String serialNumber,
         String periodLabel,
-        List<String> customerQuestions,
         Executive executive,
         Operational operational,
         List<Consumable> consumables,

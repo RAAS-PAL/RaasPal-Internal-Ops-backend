@@ -34,13 +34,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ReportPreviewService {
 
-    /** Standard red "customer needs to know" questions shown on every report. */
-    private static final List<String> CUSTOMER_QUESTIONS = List.of(
-            "Robot ทำงานคุ้ม ?",
-            "ช่วยคนทำงานได้ ?",
-            "ทำงานเร็ว ?",
-            "มีปัญหา ?");
-
     private final RobotUnitService robotUnitService;
     private final RobotTaskReportRepository reportRepository;
 
@@ -92,8 +85,8 @@ public class ReportPreviewService {
                 List.of(
                         new Ring("Task Completion Rate", round2(avgCompletion)),
                         new Ring("Cleaning Coverage Rate", round2(coverage))),
-                mostCommon(reports.stream().map(RobotTaskReport::getCleaningMode).filter(s -> s != null && !s.isBlank()).toList(), "—"),
-                taskStatus(reports),
+                taskTypeBreakdown(reports),
+                taskStatusBreakdown(reports),
                 activeDays > 0 ? String.format(Locale.US, "%.1f", (double) taskCount / activeDays) : "—",
                 formatMinSec(taskCount > 0 ? totalSeconds / taskCount : 0));
 
@@ -105,7 +98,7 @@ public class ReportPreviewService {
 
         return new ReportPreviewResponse(
                 robot.brand(), customerName, site, robotName, robot.serialNumber(),
-                periodLabel(month), CUSTOMER_QUESTIONS, executive, operational, consumables,
+                periodLabel(month), executive, operational, consumables,
                 recommendations(avgCompletion, consumables));
     }
 
@@ -114,7 +107,7 @@ public class ReportPreviewService {
     private ReportPreviewResponse empty(RobotUnitResponse robot, String customerName, String site, String robotName, String month) {
         return new ReportPreviewResponse(
                 robot.brand(), customerName, site, robotName, robot.serialNumber(),
-                periodLabel(month), CUSTOMER_QUESTIONS,
+                periodLabel(month),
                 new Executive(0, "0 h 0 min 0 sec", 0, 0, 0, "—"),
                 new Operational(
                         List.of(new Ring("Task Completion Rate", 0), new Ring("Cleaning Coverage Rate", 0)),
@@ -156,18 +149,28 @@ public class ReportPreviewService {
         return recs;
     }
 
-    private String taskStatus(List<RobotTaskReport> reports) {
-        Map<Integer, Long> counts = reports.stream()
-                .filter(r -> r.getTaskEndStatus() != null)
-                .collect(Collectors.groupingBy(RobotTaskReport::getTaskEndStatus, Collectors.counting()));
-        if (counts.isEmpty()) return "Completed";
-        int top = counts.entrySet().stream().max(Map.Entry.comparingByValue()).get().getKey();
-        return switch (top) {
+    /**
+     * Every task-end status in the month with its count, most-frequent first,
+     * e.g. "Completed ×8, Abnormal termination ×2". A missing status counts as
+     * "Completed" (a finished task that reported no explicit end status).
+     */
+    private static String taskStatusBreakdown(List<RobotTaskReport> reports) {
+        Map<String, Long> counts = reports.stream()
+                .collect(Collectors.groupingBy(r -> statusLabel(r.getTaskEndStatus()), Collectors.counting()));
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .map(e -> e.getKey() + " ×" + e.getValue())
+                .collect(Collectors.joining(", "));
+    }
+
+    private static String statusLabel(Integer status) {
+        if (status == null) return "Completed";
+        return switch (status) {
             case 0 -> "Completed";
             case 1 -> "Manually terminated";
             case 2 -> "Abnormal termination";
             case 3 -> "Startup failure";
-            default -> "—";
+            default -> "Unknown";
         };
     }
 
@@ -180,11 +183,37 @@ public class ReportPreviewService {
         }
     }
 
-    private static String mostCommon(List<String> values, String fallback) {
-        return values.stream()
-                .collect(Collectors.groupingBy(v -> v, Collectors.counting()))
-                .entrySet().stream().max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey).orElse(fallback);
+    /** Friendly display names for Gausium's raw cleaning-mode codes. */
+    private static final Map<String, String> MODE_LABELS = Map.of(
+            "mop", "Mopping",
+            "mop_wet", "Wet Mopping",
+            "sweep", "Sweeping",
+            "vacuum", "Vacuuming",
+            "scrub", "Scrubbing",
+            "sweep_vacuum", "Sweep & Vacuum");
+
+    /**
+     * Every cleaning mode used in the month with its run count, most-frequent
+     * first, e.g. "Wet Mopping ×7, Mopping ×3". "—" when no mode is recorded.
+     */
+    private static String taskTypeBreakdown(List<RobotTaskReport> reports) {
+        Map<String, Long> counts = reports.stream()
+                .map(RobotTaskReport::getCleaningMode)
+                .filter(m -> m != null && !m.isBlank())
+                .collect(Collectors.groupingBy(String::trim, Collectors.counting()));
+        if (counts.isEmpty()) return "—";
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .map(e -> modeLabel(e.getKey()) + " ×" + e.getValue())
+                .collect(Collectors.joining(", "));
+    }
+
+    /** Maps a raw mode code to a friendly label, or title-cases an unknown one. */
+    private static String modeLabel(String mode) {
+        String mapped = MODE_LABELS.get(mode.trim().toLowerCase());
+        if (mapped != null) return mapped;
+        String spaced = mode.trim().replace('_', ' ');
+        return spaced.isEmpty() ? spaced : Character.toUpperCase(spaced.charAt(0)) + spaced.substring(1);
     }
 
     private static String formatHms(long seconds) {
