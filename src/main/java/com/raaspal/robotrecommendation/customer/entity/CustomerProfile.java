@@ -44,8 +44,8 @@ public class CustomerProfile {
     @Column(name = "contact_phone")
     private String contactPhone;
 
-    @Column(columnDefinition = "TEXT")
-    private String address;
+    @Column(name = "branch", columnDefinition = "TEXT")
+    private String branch;
 
     @Column(columnDefinition = "TEXT")
     private String notes;

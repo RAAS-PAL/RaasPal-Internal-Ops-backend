@@ -48,7 +48,7 @@ public class CustomerService {
                 .industry(request.industry())
                 .contactEmail(normalizeEmail(request.contactEmail()))
                 .contactPhone(request.contactPhone())
-                .address(request.address())
+                .branch(request.branch())
                 .notes(request.notes())
                 .build());
         return CustomerResponse.of(c, 0);
@@ -61,7 +61,7 @@ public class CustomerService {
         c.setIndustry(request.industry());
         c.setContactEmail(normalizeEmail(request.contactEmail()));
         c.setContactPhone(request.contactPhone());
-        c.setAddress(request.address());
+        c.setBranch(request.branch());
         c.setNotes(request.notes());
         customerProfileRepository.save(c);
         return CustomerResponse.of(c, robotCount(id));

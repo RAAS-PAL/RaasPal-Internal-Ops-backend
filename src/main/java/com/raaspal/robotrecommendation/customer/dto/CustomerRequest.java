@@ -12,6 +12,6 @@ public record CustomerRequest(
         String industry,
         @Email(message = "Contact email must be a valid email address") String contactEmail,
         String contactPhone,
-        String address,
+        String branch,
         String notes) {
 }
