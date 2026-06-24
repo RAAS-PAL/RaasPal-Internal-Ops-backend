@@ -15,4 +15,8 @@ public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
     List<Deployment> findByRobotUnitIdAndIsActiveTrue(UUID robotUnitId);
 
     List<Deployment> findByCustomerProfileIdAndIsActiveTrue(UUID customerProfileId);
+
+    boolean existsByCustomerProfileId(UUID customerProfileId);
+
+    long countByCustomerProfileIdAndIsActiveTrue(UUID customerProfileId);
 }

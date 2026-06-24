@@ -40,6 +40,12 @@ public class Deployment {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
+    /** How often this robot's report is sent on a schedule. */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "report_cadence", nullable = false, length = 20)
+    private ReportCadence reportCadence = ReportCadence.MONTHLY;
+
     @Column(name = "deployed_at", nullable = false)
     private LocalDateTime deployedAt;
 

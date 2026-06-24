@@ -22,8 +22,13 @@ public class CustomerProfile {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    /**
+     * Optional login account. Customers are internal records (report recipients)
+     * in this MVP and usually have no account; a future customer login could link
+     * one here, so the column stays unique but nullable.
+     */
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false, unique = true)
+    @JoinColumn(name = "user_id", unique = true)
     private User user;
 
     @Column(name = "company_name", nullable = false)
@@ -31,6 +36,10 @@ public class CustomerProfile {
 
     @Column(name = "industry")
     private String industry;
+
+    /** Email the monthly report is delivered to. */
+    @Column(name = "contact_email", length = 255)
+    private String contactEmail;
 
     @Column(name = "contact_phone")
     private String contactPhone;
