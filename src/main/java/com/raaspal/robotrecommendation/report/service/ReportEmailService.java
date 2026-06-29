@@ -87,18 +87,19 @@ public class ReportEmailService {
 
     private String buildHtml(String company, String periodLabel, String url) {
         return """
-                <div style="font-family: Arial, Helvetica, sans-serif; color:#16243a; max-width:520px;">
-                  <h2 style="color:#0f7ea8; margin:0 0 4px;">RAAS PAL</h2>
-                  <p style="margin:0 0 16px; font-weight:bold;">Monthly Robot Performance Report</p>
+                <div style="font-family: Arial, Helvetica, sans-serif; color:#16243a; max-width:520px; line-height:1.55;">
+                  <p style="color:#0f7ea8; font-weight:bold; font-size:18px; margin:0 0 2px;">RAAS PAL</p>
+                  <p style="font-weight:bold; margin:0 0 16px;">Monthly Robot Performance Report</p>
                   <p>Dear %s,</p>
-                  <p>Your robot performance report for <strong>%s</strong> is ready to view.</p>
+                  <p>Please find your Monthly Robot Performance Report for <strong>%s</strong>. You can view the
+                     full report online, and download a PDF copy from the report page.</p>
                   <p style="margin:24px 0;">
                     <a href="%s" style="display:inline-block; background:#16b9d1; color:#ffffff;
-                       padding:12px 22px; border-radius:8px; text-decoration:none; font-weight:bold;">
-                      View report
-                    </a>
+                       padding:12px 22px; border-radius:8px; text-decoration:none; font-weight:bold;">View report</a>
                   </p>
                   <p style="color:#6b7785; font-size:12px;">Or open this link:<br><a href="%s">%s</a></p>
+                  <p style="margin-top:20px;">Should you have any questions, please contact your RAASPAL representative.</p>
+                  <p style="margin:0;">Best regards,<br>RAASPAL Team</p>
                   <p style="color:#6b7785; font-size:12px; margin-top:24px;">
                     Figures are generated automatically from robot telemetry. Final confirmation requires
                     RAASPAL verification and/or an on-site survey.
