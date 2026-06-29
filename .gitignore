@@ -36,3 +36,5 @@ build/
 application-local.properties
 .env
 uploads/
+
+*.pptx
