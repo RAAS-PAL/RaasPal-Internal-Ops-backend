@@ -18,6 +18,7 @@ import java.time.Month;
 import java.time.YearMonth;
 import java.time.format.TextStyle;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * Emails a customer a link to their monthly report (the public token page). The
@@ -33,6 +34,7 @@ public class ReportEmailService {
     private final RobotUnitService robotUnitService;
     private final CustomerProfileRepository customerProfileRepository;
     private final ReportLinkService reportLinkService;
+    private final CustomerReportLinkService customerReportLinkService;
     private final JavaMailSender mailSender;
 
     @Value("${app.mail.from}")
@@ -82,6 +84,43 @@ public class ReportEmailService {
         }
 
         log.info("Report email sent for {} to {}", serialNumber, email);
+        return new SentEmail(email, customer.getCompanyName(), url);
+    }
+
+    /**
+     * Emails a customer a single link covering ALL of their robots for the month
+     * (the combined report bundle page). Used by the automated monthly scheduler.
+     */
+    public SentEmail sendBundle(UUID customerProfileId, String month) {
+        CustomerProfile customer = customerProfileRepository.findById(customerProfileId)
+                .orElseThrow(() -> new ResourceNotFoundException("CustomerProfile", "id", customerProfileId));
+
+        String email = customer.getContactEmail();
+        if (email == null || email.isBlank()) {
+            throw new BadRequestException("Customer '" + customer.getCompanyName()
+                    + "' has no contact email. Add one in the Customers tab first.");
+        }
+
+        String token = customerReportLinkService.createOrGetToken(customerProfileId, month);
+        String url = baseUrl.replaceAll("/+$", "") + "/" + reportLocale + "/report/customer/" + token;
+        String periodLabel = periodLabel(month);
+
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            helper.setFrom(from);
+            helper.setTo(email);
+            helper.setSubject("RAAS PAL — Monthly Robot Performance Report (" + periodLabel + ")");
+            helper.setText(buildHtml(customer.getCompanyName(), periodLabel, url), true);
+            mailSender.send(message);
+        } catch (Exception e) {
+            log.error("Failed to email bundle report for customer {} to {}: {}",
+                    customerProfileId, email, e.getMessage(), e);
+            throw new BadRequestException("Email send failed: " + e.getMessage()
+                    + " (check MAIL_USERNAME / MAIL_PASSWORD).");
+        }
+
+        log.info("Bundle report email sent for customer {} to {}", customerProfileId, email);
         return new SentEmail(email, customer.getCompanyName(), url);
     }
 
