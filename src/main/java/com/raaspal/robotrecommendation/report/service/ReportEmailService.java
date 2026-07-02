@@ -65,8 +65,8 @@ public class ReportEmailService {
         String token = reportLinkService.createOrGetToken(serialNumber, month);
         String url = baseUrl.replaceAll("/+$", "") + "/" + reportLocale + "/report/" + token;
         String periodLabel = periodLabel(month);
-        String subject = "RAAS PAL — Monthly Robot Performance Report (" + periodLabel + ")";
-        String html = buildHtml(customer.getCompanyName(), periodLabel, url);
+        String subject = "รายงานสรุปผลการใช้งานหุ่นยนต์ ประจำเดือน " + periodLabel;
+        String html = buildHtml(periodLabel, url);
 
         sendToAll(recipients, subject, html, "report for " + serialNumber);
 
@@ -86,8 +86,8 @@ public class ReportEmailService {
         String token = customerReportLinkService.createOrGetToken(customerProfileId, month);
         String url = baseUrl.replaceAll("/+$", "") + "/" + reportLocale + "/report/customer/" + token;
         String periodLabel = periodLabel(month);
-        String subject = "RAAS PAL — Monthly Robot Performance Report (" + periodLabel + ")";
-        String html = buildHtml(customer.getCompanyName(), periodLabel, url);
+        String subject = "รายงานสรุปผลการใช้งานหุ่นยนต์ ประจำเดือน " + periodLabel;
+        String html = buildHtml(periodLabel, url);
 
         sendToAll(recipients, subject, html, "bundle for customer " + customerProfileId);
 
@@ -137,27 +137,32 @@ public class ReportEmailService {
         return recipients;
     }
 
-    private String buildHtml(String company, String periodLabel, String url) {
+    private String buildHtml(String periodLabel, String url) {
         return """
-                <div style="font-family: Arial, Helvetica, sans-serif; color:#16243a; max-width:520px; line-height:1.55;">
-                  <p style="color:#0f7ea8; font-weight:bold; font-size:18px; margin:0 0 2px;">RAAS PAL</p>
-                  <p style="font-weight:bold; margin:0 0 16px;">Monthly Robot Performance Report</p>
-                  <p>Dear %s,</p>
-                  <p>Please find your Monthly Robot Performance Report for <strong>%s</strong>. You can view the
-                     full report online, and download a PDF copy from the report page.</p>
+                <div style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; color:#16243a; max-width:560px; line-height:1.7;">
+                  <p style="color:#0f7ea8; font-weight:bold; font-size:18px; margin:0 0 16px;">RAAS PAL</p>
+                  <p style="margin:0 0 14px;">เรียน&nbsp;&nbsp;&nbsp;ผู้บริหารโครงการและผู้ที่เกี่ยวข้อง</p>
+                  <p style="margin:0 0 14px;">เพื่อให้ท่านสามารถติดตามประสิทธิภาพการทำงานของหุ่นยนต์ได้อย่างต่อเนื่อง
+                     RAASPAL ขอส่ง <strong>รายงานสรุปผลการใช้งานหุ่นยนต์ (Executive Robot Performance Report)
+                     ประจำเดือน %s</strong> มาเพื่อประกอบการพิจารณา</p>
+                  <p style="margin:0 0 6px;">รายงานฉบับนี้สรุปข้อมูลสำคัญ ได้แก่</p>
+                  <ul style="margin:0 0 16px; padding-left:22px;">
+                    <li>ภาพรวมผลการปฏิบัติงานของหุ่นยนต์</li>
+                    <li>ประสิทธิภาพการทำงาน (Operational Performance)</li>
+                    <li>สถานะวัสดุสิ้นเปลือง (Consumables Status)</li>
+                    <li>ข้อเสนอแนะเพื่อการใช้งานอย่างมีประสิทธิภาพ</li>
+                  </ul>
                   <p style="margin:24px 0;">
                     <a href="%s" style="display:inline-block; background:#16b9d1; color:#ffffff;
-                       padding:12px 22px; border-radius:8px; text-decoration:none; font-weight:bold;">View report</a>
+                       padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">ดูรายงาน</a>
                   </p>
-                  <p style="color:#6b7785; font-size:12px;">Or open this link:<br><a href="%s">%s</a></p>
-                  <p style="margin-top:20px;">Should you have any questions, please contact your RAASPAL representative.</p>
-                  <p style="margin:0;">Best regards,<br>RAASPAL Team</p>
-                  <p style="color:#6b7785; font-size:12px; margin-top:24px;">
-                    Figures are generated automatically from robot telemetry. Final confirmation requires
-                    RAASPAL verification and/or an on-site survey.
-                  </p>
+                  <p style="color:#6b7785; font-size:12px; margin:0 0 20px;">หรือเปิดลิงก์นี้:<br><a href="%s">%s</a></p>
+                  <p style="margin:0 0 14px;">หากท่านมีข้อสงสัย หรือต้องการข้อมูลเพิ่มเติม สามารถติดต่อ Customer Success Team
+                     ผ่านช่องทางกลุ่ม Line หรือ Call Center 02 576 5555</p>
+                  <p style="margin:0 0 20px;">ขอขอบพระคุณที่ให้ความไว้วางใจ RAASPAL ในการดูแลระบบหุ่นยนต์ของท่าน</p>
+                  <p style="margin:0;">ขอแสดงความนับถือ<br>Customer Success Team</p>
                 </div>
-                """.formatted(escape(company), escape(periodLabel), url, url, url);
+                """.formatted(escape(periodLabel), url, url, url);
     }
 
     /** "2026-06" → "June 2026". */
