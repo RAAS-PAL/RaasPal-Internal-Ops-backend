@@ -11,9 +11,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * Admin CRUD for customer records (report recipients). Customers have no login
@@ -87,9 +89,27 @@ public class CustomerService {
         return deploymentRepository.countByCustomerProfileIdAndIsActiveTrue(customerProfileId);
     }
 
+    /**
+     * Normalizes the contact-email field, which may contain several addresses
+     * separated by commas or semicolons. Each is trimmed, lowercased, and checked
+     * for a basic email shape; blanks and duplicates are dropped. Returns the
+     * cleaned addresses joined by ", " (or null if none). Throws a clear
+     * {@link BadRequestException} if any address is malformed.
+     */
     private String normalizeEmail(String email) {
-        if (email == null) return null;
-        String trimmed = email.trim();
-        return trimmed.isEmpty() ? null : trimmed.toLowerCase();
+        if (email == null || email.isBlank()) return null;
+        List<String> normalized = new ArrayList<>();
+        for (String part : email.split("[,;]")) {
+            String addr = part.trim().toLowerCase();
+            if (addr.isEmpty()) continue;
+            if (!EMAIL_PATTERN.matcher(addr).matches()) {
+                throw new BadRequestException("Contact email must be a valid email address: " + addr);
+            }
+            if (!normalized.contains(addr)) normalized.add(addr);
+        }
+        return normalized.isEmpty() ? null : String.join(", ", normalized);
     }
+
+    private static final Pattern EMAIL_PATTERN =
+            Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 }

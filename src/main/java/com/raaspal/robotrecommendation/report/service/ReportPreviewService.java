@@ -4,6 +4,7 @@ import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Consumable;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Executive;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Operational;
+import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Recommendation;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Ring;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
@@ -113,8 +114,7 @@ public class ReportPreviewService {
                         List.of(new Ring("Task Completion Rate", 0), new Ring("Cleaning Coverage Rate", 0)),
                         "—", "—", "—", "0 min 0 sec"),
                 List.of(),
-                List.of("No task data found for this robot in " + periodLabel(month)
-                        + ". Connect Gausium telemetry or choose a month with synced tasks."));
+                List.of(new Recommendation("noData", null, null)));
     }
 
     private List<Consumable> consumables(RobotTaskReport r) {
@@ -131,20 +131,20 @@ public class ReportPreviewService {
         return new Consumable(label, round2(pct), state);
     }
 
-    private List<String> recommendations(double avgCompletion, List<Consumable> consumables) {
-        List<String> recs = new ArrayList<>();
+    private List<Recommendation> recommendations(double avgCompletion, List<Consumable> consumables) {
+        List<Recommendation> recs = new ArrayList<>();
         for (Consumable c : consumables) {
             if ("action".equals(c.state())) {
-                recs.add("Schedule " + c.label().toLowerCase() + " replacement soon — residual at " + c.percent() + "%.");
+                recs.add(new Recommendation("action", c.label(), c.percent()));
             } else if ("monitor".equals(c.state())) {
-                recs.add("Monitor " + c.label().toLowerCase() + " wear — residual at " + c.percent() + "%.");
+                recs.add(new Recommendation("monitor", c.label(), c.percent()));
             }
         }
         if (avgCompletion < 80) {
-            recs.add(String.format(Locale.US, "Investigate incomplete tasks — average completion is %.1f%%.", avgCompletion));
+            recs.add(new Recommendation("completion", null, round2(avgCompletion)));
         }
         if (recs.isEmpty()) {
-            recs.add("Continue the current operation plan — performance is within a healthy range.");
+            recs.add(new Recommendation("healthy", null, null));
         }
         return recs;
     }
@@ -199,6 +199,7 @@ public class ReportPreviewService {
             Map.entry("尘推", "Dust Push"),
             Map.entry("推尘", "Dust Push"),
             Map.entry("扫地", "Sweeping"),
+            Map.entry("清扫", "Sweeping"),
             Map.entry("吸尘", "Vacuuming"),
             Map.entry("拖地", "Mopping"),
             Map.entry("洗扫", "Wash & Sweep"));
@@ -224,6 +225,8 @@ public class ReportPreviewService {
         String key = mode.trim().toLowerCase().replaceFirst("^_+", ""); // drop any leading "__"
         String mapped = MODE_LABELS.get(key);
         if (mapped != null) return mapped;
+        // Never show raw non-English text (e.g. an unmapped Chinese mode) on the report.
+        if (!key.chars().allMatch(c -> c < 128)) return "Other";
         String spaced = key.replace('_', ' ');
         return spaced.isEmpty() ? spaced : Character.toUpperCase(spaced.charAt(0)) + spaced.substring(1);
     }
