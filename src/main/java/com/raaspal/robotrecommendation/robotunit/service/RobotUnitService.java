@@ -6,6 +6,7 @@ import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
 import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
 import com.raaspal.robotrecommendation.robotunit.dto.RegisterRobotRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
+import com.raaspal.robotrecommendation.robotunit.dto.UpdateRobotRequest;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.entity.ReportCadence;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
@@ -68,6 +69,46 @@ public class RobotUnitService {
                 .reportCadence(cadence)
                 .deployedAt(LocalDateTime.now())
                 .build());
+
+        return RobotUnitResponse.of(robot, deployment);
+    }
+
+    /**
+     * Edits a robot's details (brand/model/name) and its deployment (customer,
+     * site, cadence). The serial number is immutable. If the robot has an active
+     * deployment it is updated in place — including reassigning to another
+     * customer; if it has none (deactivated), a fresh active deployment is created.
+     */
+    @Transactional
+    public RobotUnitResponse update(UUID robotUnitId, UpdateRobotRequest request) {
+        RobotUnit robot = robotUnitRepository.findById(robotUnitId)
+                .orElseThrow(() -> new ResourceNotFoundException("RobotUnit", "id", robotUnitId));
+
+        CustomerProfile customer = customerProfileRepository.findById(request.customerProfileId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "CustomerProfile", "id", request.customerProfileId()));
+
+        robot.setBrand(request.brand().trim());
+        robot.setModel(request.model());
+        robot.setName(request.name());
+        robotUnitRepository.save(robot);
+
+        ReportCadence cadence = request.reportCadence() != null
+                ? request.reportCadence()
+                : ReportCadence.MONTHLY;
+
+        Deployment deployment = activeDeploymentFor(robotUnitId);
+        if (deployment == null) {
+            deployment = Deployment.builder()
+                    .robotUnit(robot)
+                    .isActive(true)
+                    .deployedAt(LocalDateTime.now())
+                    .build();
+        }
+        deployment.setCustomerProfile(customer);
+        deployment.setSite(request.site());
+        deployment.setReportCadence(cadence);
+        deploymentRepository.save(deployment);
 
         return RobotUnitResponse.of(robot, deployment);
     }

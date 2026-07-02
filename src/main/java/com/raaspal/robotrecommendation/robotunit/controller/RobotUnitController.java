@@ -4,6 +4,7 @@ import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.robotunit.dto.RegisterRobotRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.dto.UpdateCadenceRequest;
+import com.raaspal.robotrecommendation.robotunit.dto.UpdateRobotRequest;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -60,6 +62,14 @@ public class RobotUnitController {
             return ApiResponse.success(robotUnitService.listByCustomer(customerId));
         }
         return ApiResponse.success(robotUnitService.listAll());
+    }
+
+    /** Edit a robot's details and deployment (serial number is immutable). */
+    @PutMapping("/{robotUnitId}")
+    public ApiResponse<RobotUnitResponse> update(
+            @PathVariable UUID robotUnitId,
+            @Valid @RequestBody UpdateRobotRequest request) {
+        return ApiResponse.success("Robot updated", robotUnitService.update(robotUnitId, request));
     }
 
     /** Change a deployment's report cadence (Monthly / Weekly / Off). */
