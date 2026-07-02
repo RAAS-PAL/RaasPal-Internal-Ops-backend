@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 import java.time.Month;
 import java.time.YearMonth;
 import java.time.format.TextStyle;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -59,32 +61,17 @@ public class ReportEmailService {
         CustomerProfile customer = customerProfileRepository.findById(robot.deployment().customerProfileId())
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerProfile", "id", robot.deployment().customerProfileId()));
 
-        String email = customer.getContactEmail();
-        if (email == null || email.isBlank()) {
-            throw new BadRequestException("Customer '" + customer.getCompanyName()
-                    + "' has no contact email. Add one in the Customers tab first.");
-        }
-
+        List<String> recipients = recipientsOf(customer);
         String token = reportLinkService.createOrGetToken(serialNumber, month);
         String url = baseUrl.replaceAll("/+$", "") + "/" + reportLocale + "/report/" + token;
         String periodLabel = periodLabel(month);
+        String subject = "RAAS PAL — Monthly Robot Performance Report (" + periodLabel + ")";
+        String html = buildHtml(customer.getCompanyName(), periodLabel, url);
 
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(email);
-            helper.setSubject("RAAS PAL — Monthly Robot Performance Report (" + periodLabel + ")");
-            helper.setText(buildHtml(customer.getCompanyName(), periodLabel, url), true);
-            mailSender.send(message);
-        } catch (Exception e) {
-            log.error("Failed to email report for {} to {}: {}", serialNumber, email, e.getMessage(), e);
-            throw new BadRequestException("Email send failed: " + e.getMessage()
-                    + " (check MAIL_USERNAME / MAIL_PASSWORD).");
-        }
+        sendToAll(recipients, subject, html, "report for " + serialNumber);
 
-        log.info("Report email sent for {} to {}", serialNumber, email);
-        return new SentEmail(email, customer.getCompanyName(), url);
+        log.info("Report email sent for {} to {}", serialNumber, recipients);
+        return new SentEmail(String.join(", ", recipients), customer.getCompanyName(), url);
     }
 
     /**
@@ -95,33 +82,59 @@ public class ReportEmailService {
         CustomerProfile customer = customerProfileRepository.findById(customerProfileId)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerProfile", "id", customerProfileId));
 
-        String email = customer.getContactEmail();
-        if (email == null || email.isBlank()) {
-            throw new BadRequestException("Customer '" + customer.getCompanyName()
-                    + "' has no contact email. Add one in the Customers tab first.");
-        }
-
+        List<String> recipients = recipientsOf(customer);
         String token = customerReportLinkService.createOrGetToken(customerProfileId, month);
         String url = baseUrl.replaceAll("/+$", "") + "/" + reportLocale + "/report/customer/" + token;
         String periodLabel = periodLabel(month);
+        String subject = "RAAS PAL — Monthly Robot Performance Report (" + periodLabel + ")";
+        String html = buildHtml(customer.getCompanyName(), periodLabel, url);
 
+        sendToAll(recipients, subject, html, "bundle for customer " + customerProfileId);
+
+        log.info("Bundle report email sent for customer {} to {}", customerProfileId, recipients);
+        return new SentEmail(String.join(", ", recipients), customer.getCompanyName(), url);
+    }
+
+    /**
+     * Sends one email addressed to all recipients on the To line. A customer
+     * (one branch) may list several contact emails, comma/semicolon-separated in
+     * {@code contactEmail}; they all receive the same single message. Different
+     * branches are separate customer records and are emailed independently.
+     */
+    private void sendToAll(List<String> recipients, String subject, String html, String context) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
             helper.setFrom(from);
-            helper.setTo(email);
-            helper.setSubject("RAAS PAL — Monthly Robot Performance Report (" + periodLabel + ")");
-            helper.setText(buildHtml(customer.getCompanyName(), periodLabel, url), true);
+            helper.setTo(recipients.toArray(new String[0]));
+            helper.setSubject(subject);
+            helper.setText(html, true);
             mailSender.send(message);
         } catch (Exception e) {
-            log.error("Failed to email bundle report for customer {} to {}: {}",
-                    customerProfileId, email, e.getMessage(), e);
+            log.error("Failed to email {} to {}: {}", context, recipients, e.getMessage(), e);
             throw new BadRequestException("Email send failed: " + e.getMessage()
                     + " (check MAIL_USERNAME / MAIL_PASSWORD).");
         }
+    }
 
-        log.info("Bundle report email sent for customer {} to {}", customerProfileId, email);
-        return new SentEmail(email, customer.getCompanyName(), url);
+    /**
+     * The customer's contact address(es). {@code contactEmail} may hold several
+     * addresses separated by comma or semicolon; each is trimmed and blanks are
+     * dropped. Throws if none are usable.
+     */
+    private List<String> recipientsOf(CustomerProfile customer) {
+        String raw = customer.getContactEmail();
+        List<String> recipients = raw == null ? List.of()
+                : Arrays.stream(raw.split("[,;]"))
+                        .map(String::trim)
+                        .filter(s -> !s.isBlank())
+                        .distinct()
+                        .toList();
+        if (recipients.isEmpty()) {
+            throw new BadRequestException("Customer '" + customer.getCompanyName()
+                    + "' has no contact email. Add one in the Customers tab first.");
+        }
+        return recipients;
     }
 
     private String buildHtml(String company, String periodLabel, String url) {
