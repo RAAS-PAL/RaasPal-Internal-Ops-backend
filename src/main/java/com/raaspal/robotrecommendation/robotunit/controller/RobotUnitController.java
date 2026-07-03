@@ -81,6 +81,13 @@ public class RobotUnitController {
                 robotUnitService.updateCadence(deploymentId, request.reportCadence()));
     }
 
+    /** Set the report cadence on every active deployment at once. */
+    @PatchMapping("/deployments/cadence")
+    public ApiResponse<Integer> updateAllCadence(@Valid @RequestBody UpdateCadenceRequest request) {
+        int updated = robotUnitService.updateAllCadence(request.reportCadence());
+        return ApiResponse.success("Cadence updated for all robots", updated);
+    }
+
     /** Deactivate a deployment so the robot stops being reported on. */
     @DeleteMapping("/deployments/{deploymentId}")
     public ApiResponse<Void> deactivate(@PathVariable UUID deploymentId) {
