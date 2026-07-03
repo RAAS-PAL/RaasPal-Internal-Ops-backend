@@ -119,10 +119,23 @@ public class ReportPreviewService {
 
     private List<Consumable> consumables(RobotTaskReport r) {
         List<Consumable> list = new ArrayList<>();
-        if (r.getBrushResidualPct() != null) list.add(consumable("Brush", r.getBrushResidualPct()));
-        if (r.getFilterResidualPct() != null) list.add(consumable("Filter", r.getFilterResidualPct()));
-        if (r.getSuctionBladeResidualPct() != null) list.add(consumable("Squeegee", r.getSuctionBladeResidualPct()));
+        addConsumable(list, "Brush", r.getBrushResidualPct());
+        addConsumable(list, "Filter", r.getFilterResidualPct());
+        addConsumable(list, "Squeegee", r.getSuctionBladeResidualPct());
         return list;
+    }
+
+    /**
+     * Adds a consumable only when the robot actually has it. A residual of null —
+     * or exactly 0 — means the robot doesn't carry/report that part (e.g. a
+     * sweeper has no brush/filter/squeegee; Gausium fills those with 0), so we
+     * omit it rather than show a misleading "0% — replace now". A genuinely worn
+     * part reports a small positive value (e.g. 13.7%), which is kept.
+     */
+    private void addConsumable(List<Consumable> list, String label, BigDecimal residual) {
+        if (residual != null && residual.signum() > 0) {
+            list.add(consumable(label, residual));
+        }
     }
 
     private Consumable consumable(String label, BigDecimal residual) {
