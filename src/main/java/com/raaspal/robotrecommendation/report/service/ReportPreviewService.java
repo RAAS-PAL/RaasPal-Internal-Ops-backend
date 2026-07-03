@@ -202,21 +202,26 @@ public class ReportPreviewService {
             Map.entry("清扫", "Sweeping"),
             Map.entry("吸尘", "Vacuuming"),
             Map.entry("拖地", "Mopping"),
-            Map.entry("洗扫", "Wash & Sweep"));
+            Map.entry("洗扫", "Wash & Sweep"),
+            Map.entry("轻度清洁", "Light Cleaning"),
+            Map.entry("中度清洁", "Medium Cleaning"),
+            Map.entry("重度清洁", "Deep Cleaning"));
 
     /**
      * Every cleaning mode used in the month with its run count, most-frequent
      * first, e.g. "Wet Mopping ×7, Mopping ×3". "—" when no mode is recorded.
      */
     private static String taskTypeBreakdown(List<RobotTaskReport> reports) {
+        // Group by the mapped English label (not the raw mode), so raw values that
+        // translate to the same label — or both fall back to "Other" — merge into one count.
         Map<String, Long> counts = reports.stream()
                 .map(RobotTaskReport::getCleaningMode)
                 .filter(m -> m != null && !m.isBlank())
-                .collect(Collectors.groupingBy(String::trim, Collectors.counting()));
+                .collect(Collectors.groupingBy(ReportPreviewService::modeLabel, Collectors.counting()));
         if (counts.isEmpty()) return "—";
         return counts.entrySet().stream()
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .map(e -> modeLabel(e.getKey()) + " ×" + e.getValue())
+                .map(e -> e.getKey() + " ×" + e.getValue()) // keys are already English labels
                 .collect(Collectors.joining(", "));
     }
 
