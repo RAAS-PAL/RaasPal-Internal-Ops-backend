@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.telemetry.core;
 
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
+import com.raaspal.robotrecommendation.report.service.ReportCacheService;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
@@ -32,6 +33,7 @@ public class TelemetrySyncService {
     private final DeploymentRepository deploymentRepository;
     private final TelemetryAdapterRegistry adapterRegistry;
     private final RobotTaskReportRepository taskReportRepository;
+    private final ReportCacheService reportCacheService;
 
     /** Result of a sync run for one robot. */
     public record SyncResult(String serialNumber, int saved, int skipped) {
@@ -48,7 +50,9 @@ public class TelemetrySyncService {
         RobotUnit robotUnit = robotUnitRepository.findBySerialNumber(serialNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("RobotUnit", "serialNumber", serialNumber));
         try {
-            return syncRobotUnit(robotUnit, from, to);
+            SyncResult result = syncRobotUnit(robotUnit, from, to);
+            reportCacheService.evictAll(); // new task data → cached reports may be stale
+            return result;
         } catch (Exception e) {
             throw new BadRequestException("Telemetry sync failed for " + serialNumber + ": " + e.getMessage());
         }
@@ -72,6 +76,7 @@ public class TelemetrySyncService {
                         robotUnit.getSerialNumber(), robotUnit.getBrand(), e.getMessage(), e);
             }
         }
+        reportCacheService.evictAll(); // new task data → cached reports may be stale
         log.info("Telemetry sync complete");
     }
 

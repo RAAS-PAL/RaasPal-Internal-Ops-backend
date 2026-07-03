@@ -22,7 +22,7 @@ public class ReportLinkService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ReportLinkRepository reportLinkRepository;
-    private final ReportPreviewService reportPreviewService;
+    private final ReportCacheService reportCacheService;
 
     /** Returns the shareable token for a robot+month, creating it on first use. */
     @Transactional
@@ -36,12 +36,11 @@ public class ReportLinkService {
                         .build()).getToken());
     }
 
-    /** Resolves a public token to its aggregated report. 404 if unknown. */
-    @Transactional(readOnly = true)
+    /** Resolves a public token to its aggregated report (served from cache). 404 if unknown. */
     public ReportPreviewResponse resolve(String token) {
         ReportLink link = reportLinkRepository.findByToken(token)
                 .orElseThrow(() -> new ResourceNotFoundException("ReportLink", "token", token));
-        return reportPreviewService.build(link.getSerialNumber(), link.getReportMonth());
+        return reportCacheService.getRobotReport(link.getSerialNumber(), link.getReportMonth());
     }
 
     private String generateToken() {

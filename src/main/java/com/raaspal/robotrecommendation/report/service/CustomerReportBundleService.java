@@ -28,15 +28,16 @@ public class CustomerReportBundleService {
 
     private final CustomerProfileRepository customerProfileRepository;
     private final RobotUnitService robotUnitService;
-    private final ReportPreviewService reportPreviewService;
+    private final ReportCacheService reportCacheService;
 
     @Transactional(readOnly = true)
     public CustomerReportBundleResponse build(UUID customerProfileId, String month) {
         CustomerProfile customer = customerProfileRepository.findById(customerProfileId)
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerProfile", "id", customerProfileId));
 
+        // Each robot's report is served from cache (computed once per robot+month).
         List<ReportPreviewResponse> robots = robotUnitService.listByCustomer(customerProfileId).stream()
-                .map(robot -> reportPreviewService.build(robot.serialNumber(), month))
+                .map(robot -> reportCacheService.getRobotReport(robot.serialNumber(), month))
                 .toList();
 
         return new CustomerReportBundleResponse(customer.getCompanyName(), periodLabel(month), robots);

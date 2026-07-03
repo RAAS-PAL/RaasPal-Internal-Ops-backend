@@ -2,14 +2,17 @@ package com.raaspal.robotrecommendation.report.service;
 
 import com.raaspal.robotrecommendation.report.entity.ReportSend;
 import com.raaspal.robotrecommendation.report.repository.ReportSendRepository;
+import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.entity.ReportCadence;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
+import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.LinkedHashSet;
@@ -29,6 +32,7 @@ import java.util.UUID;
 public class ReportDeliveryService {
 
     private final DeploymentRepository deploymentRepository;
+    private final RobotUnitService robotUnitService;
     private final TelemetrySyncService telemetrySyncService;
     private final ReportEmailService reportEmailService;
     private final ReportSendRepository reportSendRepository;
@@ -56,7 +60,8 @@ public class ReportDeliveryService {
                 skipped++;
                 continue;
             }
-            ReportSend result = deliverToCustomer(customerId, month);
+            // Whole month already synced above, so don't re-sync per customer.
+            ReportSend result = deliverToCustomer(customerId, month, false);
             switch (result.getStatus()) {
                 case SENT -> sent++;
                 case FAILED -> failed++;
@@ -70,16 +75,53 @@ public class ReportDeliveryService {
 
     /**
      * Sends one customer their bundle for {@code month} and records the result.
-     * Always attempts to send (no idempotency skip) — used by the admin
-     * "send now / resend" action. Failures are recorded as FAILED, not thrown.
+     * Syncs that customer's robots for the month first, so the report reflects the
+     * latest telemetry without anyone clicking "Sync" manually. Always attempts to
+     * send (no idempotency skip) — used by the admin "send now / resend" action.
+     * Failures are recorded as FAILED, not thrown.
      */
     public ReportSend deliverToCustomer(UUID customerProfileId, String month) {
+        return deliverToCustomer(customerProfileId, month, true);
+    }
+
+    /**
+     * @param syncFirst sync this customer's robots before sending. False when the
+     *                  caller already synced the whole month (the bulk run), to
+     *                  avoid pulling the same telemetry twice.
+     */
+    private ReportSend deliverToCustomer(UUID customerProfileId, String month, boolean syncFirst) {
+        if (syncFirst) {
+            syncCustomer(customerProfileId, month);
+        }
         try {
             ReportEmailService.SentEmail result = reportEmailService.sendBundle(customerProfileId, month);
             return record(customerProfileId, month, ReportSend.Status.SENT, result.recipient(), null);
         } catch (Exception e) {
             log.error("Report delivery failed for customer {} ({}): {}", customerProfileId, month, e.getMessage(), e);
             return record(customerProfileId, month, ReportSend.Status.FAILED, null, e.getMessage());
+        }
+    }
+
+    /** Pulls fresh telemetry for one customer's robots for the month, robot by robot. */
+    private void syncCustomer(UUID customerProfileId, String month) {
+        LocalDate from;
+        LocalDate to;
+        try {
+            YearMonth ym = YearMonth.parse(month);
+            from = ym.atDay(1);
+            to = ym.atEndOfMonth();
+        } catch (Exception e) {
+            log.error("Invalid month '{}' for customer {} sync; sending with existing data.", month, customerProfileId);
+            return;
+        }
+        for (RobotUnitResponse robot : robotUnitService.listByCustomer(customerProfileId)) {
+            try {
+                telemetrySyncService.syncBySerialNumber(robot.serialNumber(), from, to);
+            } catch (Exception e) {
+                // One robot's sync failure must not block the others or the send.
+                log.error("Telemetry sync failed for robot {} (customer {}): {}",
+                        robot.serialNumber(), customerProfileId, e.getMessage());
+            }
         }
     }
 
