@@ -140,6 +140,19 @@ public class RobotUnitService {
         return RobotUnitResponse.of(robot, activeDeploymentFor(robot.getId()));
     }
 
+    /**
+     * Sets the report cadence on <em>every</em> active deployment in one shot,
+     * so an admin can flip all robots to Monthly (or Off) without editing each
+     * one. Returns how many deployments were updated.
+     */
+    @Transactional
+    public int updateAllCadence(ReportCadence cadence) {
+        List<Deployment> deployments = deploymentRepository.findByIsActiveTrue();
+        deployments.forEach(d -> d.setReportCadence(cadence));
+        deploymentRepository.saveAll(deployments);
+        return deployments.size();
+    }
+
     /** Changes a deployment's report cadence (Monthly / Weekly / Off). */
     @Transactional
     public RobotUnitResponse updateCadence(UUID deploymentId, ReportCadence cadence) {
