@@ -141,13 +141,17 @@ public class RobotUnitService {
     }
 
     /**
-     * Sets the report cadence on <em>every</em> active deployment in one shot,
-     * so an admin can flip all robots to Monthly (or Off) without editing each
-     * one. Returns how many deployments were updated.
+     * Sets the report cadence in bulk. With no ids, applies to <em>every</em>
+     * active deployment; with ids, only to that selection (inactive ones are
+     * ignored). Returns how many deployments were updated.
      */
     @Transactional
-    public int updateAllCadence(ReportCadence cadence) {
-        List<Deployment> deployments = deploymentRepository.findByIsActiveTrue();
+    public int updateAllCadence(ReportCadence cadence, List<UUID> deploymentIds) {
+        List<Deployment> deployments = (deploymentIds == null || deploymentIds.isEmpty())
+                ? deploymentRepository.findByIsActiveTrue()
+                : deploymentRepository.findAllById(deploymentIds).stream()
+                        .filter(d -> Boolean.TRUE.equals(d.getIsActive()))
+                        .toList();
         deployments.forEach(d -> d.setReportCadence(cadence));
         deploymentRepository.saveAll(deployments);
         return deployments.size();
