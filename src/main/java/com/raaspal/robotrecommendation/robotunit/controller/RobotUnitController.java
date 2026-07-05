@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.robotunit.controller;
 
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
+import com.raaspal.robotrecommendation.robotunit.dto.BulkCadenceRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.RegisterRobotRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.dto.UpdateCadenceRequest;
@@ -81,11 +82,11 @@ public class RobotUnitController {
                 robotUnitService.updateCadence(deploymentId, request.reportCadence()));
     }
 
-    /** Set the report cadence on every active deployment at once. */
+    /** Set the report cadence in bulk: all active deployments, or just the selected ids. */
     @PatchMapping("/deployments/cadence")
-    public ApiResponse<Integer> updateAllCadence(@Valid @RequestBody UpdateCadenceRequest request) {
-        int updated = robotUnitService.updateAllCadence(request.reportCadence());
-        return ApiResponse.success("Cadence updated for all robots", updated);
+    public ApiResponse<Integer> updateAllCadence(@Valid @RequestBody BulkCadenceRequest request) {
+        int updated = robotUnitService.updateAllCadence(request.reportCadence(), request.deploymentIds());
+        return ApiResponse.success("Cadence updated", updated);
     }
 
     /** Deactivate a deployment so the robot stops being reported on. */
