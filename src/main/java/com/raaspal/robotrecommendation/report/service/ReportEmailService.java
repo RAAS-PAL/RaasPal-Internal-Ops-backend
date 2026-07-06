@@ -42,6 +42,14 @@ public class ReportEmailService {
     @Value("${app.mail.from}")
     private String from;
 
+    /**
+     * Internal-team addresses CC'd on every report email (comma/semicolon
+     * separated; blank = no CC). Config-driven via MAIL_CC so the list can be
+     * changed on the server without a code change.
+     */
+    @Value("${app.mail.cc:}")
+    private String internalCc;
+
     @Value("${app.public.base-url}")
     private String baseUrl;
 
@@ -96,10 +104,11 @@ public class ReportEmailService {
     }
 
     /**
-     * Sends one email addressed to all recipients on the To line. A customer
-     * (one branch) may list several contact emails, comma/semicolon-separated in
-     * {@code contactEmail}; they all receive the same single message. Different
-     * branches are separate customer records and are emailed independently.
+     * Sends one email addressed to all recipients on the To line, with the
+     * internal team (app.mail.cc) on CC. A customer (one branch) may list several
+     * contact emails, comma/semicolon-separated in {@code contactEmail}; they all
+     * receive the same single message. Different branches are separate customer
+     * records and are emailed independently.
      */
     private void sendToAll(List<String> recipients, String subject, String html, String context) {
         try {
@@ -107,6 +116,10 @@ public class ReportEmailService {
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
             helper.setFrom(from);
             helper.setTo(recipients.toArray(new String[0]));
+            List<String> cc = internalCcList(recipients);
+            if (!cc.isEmpty()) {
+                helper.setCc(cc.toArray(new String[0]));
+            }
             helper.setSubject(subject);
             helper.setText(html, true);
             mailSender.send(message);
@@ -115,6 +128,24 @@ public class ReportEmailService {
             throw new BadRequestException("Email send failed: " + e.getMessage()
                     + " (check MAIL_USERNAME / MAIL_PASSWORD).");
         }
+    }
+
+    /**
+     * The internal-team CC addresses: comma/semicolon separated, trimmed,
+     * de-duplicated, and minus any address already on the To line (so nobody
+     * gets the same email twice).
+     */
+    private List<String> internalCcList(List<String> recipients) {
+        if (internalCc == null || internalCc.isBlank()) {
+            return List.of();
+        }
+        List<String> toLower = recipients.stream().map(String::toLowerCase).toList();
+        return Arrays.stream(internalCc.split("[,;]"))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .filter(s -> !toLower.contains(s.toLowerCase()))
+                .toList();
     }
 
     /**
