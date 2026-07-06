@@ -31,10 +31,26 @@ public class ReportDeliveryController {
     private final ReportDeliveryService reportDeliveryService;
     private final CustomerProfileRepository customerProfileRepository;
 
-    /** Run the whole-month delivery now (idempotent — skips already-sent customers). */
+    /**
+     * Start the whole-month delivery in the background and return immediately
+     * (the run syncs every robot first, which takes minutes). Idempotent per
+     * customer, and at most one run executes at a time — starting while a run
+     * is in progress is rejected with a clear message. Poll {@code /status}
+     * or the history for progress.
+     */
     @PostMapping("/run")
-    public ApiResponse<ReportDeliveryService.RunSummary> runMonth(@RequestParam String month) {
-        return ApiResponse.success(reportDeliveryService.deliverForMonth(month));
+    public ApiResponse<ReportDeliveryService.RunStatus> runMonth(@RequestParam String month) {
+        boolean started = reportDeliveryService.startRunAsync(month);
+        String message = started
+                ? "Delivery run started for " + month
+                : "A delivery run is already in progress";
+        return ApiResponse.success(message, reportDeliveryService.status());
+    }
+
+    /** Whether a delivery run is executing, and the last finished run's summary. */
+    @GetMapping("/status")
+    public ApiResponse<ReportDeliveryService.RunStatus> status() {
+        return ApiResponse.success(reportDeliveryService.status());
     }
 
     /** Send (or resend) one customer's bundle for the month. */

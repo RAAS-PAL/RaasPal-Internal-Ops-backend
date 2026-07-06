@@ -8,6 +8,7 @@ import com.raaspal.robotrecommendation.robotunit.entity.ReportCadence;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Orchestrates sending customers their monthly report bundle and recording the
@@ -39,6 +43,59 @@ public class ReportDeliveryService {
 
     /** Summary of a whole-month delivery run. */
     public record RunSummary(String month, int sent, int skipped, int failed) {
+    }
+
+    /** Whether a run is currently executing, for which month, and the last finished summary. */
+    public record RunStatus(boolean running, String month, RunSummary lastSummary) {
+    }
+
+    /*
+     * A whole-month run syncs every robot from the brand API before sending, which
+     * can take minutes — far longer than an HTTP client waits. So the admin
+     * endpoint starts the run on this single background thread and returns
+     * immediately; the UI polls status()/the report_sends history for progress.
+     * The single thread + the compare-and-set flag guarantee at most one run at a
+     * time (a second click while running is rejected, not queued).
+     */
+    private final ExecutorService runExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "report-delivery-run");
+        t.setDaemon(true);
+        return t;
+    });
+    private final AtomicBoolean runInProgress = new AtomicBoolean(false);
+    private volatile String runningMonth;
+    private volatile RunSummary lastRunSummary;
+
+    /**
+     * Starts a whole-month delivery in the background. Returns false — without
+     * starting anything — if a run is already in progress.
+     */
+    public boolean startRunAsync(String month) {
+        if (!runInProgress.compareAndSet(false, true)) {
+            log.warn("Delivery run for {} rejected — a run for {} is already in progress", month, runningMonth);
+            return false;
+        }
+        runningMonth = month;
+        runExecutor.submit(() -> {
+            try {
+                lastRunSummary = deliverForMonth(month);
+            } catch (Exception e) {
+                log.error("Background delivery run for {} crashed: {}", month, e.getMessage(), e);
+            } finally {
+                runningMonth = null;
+                runInProgress.set(false);
+            }
+        });
+        return true;
+    }
+
+    public RunStatus status() {
+        return new RunStatus(runInProgress.get(), runningMonth, lastRunSummary);
+    }
+
+    @PreDestroy
+    void shutdownRunExecutor() {
+        runExecutor.shutdownNow();
     }
 
     /**
