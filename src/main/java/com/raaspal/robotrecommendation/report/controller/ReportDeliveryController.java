@@ -14,8 +14,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -33,16 +35,22 @@ public class ReportDeliveryController {
 
     /**
      * Start the whole-month delivery in the background and return immediately
-     * (the run syncs every robot first, which takes minutes). Idempotent per
-     * customer, and at most one run executes at a time — starting while a run
-     * is in progress is rejected with a clear message. Poll {@code /status}
-     * or the history for progress.
+     * (the run syncs each customer's robots as it sends them, which takes
+     * minutes). Idempotent per customer, and at most one run executes at a
+     * time — starting while a run is in progress is rejected with a clear
+     * message. {@code excludedCustomerIds} holds back specific customers for
+     * this run only (e.g. a site not fully registered yet) — they're left
+     * eligible for a future run. Poll {@code /status} or the history for progress.
      */
     @PostMapping("/run")
-    public ApiResponse<ReportDeliveryService.RunStatus> runMonth(@RequestParam String month) {
-        boolean started = reportDeliveryService.startRunAsync(month);
+    public ApiResponse<ReportDeliveryService.RunStatus> runMonth(
+            @RequestParam String month,
+            @RequestParam(required = false) List<UUID> excludedCustomerIds) {
+        Set<UUID> excluded = excludedCustomerIds == null ? Set.of() : new HashSet<>(excludedCustomerIds);
+        boolean started = reportDeliveryService.startRunAsync(month, excluded);
         String message = started
                 ? "Delivery run started for " + month
+                        + (excluded.isEmpty() ? "" : " (excluding " + excluded.size() + " customer(s))")
                 : "A delivery run is already in progress";
         return ApiResponse.success(message, reportDeliveryService.status());
     }

@@ -67,10 +67,13 @@ public class ReportDeliveryService {
     private volatile RunSummary lastRunSummary;
 
     /**
-     * Starts a whole-month delivery in the background. Returns false — without
-     * starting anything — if a run is already in progress.
+     * Starts a whole-month delivery in the background. {@code excludedCustomerIds}
+     * lets the admin hold back specific customers for this run (e.g. a site whose
+     * robots aren't fully registered yet) — they're neither synced nor emailed,
+     * and are left eligible for a future run. Returns false — without starting
+     * anything — if a run is already in progress.
      */
-    public boolean startRunAsync(String month) {
+    public boolean startRunAsync(String month, Set<UUID> excludedCustomerIds) {
         if (!runInProgress.compareAndSet(false, true)) {
             log.warn("Delivery run for {} rejected — a run for {} is already in progress", month, runningMonth);
             return false;
@@ -78,7 +81,7 @@ public class ReportDeliveryService {
         runningMonth = month;
         runExecutor.submit(() -> {
             try {
-                lastRunSummary = deliverForMonth(month);
+                lastRunSummary = deliverForMonth(month, excludedCustomerIds);
             } catch (Exception e) {
                 log.error("Background delivery run for {} crashed: {}", month, e.getMessage(), e);
             } finally {
@@ -126,27 +129,34 @@ public class ReportDeliveryService {
         runExecutor.shutdownNow();
     }
 
+    /** Delivers to every eligible customer, no exclusions. Used by the cron scheduler. */
+    public RunSummary deliverForMonth(String month) {
+        return deliverForMonth(month, Set.of());
+    }
+
     /**
      * Delivers the monthly bundle to every customer with an active MONTHLY-cadence
-     * robot for {@code month} ("YYYY-MM"). Syncs telemetry for the month first so
-     * figures are complete. Idempotent: customers already SENT for the month are
-     * skipped. Never throws for a single customer — failures are logged/recorded
-     * and the run continues.
+     * robot for {@code month} ("YYYY-MM"), except those in {@code excludedCustomerIds}
+     * — held back entirely for this run (not synced, not emailed, not recorded),
+     * so they remain eligible for a later run once ready. Each customer's robots
+     * are synced right before sending them (not excluded/already-sent customers'
+     * robots are never touched, saving time when a large site is held back).
+     * Idempotent: customers already SENT for the month are skipped. Never throws
+     * for a single customer — failures are logged/recorded and the run continues.
      */
-    public RunSummary deliverForMonth(String month) {
-        log.info("Report delivery run starting for month {}", month);
-        syncMonth(month);
+    public RunSummary deliverForMonth(String month, Set<UUID> excludedCustomerIds) {
+        log.info("Report delivery run starting for month {}{}", month,
+                excludedCustomerIds.isEmpty() ? "" : " (excluding " + excludedCustomerIds.size() + " customer(s))");
 
         int sent = 0;
         int skipped = 0;
         int failed = 0;
         for (UUID customerId : eligibleCustomerIds()) {
-            if (isAlreadySent(customerId, month)) {
+            if (excludedCustomerIds.contains(customerId) || isAlreadySent(customerId, month)) {
                 skipped++;
                 continue;
             }
-            // Whole month already synced above, so don't re-sync per customer.
-            ReportSend result = deliverToCustomer(customerId, month, false);
+            ReportSend result = deliverToCustomer(customerId, month, true);
             switch (result.getStatus()) {
                 case SENT -> sent++;
                 case FAILED -> failed++;
@@ -213,15 +223,6 @@ public class ReportDeliveryService {
     /** Delivery history for a month, newest first. */
     public List<ReportSend> historyForMonth(String month) {
         return reportSendRepository.findByReportMonthOrderBySentAtDesc(month);
-    }
-
-    private void syncMonth(String month) {
-        try {
-            YearMonth ym = YearMonth.parse(month);
-            telemetrySyncService.syncRange(ym.atDay(1), ym.atEndOfMonth());
-        } catch (Exception e) {
-            log.error("Telemetry sync failed for {}; sending reports with existing data. {}", month, e.getMessage(), e);
-        }
     }
 
     private Set<UUID> eligibleCustomerIds() {
