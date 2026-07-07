@@ -89,6 +89,34 @@ public class ReportDeliveryService {
         return true;
     }
 
+    /**
+     * Starts a single-customer send in the background. Syncing one customer's
+     * robots can itself take minutes (e.g. a site with 70+ robots), so it uses
+     * the same background thread and in-progress guard as the whole-month run:
+     * the HTTP request returns instantly (no browser timeout → no retry → no
+     * duplicate emails), and only one delivery operation runs at a time. The
+     * outcome lands in report_sends, which the UI history shows.
+     */
+    public boolean startSendAsync(UUID customerProfileId, String month) {
+        if (!runInProgress.compareAndSet(false, true)) {
+            log.warn("Single send for customer {} ({}) rejected — a delivery for {} is already in progress",
+                    customerProfileId, month, runningMonth);
+            return false;
+        }
+        runningMonth = month;
+        runExecutor.submit(() -> {
+            try {
+                deliverToCustomer(customerProfileId, month);
+            } catch (Exception e) {
+                log.error("Background send for customer {} ({}) crashed: {}", customerProfileId, month, e.getMessage(), e);
+            } finally {
+                runningMonth = null;
+                runInProgress.set(false);
+            }
+        });
+        return true;
+    }
+
     public RunStatus status() {
         return new RunStatus(runInProgress.get(), runningMonth, lastRunSummary);
     }

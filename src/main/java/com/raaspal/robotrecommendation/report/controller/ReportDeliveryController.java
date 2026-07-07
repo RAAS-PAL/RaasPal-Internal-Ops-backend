@@ -53,13 +53,22 @@ public class ReportDeliveryController {
         return ApiResponse.success(reportDeliveryService.status());
     }
 
-    /** Send (or resend) one customer's bundle for the month. */
+    /**
+     * Send (or resend) one customer's bundle for the month, in the background —
+     * syncing one customer's robots can take minutes for large sites, so the
+     * request returns immediately and the outcome appears in the history.
+     * Rejected (started=false in the message) while another delivery is running.
+     */
     @PostMapping("/send")
-    public ApiResponse<ReportSendResponse> sendCustomer(
+    public ApiResponse<ReportDeliveryService.RunStatus> sendCustomer(
             @RequestParam UUID customerProfileId,
             @RequestParam String month) {
-        ReportSend send = reportDeliveryService.deliverToCustomer(customerProfileId, month);
-        return ApiResponse.success(ReportSendResponse.of(send, customerName(send.getCustomerProfileId())));
+        boolean started = reportDeliveryService.startSendAsync(customerProfileId, month);
+        String message = started
+                ? "Send started for " + customerName(customerProfileId) + " (" + month
+                        + ") — the result will appear in the history below."
+                : "A delivery is already in progress — try again when it finishes.";
+        return ApiResponse.success(message, reportDeliveryService.status());
     }
 
     /** Delivery history for a month, newest first. */
