@@ -31,19 +31,44 @@ public class ReportDeliveryController {
     private final ReportDeliveryService reportDeliveryService;
     private final CustomerProfileRepository customerProfileRepository;
 
-    /** Run the whole-month delivery now (idempotent — skips already-sent customers). */
+    /**
+     * Start the whole-month delivery in the background and return immediately
+     * (the run syncs every robot first, which takes minutes). Idempotent per
+     * customer, and at most one run executes at a time — starting while a run
+     * is in progress is rejected with a clear message. Poll {@code /status}
+     * or the history for progress.
+     */
     @PostMapping("/run")
-    public ApiResponse<ReportDeliveryService.RunSummary> runMonth(@RequestParam String month) {
-        return ApiResponse.success(reportDeliveryService.deliverForMonth(month));
+    public ApiResponse<ReportDeliveryService.RunStatus> runMonth(@RequestParam String month) {
+        boolean started = reportDeliveryService.startRunAsync(month);
+        String message = started
+                ? "Delivery run started for " + month
+                : "A delivery run is already in progress";
+        return ApiResponse.success(message, reportDeliveryService.status());
     }
 
-    /** Send (or resend) one customer's bundle for the month. */
+    /** Whether a delivery run is executing, and the last finished run's summary. */
+    @GetMapping("/status")
+    public ApiResponse<ReportDeliveryService.RunStatus> status() {
+        return ApiResponse.success(reportDeliveryService.status());
+    }
+
+    /**
+     * Send (or resend) one customer's bundle for the month, in the background —
+     * syncing one customer's robots can take minutes for large sites, so the
+     * request returns immediately and the outcome appears in the history.
+     * Rejected (started=false in the message) while another delivery is running.
+     */
     @PostMapping("/send")
-    public ApiResponse<ReportSendResponse> sendCustomer(
+    public ApiResponse<ReportDeliveryService.RunStatus> sendCustomer(
             @RequestParam UUID customerProfileId,
             @RequestParam String month) {
-        ReportSend send = reportDeliveryService.deliverToCustomer(customerProfileId, month);
-        return ApiResponse.success(ReportSendResponse.of(send, customerName(send.getCustomerProfileId())));
+        boolean started = reportDeliveryService.startSendAsync(customerProfileId, month);
+        String message = started
+                ? "Send started for " + customerName(customerProfileId) + " (" + month
+                        + ") — the result will appear in the history below."
+                : "A delivery is already in progress — try again when it finishes.";
+        return ApiResponse.success(message, reportDeliveryService.status());
     }
 
     /** Delivery history for a month, newest first. */
