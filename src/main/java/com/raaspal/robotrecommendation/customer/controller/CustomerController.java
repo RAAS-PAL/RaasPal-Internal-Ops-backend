@@ -1,8 +1,11 @@
 package com.raaspal.robotrecommendation.customer.controller;
 
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
+import com.raaspal.robotrecommendation.customer.dto.AnnouncementRequest;
+import com.raaspal.robotrecommendation.customer.dto.AnnouncementResult;
 import com.raaspal.robotrecommendation.customer.dto.CustomerRequest;
 import com.raaspal.robotrecommendation.customer.dto.CustomerResponse;
+import com.raaspal.robotrecommendation.customer.service.CustomerAnnouncementService;
 import com.raaspal.robotrecommendation.customer.service.CustomerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,10 +31,22 @@ import java.util.UUID;
 public class CustomerController {
 
     private final CustomerService customerService;
+    private final CustomerAnnouncementService customerAnnouncementService;
 
     @GetMapping
     public ApiResponse<List<CustomerResponse>> list() {
         return ApiResponse.success(customerService.listAll());
+    }
+
+    /**
+     * Send a free-text announcement email to selected customers. The email body
+     * is EXACTLY the provided message (no report links or template). Optional CC
+     * addresses are added to every email.
+     */
+    @PostMapping("/announcements")
+    public ApiResponse<AnnouncementResult> sendAnnouncement(@Valid @RequestBody AnnouncementRequest request) {
+        AnnouncementResult result = customerAnnouncementService.send(request);
+        return ApiResponse.success("Announcement sent to " + result.sent() + " customer(s)", result);
     }
 
     @GetMapping("/{id}")
