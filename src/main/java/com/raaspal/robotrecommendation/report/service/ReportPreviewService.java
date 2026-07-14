@@ -80,7 +80,8 @@ public class ReportPreviewService {
                 round2(totalArea),
                 round2(productivity),
                 round2(totalWater),
-                totalArea > 0 ? String.format(Locale.US, "%.1f %%/100 sqm", batteryUsed / totalArea * 100) : "—");
+                // Area cleaned per 100% of battery = (area / battery% used) × 100.
+                batteryUsed > 0 ? String.format(Locale.US, "%,.1f sqm/100%%", totalArea / batteryUsed * 100) : "—");
 
         Operational operational = new Operational(
                 List.of(
