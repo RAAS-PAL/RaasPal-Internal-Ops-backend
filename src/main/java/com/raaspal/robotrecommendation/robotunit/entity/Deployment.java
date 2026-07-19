@@ -36,6 +36,14 @@ public class Deployment {
     @Column(length = 255)
     private String site;
 
+    /**
+     * Distributor / service partner (e.g. PCS) servicing this robot; null =
+     * RAASPAL-direct. The partner API scopes all reads through this column.
+     * Plain UUID (no relation) to keep the partner module decoupled.
+     */
+    @Column(name = "partner_id")
+    private UUID partnerId;
+
     @Builder.Default
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;

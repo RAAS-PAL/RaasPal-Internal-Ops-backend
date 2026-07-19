@@ -16,6 +16,9 @@ public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
 
     List<Deployment> findByCustomerProfileIdAndIsActiveTrue(UUID customerProfileId);
 
+    /** Active deployments serviced by a partner — the partner API's scoping query. */
+    List<Deployment> findByPartnerIdAndIsActiveTrue(UUID partnerId);
+
     boolean existsByCustomerProfileId(UUID customerProfileId);
 
     long countByCustomerProfileIdAndIsActiveTrue(UUID customerProfileId);
