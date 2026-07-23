@@ -38,16 +38,27 @@ public class AutoxingApiClient {
     private final String appId;
     private final String appSecret;
     private final String appCode;
+    private final boolean appCodeScheme;
 
     public AutoxingApiClient(
             @Value("${app.autoxing.api.base-url:https://apiglobal.autoxing.com}") String baseUrl,
             @Value("${app.autoxing.api.app-id:}") String appId,
             @Value("${app.autoxing.api.app-secret:}") String appSecret,
-            @Value("${app.autoxing.api.app-code:}") String appCode) {
+            @Value("${app.autoxing.api.app-code:}") String appCode,
+            // Some AutoXing gateways (Alibaba Cloud API Gateway style) require the
+            // AppCode header as "APPCODE <code>" rather than the raw code. Toggle
+            // this if the token call returns 401 "Invalid API key in request".
+            @Value("${app.autoxing.api.appcode-scheme:false}") boolean appCodeScheme) {
         this.restClient = RestClient.builder().baseUrl(baseUrl).build();
         this.appId = appId;
         this.appSecret = appSecret;
         this.appCode = appCode;
+        this.appCodeScheme = appCodeScheme;
+    }
+
+    /** The value to send in the {@code Authorization} header for gateway auth. */
+    private String authorizationHeader() {
+        return appCodeScheme ? "APPCODE " + appCode : appCode;
     }
 
     /** Whether the credentials needed to call the AutoXing API are configured. */
@@ -71,7 +82,7 @@ public class AutoxingApiClient {
         try {
             JsonNode response = restClient.post()
                     .uri(TOKEN_PATH)
-                    .header("Authorization", appCode)
+                    .header("Authorization", authorizationHeader())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
