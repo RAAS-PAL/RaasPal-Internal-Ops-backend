@@ -135,11 +135,19 @@ public class AutoxingReportService {
         if (state == null || state.isMissingNode() || state.isNull()) {
             return null;
         }
+        // AutoXing errors are objects like {code, level, message, type}; surface the
+        // human-readable message (falling back to the raw node for other shapes).
         List<String> errors = new ArrayList<>();
         JsonNode errorsNode = state.path("errors");
         if (errorsNode.isArray()) {
             for (JsonNode err : errorsNode) {
-                errors.add(err.isValueNode() ? err.asText() : err.toString());
+                if (err.isValueNode()) {
+                    errors.add(err.asText());
+                } else if (err.hasNonNull("message")) {
+                    errors.add(err.path("message").asText());
+                } else {
+                    errors.add(err.toString());
+                }
             }
         }
         return new LiveStatus(
@@ -156,9 +164,8 @@ public class AutoxingReportService {
 
     private static String buildNote(boolean liveUnavailable) {
         StringBuilder note = new StringBuilder(
-                "Task durations assume milliseconds and mileage assumes meters, per AutoXing's documented units; "
-                        + "verify against live data. Success/cancel breakdown is not provided by the statistics "
-                        + "endpoint and is omitted.");
+                "Task counts, mileage and duration are aggregated from AutoXing daily statistics across all task "
+                        + "categories. A per-task success/cancel breakdown is not provided by the statistics endpoint.");
         if (liveUnavailable) {
             note.append(" Live status is currently unavailable (the robot may be offline).");
         }
