@@ -45,10 +45,10 @@ public class AutoxingApiClient {
             @Value("${app.autoxing.api.app-id:}") String appId,
             @Value("${app.autoxing.api.app-secret:}") String appSecret,
             @Value("${app.autoxing.api.app-code:}") String appCode,
-            // Some AutoXing gateways (Alibaba Cloud API Gateway style) require the
-            // AppCode header as "APPCODE <code>" rather than the raw code. Toggle
-            // this if the token call returns 401 "Invalid API key in request".
-            @Value("${app.autoxing.api.appcode-scheme:false}") boolean appCodeScheme) {
+            // AutoXing's gateway requires the AppCode header as "APPCODE <code>"
+            // (Alibaba Cloud API Gateway style) — confirmed against the live global
+            // endpoint. Defaults true; set false only for a gateway wanting raw.
+            @Value("${app.autoxing.api.appcode-scheme:true}") boolean appCodeScheme) {
         this.restClient = RestClient.builder().baseUrl(baseUrl).build();
         this.appId = appId;
         this.appSecret = appSecret;
