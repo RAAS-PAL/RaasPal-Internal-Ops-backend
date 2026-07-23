@@ -1,14 +1,16 @@
 package com.raaspal.robotrecommendation.telemetry.adapters.autoxing;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingToken;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientResponseException;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -24,6 +26,10 @@ import java.util.Map;
  *
  * <p>AutoXing returns a {@code {status, message, data}} envelope; a non-200 {@code status}
  * (notably 400 "Authentication failed") is surfaced as an {@link AutoxingApiException}.
+ *
+ * <p>Responses are read raw via {@code exchange()} and parsed with Jackson directly,
+ * because AutoXing sends a malformed {@code Content-Type: json;charset=UTF-8} header
+ * (no {@code /}) that Spring's message converters reject.
  */
 @Slf4j
 @Component
@@ -35,6 +41,7 @@ public class AutoxingApiClient {
     private static final String TASK_DETAIL_PATH = "/task/v3/{taskId}";
 
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
     private final String appId;
     private final String appSecret;
     private final String appCode;
@@ -48,8 +55,10 @@ public class AutoxingApiClient {
             // AutoXing's gateway requires the AppCode header as "APPCODE <code>"
             // (Alibaba Cloud API Gateway style) — confirmed against the live global
             // endpoint. Defaults true; set false only for a gateway wanting raw.
-            @Value("${app.autoxing.api.appcode-scheme:true}") boolean appCodeScheme) {
+            @Value("${app.autoxing.api.appcode-scheme:true}") boolean appCodeScheme,
+            ObjectMapper objectMapper) {
         this.restClient = RestClient.builder().baseUrl(baseUrl).build();
+        this.objectMapper = objectMapper;
         this.appId = appId;
         this.appSecret = appSecret;
         this.appCode = appCode;
@@ -78,26 +87,13 @@ public class AutoxingApiClient {
         body.put("timestamp", timestamp);
         body.put("sign", sign);
 
-        JsonNode data;
-        try {
-            JsonNode response = restClient.post()
-                    .uri(TOKEN_PATH)
-                    .header("Authorization", authorizationHeader())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .body(JsonNode.class);
-            data = extractData(response, "fetch token");
-        } catch (RestClientResponseException e) {
-            // 400 here is the documented "Authentication failed" — flag it so a retry re-signs.
-            boolean auth = e.getStatusCode().value() == 400;
-            throw new AutoxingApiException(
-                    "Failed to fetch AutoXing token: " + e.getStatusCode() + " " + e.getResponseBodyAsString(), auth);
-        } catch (AutoxingApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new AutoxingApiException("Failed to fetch AutoXing token: " + e.getMessage(), e);
-        }
+        JsonNode data = exchangeForData(
+                restClient.post()
+                        .uri(TOKEN_PATH)
+                        .header("Authorization", authorizationHeader())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body),
+                "fetch token");
 
         String token = data.path("token").asText(null);
         if (token == null || token.isBlank()) {
@@ -109,23 +105,11 @@ public class AutoxingApiClient {
 
     /** Current live status of a robot (battery, position, errors, charging/manual/e-stop flags). */
     public JsonNode getRobotState(String robotId, String token) {
-        try {
-            JsonNode response = restClient.get()
-                    .uri(ROBOT_STATE_PATH, robotId)
-                    .header("X-Token", token)
-                    .retrieve()
-                    .body(JsonNode.class);
-            return extractData(response, "get robot state for " + robotId);
-        } catch (RestClientResponseException e) {
-            throw new AutoxingApiException(
-                    "Failed to get AutoXing robot state for " + robotId + ": "
-                            + e.getStatusCode() + " " + e.getResponseBodyAsString(),
-                    e.getStatusCode().value() == 400);
-        } catch (AutoxingApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new AutoxingApiException("Failed to get AutoXing robot state for " + robotId + ": " + e.getMessage(), e);
-        }
+        return exchangeForData(
+                restClient.get()
+                        .uri(ROBOT_STATE_PATH, robotId)
+                        .header("X-Token", token),
+                "get robot state for " + robotId);
     }
 
     /**
@@ -140,60 +124,62 @@ public class AutoxingApiClient {
         body.put("endTime", endMs);
         body.put("deviceIds", deviceIds);
         body.put("isCapacity", true);
-        try {
-            JsonNode response = restClient.post()
-                    .uri(TASK_STATISTICS_PATH)
-                    .header("X-Token", token)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .body(JsonNode.class);
-            return extractData(response, "get task statistics");
-        } catch (RestClientResponseException e) {
-            throw new AutoxingApiException(
-                    "Failed to get AutoXing task statistics: " + e.getStatusCode() + " " + e.getResponseBodyAsString(),
-                    e.getStatusCode().value() == 400);
-        } catch (AutoxingApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new AutoxingApiException("Failed to get AutoXing task statistics: " + e.getMessage(), e);
-        }
+        return exchangeForData(
+                restClient.post()
+                        .uri(TASK_STATISTICS_PATH)
+                        .header("X-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body),
+                "get task statistics");
     }
 
     /** Per-task detail/status. {@code needDetail=true} returns task points and actions. */
     public JsonNode getTaskDetail(String taskId, boolean needDetail, String token) {
-        try {
-            JsonNode response = restClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path(TASK_DETAIL_PATH)
-                            .queryParam("needDetail", needDetail)
-                            .build(taskId))
-                    .header("X-Token", token)
-                    .retrieve()
-                    .body(JsonNode.class);
-            return extractData(response, "get task detail for " + taskId);
-        } catch (RestClientResponseException e) {
-            throw new AutoxingApiException(
-                    "Failed to get AutoXing task detail for " + taskId + ": "
-                            + e.getStatusCode() + " " + e.getResponseBodyAsString(),
-                    e.getStatusCode().value() == 400);
-        } catch (AutoxingApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new AutoxingApiException("Failed to get AutoXing task detail for " + taskId + ": " + e.getMessage(), e);
-        }
+        return exchangeForData(
+                restClient.get()
+                        .uri(uriBuilder -> uriBuilder
+                                .path(TASK_DETAIL_PATH)
+                                .queryParam("needDetail", needDetail)
+                                .build(taskId))
+                        .header("X-Token", token),
+                "get task detail for " + taskId);
     }
 
     /* ─── Helpers ────────────────────────────────────────────────────────────── */
+
+    /**
+     * Sends the request and reads the response body directly (bypassing Spring's
+     * Content-Type-based conversion, which AutoXing's malformed header breaks),
+     * then unwraps the {@code {status, message, data}} envelope. HTTP 4xx and a
+     * non-200 envelope status both raise an {@link AutoxingApiException}, flagging
+     * the auth-failure cases so the caller can re-authenticate and retry once.
+     */
+    private JsonNode exchangeForData(RestClient.RequestHeadersSpec<?> spec, String action) {
+        return spec.exchange((request, response) -> {
+            try {
+                int httpStatus = response.getStatusCode().value();
+                byte[] bytes = StreamUtils.copyToByteArray(response.getBody());
+                String text = new String(bytes, StandardCharsets.UTF_8);
+                if (httpStatus >= 400) {
+                    throw new AutoxingApiException(
+                            "Failed to " + action + ": HTTP " + httpStatus + " " + text,
+                            httpStatus == 400 || httpStatus == 401);
+                }
+                if (bytes.length == 0) {
+                    throw new AutoxingApiException("Empty response from AutoXing while trying to " + action);
+                }
+                return extractData(objectMapper.readTree(bytes), action);
+            } catch (IOException e) {
+                throw new AutoxingApiException("Failed to " + action + ": " + e.getMessage(), e);
+            }
+        });
+    }
 
     /**
      * Unwraps the {@code {status, message, data}} envelope, throwing on a non-200
      * {@code status}. A 400 status is the documented authentication failure.
      */
     private JsonNode extractData(JsonNode response, String action) {
-        if (response == null) {
-            throw new AutoxingApiException("Empty response from AutoXing while trying to " + action);
-        }
         int status = response.path("status").asInt(-1);
         if (status != 200) {
             String message = response.path("message").asText("");
