@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.telemetry.adapters.autoxing;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingToken;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +40,10 @@ public class AutoxingApiClient {
     private static final String ROBOT_STATE_PATH = "/robot/v2.0/{robotId}/state";
     private static final String TASK_STATISTICS_PATH = "/statis/v2.0/task";
     private static final String TASK_DETAIL_PATH = "/task/v3/{taskId}";
+    private static final String ROBOT_LIST_PATH = "/robot/v1.1/list";
+    private static final String BUSINESS_LIST_PATH = "/business/v1.1/list";
+    private static final String BUILDING_LIST_PATH = "/building/v1.1/list";
+    private static final String AREA_LIST_PATH = "/map/v1.1/area/list";
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -143,6 +148,84 @@ public class AutoxingApiClient {
                                 .build(taskId))
                         .header("X-Token", token),
                 "get task detail for " + taskId);
+    }
+
+    /**
+     * Robot summary for one robot id — carries {@code model} (an AutoXing category,
+     * e.g. "餐厅"), {@code name} (often blank) and {@code businessId}. Returns the
+     * first matching entry, or a missing node when the robot is not found.
+     */
+    public JsonNode getRobotSummary(String robotId, String token) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("keyWord", robotId);
+        body.put("pageSize", 10);
+        body.put("pageNum", 1);
+        JsonNode data = exchangeForData(
+                restClient.post()
+                        .uri(ROBOT_LIST_PATH)
+                        .header("X-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body),
+                "get robot list");
+        for (JsonNode entry : entries(data)) {
+            if (robotId.equalsIgnoreCase(entry.path("robotId").asText())) {
+                return entry;
+            }
+        }
+        return entries(data).isEmpty() ? MissingNode.getInstance() : entries(data).get(0);
+    }
+
+    /** All businesses (tenants) visible to the account — used to resolve a customer name. */
+    public JsonNode getBusinessList(String token) {
+        return exchangeForData(
+                restClient.post()
+                        .uri(BUSINESS_LIST_PATH)
+                        .header("X-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of()),
+                "get business list");
+    }
+
+    /** All buildings (sites) visible to the account — used to resolve a site name. */
+    public JsonNode getBuildingList(String token) {
+        return exchangeForData(
+                restClient.post()
+                        .uri(BUILDING_LIST_PATH)
+                        .header("X-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of()),
+                "get building list");
+    }
+
+    /** Areas (zones/floors) a robot operates in — carries area name, floor and buildingId. */
+    public JsonNode getAreaList(String robotId, String token) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("robotId", robotId);
+        body.put("pageSize", 0);
+        body.put("pageNum", 1);
+        return exchangeForData(
+                restClient.post()
+                        .uri(AREA_LIST_PATH)
+                        .header("X-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body),
+                "get area list");
+    }
+
+    /**
+     * The array of rows in a list response. AutoXing is inconsistent: business and
+     * building lists use {@code lists}, area/robot lists use {@code list}.
+     */
+    public static JsonNode entries(JsonNode data) {
+        if (data == null) {
+            return MissingNode.getInstance();
+        }
+        JsonNode plural = data.path("lists");
+        if (plural.isArray()) {
+            return plural;
+        }
+        JsonNode singular = data.path("list");
+        return singular.isArray() ? singular : MissingNode.getInstance();
     }
 
     /* ─── Helpers ────────────────────────────────────────────────────────────── */
