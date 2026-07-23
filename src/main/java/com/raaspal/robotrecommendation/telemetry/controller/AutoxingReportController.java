@@ -35,9 +35,11 @@ public class AutoxingReportController {
     public ApiResponse<AutoxingDeliveryReport> preview(
             @RequestParam String robotId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String robotName,
+            @RequestParam(required = false) String model) {
         LocalDate end = to != null ? to : LocalDate.now(ZoneOffset.UTC);
         LocalDate start = from != null ? from : end.minusDays(DEFAULT_WINDOW_DAYS);
-        return ApiResponse.success(reportService.build(robotId, start, end));
+        return ApiResponse.success(reportService.build(robotId, start, end, robotName, model));
     }
 }
