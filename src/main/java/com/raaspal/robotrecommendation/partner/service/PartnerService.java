@@ -98,4 +98,24 @@ public class PartnerService {
         deploymentRepository.save(deployment);
         log.info("Deployment {} assigned to partner {}", deploymentId, partnerId);
     }
+
+    /**
+     * Assigns many deployments to one partner in a single transaction — the fast
+     * path for onboarding a partner with dozens of robots. Ids that don't resolve
+     * to a deployment are skipped; returns how many were actually assigned.
+     */
+    @Transactional
+    public int assignDeployments(UUID partnerId, List<UUID> deploymentIds) {
+        if (!partnerRepository.existsById(partnerId)) {
+            throw new ResourceNotFoundException("Partner", "id", partnerId);
+        }
+        if (deploymentIds == null || deploymentIds.isEmpty()) {
+            return 0;
+        }
+        List<Deployment> deployments = deploymentRepository.findAllById(deploymentIds);
+        deployments.forEach(d -> d.setPartnerId(partnerId));
+        deploymentRepository.saveAll(deployments);
+        log.info("Assigned {} deployment(s) to partner {}", deployments.size(), partnerId);
+        return deployments.size();
+    }
 }
