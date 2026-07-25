@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface PartnerRepository extends JpaRepository<Partner, UUID> {
 
     Optional<Partner> findByNameIgnoreCase(String name);
+
+    boolean existsByNameIgnoreCase(String name);
 }

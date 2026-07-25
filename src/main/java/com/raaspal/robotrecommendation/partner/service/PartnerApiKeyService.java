@@ -16,7 +16,9 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,6 +41,13 @@ public class PartnerApiKeyService {
 
     /** A newly minted key — the plaintext is returned ONCE and never stored. */
     public record GeneratedKey(UUID id, String apiKey, String keyPrefix, String label) {
+    }
+
+    /**
+     * A successfully authenticated caller: the key that matched plus the partner
+     * it belongs to. Returned by {@link #authenticate(String)} to the auth filter.
+     */
+    public record AuthenticatedPartner(UUID keyId, UUID partnerId, String partnerName) {
     }
 
     /**
@@ -77,6 +86,32 @@ public class PartnerApiKeyService {
         }
         return partnerApiKeyRepository.findByKeyHash(sha256Hex(plaintextKey))
                 .filter(k -> Boolean.TRUE.equals(k.getIsActive()) && k.getRevokedAt() == null);
+    }
+
+    /**
+     * Full authentication of an incoming key: the key must be active and not
+     * revoked <em>and</em> its owning partner must be active. Disabling a partner
+     * therefore instantly rejects every one of its keys without touching the keys
+     * themselves. Returns the matched key + partner, or empty if anything fails.
+     */
+    @Transactional(readOnly = true)
+    public Optional<AuthenticatedPartner> authenticate(String plaintextKey) {
+        return resolve(plaintextKey)
+                .flatMap(key -> partnerRepository.findById(key.getPartnerId())
+                        .filter(partner -> Boolean.TRUE.equals(partner.getIsActive()))
+                        .map(partner -> new AuthenticatedPartner(
+                                key.getId(), partner.getId(), partner.getName())));
+    }
+
+    /** All keys ever issued to a partner (active and revoked), newest first. */
+    @Transactional(readOnly = true)
+    public List<PartnerApiKey> listKeys(UUID partnerId) {
+        if (!partnerRepository.existsById(partnerId)) {
+            throw new ResourceNotFoundException("Partner", "id", partnerId);
+        }
+        return partnerApiKeyRepository.findByPartnerId(partnerId).stream()
+                .sorted(Comparator.comparing(PartnerApiKey::getCreatedAt).reversed())
+                .toList();
     }
 
     /** Records that a key was just used (best-effort; never blocks a request). */
