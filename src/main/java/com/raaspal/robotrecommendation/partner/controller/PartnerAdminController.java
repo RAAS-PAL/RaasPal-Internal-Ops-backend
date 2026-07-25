@@ -3,6 +3,7 @@ package com.raaspal.robotrecommendation.partner.controller;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.partner.dto.ApiKeyResponse;
 import com.raaspal.robotrecommendation.partner.dto.AssignPartnerRequest;
+import com.raaspal.robotrecommendation.partner.dto.BulkAssignRequest;
 import com.raaspal.robotrecommendation.partner.dto.CreateApiKeyRequest;
 import com.raaspal.robotrecommendation.partner.dto.CreatePartnerRequest;
 import com.raaspal.robotrecommendation.partner.dto.CreatedApiKeyResponse;
@@ -103,5 +104,17 @@ public class PartnerAdminController {
         partnerService.assignDeployment(deploymentId, request.partnerId());
         return ApiResponse.success(
                 request.partnerId() != null ? "Deployment assigned to partner" : "Deployment un-assigned");
+    }
+
+    /**
+     * Bulk-assign many deployments to a partner in one call — the fast path for a
+     * partner with dozens of robots. Returns how many were assigned.
+     */
+    @PutMapping("/{partnerId}/deployments")
+    public ApiResponse<Integer> assignDeployments(
+            @PathVariable UUID partnerId,
+            @Valid @RequestBody BulkAssignRequest request) {
+        int count = partnerService.assignDeployments(partnerId, request.deploymentIds());
+        return ApiResponse.success("Robots assigned", count);
     }
 }
