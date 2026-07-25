@@ -52,7 +52,12 @@ public class PartnerApiController {
 
     /**
      * Paged task reports for one of the partner's robots (by serial number),
-     * most recent first. Optional {@code month} filter ({@code YYYY-MM}).
+     * most recent first. Filters (in precedence order):
+     * <ul>
+     *   <li>{@code from} / {@code to} ({@code YYYY-MM-DD}) — a day or date range;
+     *       a lone {@code from} means that single day (Asia/Bangkok).</li>
+     *   <li>{@code month} ({@code YYYY-MM}).</li>
+     * </ul>
      * A serial number the partner does not service returns 404.
      */
     @GetMapping("/robots/{serialNumber}/task-reports")
@@ -60,9 +65,11 @@ public class PartnerApiController {
             @AuthenticationPrincipal PartnerPrincipal principal,
             @PathVariable String serialNumber,
             @RequestParam(required = false) String month,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ApiResponse.success(partnerDataService.listTaskReports(
-                principal.partnerId(), serialNumber, month, page, size));
+                principal.partnerId(), serialNumber, month, from, to, page, size));
     }
 }
