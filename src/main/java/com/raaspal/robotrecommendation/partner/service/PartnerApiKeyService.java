@@ -16,7 +16,9 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -77,6 +79,17 @@ public class PartnerApiKeyService {
         }
         return partnerApiKeyRepository.findByKeyHash(sha256Hex(plaintextKey))
                 .filter(k -> Boolean.TRUE.equals(k.getIsActive()) && k.getRevokedAt() == null);
+    }
+
+    /** All keys ever issued to a partner (active and revoked), newest first. */
+    @Transactional(readOnly = true)
+    public List<PartnerApiKey> listKeys(UUID partnerId) {
+        if (!partnerRepository.existsById(partnerId)) {
+            throw new ResourceNotFoundException("Partner", "id", partnerId);
+        }
+        return partnerApiKeyRepository.findByPartnerId(partnerId).stream()
+                .sorted(Comparator.comparing(PartnerApiKey::getCreatedAt).reversed())
+                .toList();
     }
 
     /** Records that a key was just used (best-effort; never blocks a request). */
