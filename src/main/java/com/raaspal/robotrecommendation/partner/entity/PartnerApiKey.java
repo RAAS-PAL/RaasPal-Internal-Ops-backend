@@ -64,4 +64,22 @@ public class PartnerApiKey {
 
     @Column(name = "revoked_at")
     private LocalDateTime revokedAt;
+
+    /**
+     * When this key stops working. {@code null} means it never expires — the
+     * behaviour of every key issued before expiry existed. An expired key is
+     * rejected exactly like a revoked one, but needs no admin action.
+     */
+    @Column(name = "expires_at")
+    private LocalDateTime expiresAt;
+
+    /** Whether this key is past its expiry (never-expiring keys are never expired). */
+    public boolean isExpired() {
+        return expiresAt != null && expiresAt.isBefore(LocalDateTime.now());
+    }
+
+    /** Whether the key is live: active, not revoked, and not expired. */
+    public boolean isUsable() {
+        return Boolean.TRUE.equals(isActive) && revokedAt == null && !isExpired();
+    }
 }

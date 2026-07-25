@@ -2,14 +2,19 @@ package com.raaspal.robotrecommendation.partner.service;
 
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
+import com.raaspal.robotrecommendation.common.response.PagedResponse;
+import com.raaspal.robotrecommendation.partner.dto.AccessLogResponse;
 import com.raaspal.robotrecommendation.partner.dto.PartnerResponse;
 import com.raaspal.robotrecommendation.partner.dto.UpdatePartnerRequest;
 import com.raaspal.robotrecommendation.partner.entity.Partner;
+import com.raaspal.robotrecommendation.partner.repository.PartnerApiAccessLogRepository;
 import com.raaspal.robotrecommendation.partner.repository.PartnerRepository;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +35,7 @@ public class PartnerService {
 
     private final PartnerRepository partnerRepository;
     private final DeploymentRepository deploymentRepository;
+    private final PartnerApiAccessLogRepository accessLogRepository;
 
     /** Registers a new partner. Names are unique (case-insensitive). */
     @Transactional
@@ -117,5 +123,17 @@ public class PartnerService {
         deploymentRepository.saveAll(deployments);
         log.info("Assigned {} deployment(s) to partner {}", deployments.size(), partnerId);
         return deployments.size();
+    }
+
+    /** A partner's recorded API requests, newest first — the access audit trail. */
+    @Transactional(readOnly = true)
+    public PagedResponse<AccessLogResponse> accessLog(UUID partnerId, int page, int size) {
+        if (!partnerRepository.existsById(partnerId)) {
+            throw new ResourceNotFoundException("Partner", "id", partnerId);
+        }
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 200));
+        return PagedResponse.of(
+                accessLogRepository.findByPartnerIdOrderByRequestedAtDesc(partnerId, pageable),
+                AccessLogResponse::of);
     }
 }
