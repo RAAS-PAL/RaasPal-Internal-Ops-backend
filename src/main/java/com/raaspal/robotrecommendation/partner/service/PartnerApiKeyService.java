@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.partner.service;
 
+import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.partner.entity.Partner;
 import com.raaspal.robotrecommendation.partner.entity.PartnerApiKey;
@@ -40,7 +41,7 @@ public class PartnerApiKeyService {
     private final PartnerApiKeyRepository partnerApiKeyRepository;
 
     /** A newly minted key — the plaintext is returned ONCE and never stored. */
-    public record GeneratedKey(UUID id, String apiKey, String keyPrefix, String label) {
+    public record GeneratedKey(UUID id, String apiKey, String keyPrefix, String label, LocalDateTime expiresAt) {
     }
 
     /**
@@ -53,14 +54,24 @@ public class PartnerApiKeyService {
     /**
      * Mints a new API key for a partner and stores only its hash. The returned
      * {@code apiKey} is the caller's only chance to see the plaintext.
+     *
+     * @param expiresInDays optional lifetime; {@code null} mints a key that never
+     *                      expires (rotation is then a manual mint-and-revoke)
      */
     @Transactional
-    public GeneratedKey generate(UUID partnerId, String label) {
+    public GeneratedKey generate(UUID partnerId, String label, Integer expiresInDays) {
         Partner partner = partnerRepository.findById(partnerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Partner", "id", partnerId));
 
+        if (expiresInDays != null && expiresInDays < 1) {
+            throw new BadRequestException("expiresInDays must be at least 1");
+        }
+
         String plaintext = KEY_PREFIX + randomToken();
         String prefix = plaintext.substring(0, 12); // display + non-security lookup aid
+        LocalDateTime expiresAt = expiresInDays == null
+                ? null
+                : LocalDateTime.now().plusDays(expiresInDays);
 
         PartnerApiKey saved = partnerApiKeyRepository.save(PartnerApiKey.builder()
                 .partnerId(partner.getId())
@@ -68,16 +79,24 @@ public class PartnerApiKeyService {
                 .keyPrefix(prefix)
                 .label(label)
                 .isActive(true)
+                .expiresAt(expiresAt)
                 .build());
 
-        log.info("Generated API key {} for partner {} ({})", prefix, partner.getName(), partnerId);
-        return new GeneratedKey(saved.getId(), plaintext, prefix, label);
+        log.info("Generated API key {} for partner {} ({}), expires {}",
+                prefix, partner.getName(), partnerId, expiresAt == null ? "never" : expiresAt);
+        return new GeneratedKey(saved.getId(), plaintext, prefix, label, expiresAt);
+    }
+
+    /** Mints a key that never expires. */
+    @Transactional
+    public GeneratedKey generate(UUID partnerId, String label) {
+        return generate(partnerId, label, null);
     }
 
     /**
-     * Resolves an incoming plaintext key to its active, non-revoked record.
-     * Lookup is an exact hash match (SHA-256 is deterministic), so no candidate
-     * loop or timing-sensitive compare is needed.
+     * Resolves an incoming plaintext key to its usable record — active, not
+     * revoked, and not expired. Lookup is an exact hash match (SHA-256 is
+     * deterministic), so no candidate loop or timing-sensitive compare is needed.
      */
     @Transactional(readOnly = true)
     public Optional<PartnerApiKey> resolve(String plaintextKey) {
@@ -85,7 +104,7 @@ public class PartnerApiKeyService {
             return Optional.empty();
         }
         return partnerApiKeyRepository.findByKeyHash(sha256Hex(plaintextKey))
-                .filter(k -> Boolean.TRUE.equals(k.getIsActive()) && k.getRevokedAt() == null);
+                .filter(PartnerApiKey::isUsable);
     }
 
     /**

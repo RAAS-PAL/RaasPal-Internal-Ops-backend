@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -100,7 +101,7 @@ public class PartnerDataService {
                     robot.getId(), startMin, startMax, pageable);
         } else if (month != null && !month.isBlank()) {
             reports = robotTaskReportRepository.findByRobotUnitIdAndReportMonthOrderByStartTimeDesc(
-                    robot.getId(), month.trim(), pageable);
+                    robot.getId(), validMonth(month), pageable);
         } else {
             reports = robotTaskReportRepository.findByRobotUnitIdOrderByStartTimeDesc(
                     robot.getId(), pageable);
@@ -115,6 +116,21 @@ public class PartnerDataService {
         } catch (DateTimeParseException e) {
             throw new BadRequestException(
                     "Invalid '" + field + "' date '" + value + "' — expected format YYYY-MM-DD");
+        }
+    }
+
+    /**
+     * Validates {@code month} and returns it normalised. Without this a typo like
+     * "2026-7" or "July" simply matched no rows and looked like "this robot did
+     * nothing that month" — a silent wrong answer is worse than an error.
+     */
+    private String validMonth(String month) {
+        String trimmed = month.trim();
+        try {
+            return YearMonth.parse(trimmed).toString();
+        } catch (DateTimeParseException e) {
+            throw new BadRequestException(
+                    "Invalid 'month' '" + month + "' — expected format YYYY-MM");
         }
     }
 

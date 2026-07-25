@@ -1,6 +1,8 @@
 package com.raaspal.robotrecommendation.partner.controller;
 
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
+import com.raaspal.robotrecommendation.common.response.PagedResponse;
+import com.raaspal.robotrecommendation.partner.dto.AccessLogResponse;
 import com.raaspal.robotrecommendation.partner.dto.ApiKeyResponse;
 import com.raaspal.robotrecommendation.partner.dto.AssignPartnerRequest;
 import com.raaspal.robotrecommendation.partner.dto.BulkAssignRequest;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -72,8 +75,9 @@ public class PartnerAdminController {
             @PathVariable UUID partnerId,
             @Valid @RequestBody(required = false) CreateApiKeyRequest request) {
         String label = request != null ? request.label() : null;
+        Integer expiresInDays = request != null ? request.expiresInDays() : null;
         CreatedApiKeyResponse created = CreatedApiKeyResponse.of(
-                partnerApiKeyService.generate(partnerId, label));
+                partnerApiKeyService.generate(partnerId, label, expiresInDays));
         return ApiResponse.success("API key created — copy it now, it is shown only once", created);
     }
 
@@ -84,6 +88,18 @@ public class PartnerAdminController {
                 .map(ApiKeyResponse::of)
                 .toList();
         return ApiResponse.success(keys);
+    }
+
+    /**
+     * A partner's recorded API requests, newest first — who fetched what, when,
+     * with which key, and the outcome. Includes rejected attempts.
+     */
+    @GetMapping("/{partnerId}/access-log")
+    public ApiResponse<PagedResponse<AccessLogResponse>> accessLog(
+            @PathVariable UUID partnerId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ApiResponse.success(partnerService.accessLog(partnerId, page, size));
     }
 
     /** Revoke a key immediately — future requests bearing it are rejected. */

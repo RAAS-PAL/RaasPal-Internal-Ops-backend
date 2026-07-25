@@ -35,6 +35,15 @@ import java.util.List;
 public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
     public static final String API_KEY_HEADER = "X-API-Key";
+
+    /**
+     * Request attribute holding the authenticated {@link PartnerPrincipal}.
+     * {@link PartnerAccessAuditFilter} reads this rather than the SecurityContext
+     * because it runs outermost, and Spring Security clears the context on the way
+     * out — a request attribute lives for the whole request regardless.
+     */
+    public static final String PARTNER_PRINCIPAL_ATTRIBUTE = "raaspal.partnerPrincipal";
+
     private static final String PARTNER_AUTHORITY = "ROLE_PARTNER";
 
     private final PartnerApiKeyService partnerApiKeyService;
@@ -66,7 +75,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     }
 
     private void authenticate(HttpServletRequest request, AuthenticatedPartner partner) {
-        PartnerPrincipal principal = new PartnerPrincipal(partner.partnerId(), partner.partnerName());
+        PartnerPrincipal principal =
+                new PartnerPrincipal(partner.partnerId(), partner.partnerName(), partner.keyId());
         UsernamePasswordAuthenticationToken authentication =
                 new UsernamePasswordAuthenticationToken(
                         principal,
@@ -74,5 +84,6 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
                         List.of(new SimpleGrantedAuthority(PARTNER_AUTHORITY)));
         authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
         SecurityContextHolder.getContext().setAuthentication(authentication);
+        request.setAttribute(PARTNER_PRINCIPAL_ATTRIBUTE, principal);
     }
 }

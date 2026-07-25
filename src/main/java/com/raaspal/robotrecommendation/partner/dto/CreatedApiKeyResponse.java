@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.partner.dto;
 
 import com.raaspal.robotrecommendation.partner.service.PartnerApiKeyService.GeneratedKey;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -14,6 +15,8 @@ public record CreatedApiKeyResponse(
         String apiKey,
         String keyPrefix,
         String label,
+        /** When the key stops working; {@code null} = never expires. */
+        LocalDateTime expiresAt,
         String warning) {
 
     public static CreatedApiKeyResponse of(GeneratedKey key) {
@@ -22,6 +25,7 @@ public record CreatedApiKeyResponse(
                 key.apiKey(),
                 key.keyPrefix(),
                 key.label(),
+                key.expiresAt(),
                 "Copy this key now — it is shown only once and cannot be recovered.");
     }
 }

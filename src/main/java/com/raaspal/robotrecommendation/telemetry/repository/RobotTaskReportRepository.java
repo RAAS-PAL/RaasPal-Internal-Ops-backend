@@ -4,9 +4,12 @@ import com.raaspal.robotrecommendation.telemetry.entity.RobotTaskReport;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,6 +17,13 @@ import java.util.UUID;
 public interface RobotTaskReportRepository extends JpaRepository<RobotTaskReport, UUID> {
 
     boolean existsByExternalTaskId(String externalTaskId);
+
+    /**
+     * Which of the given external task ids are already stored — one query for a
+     * whole fetched batch, so a sync does not run an exists-check per report.
+     */
+    @Query("select r.externalTaskId from RobotTaskReport r where r.externalTaskId in :ids")
+    List<String> findExistingExternalTaskIds(@Param("ids") Collection<String> ids);
 
     List<RobotTaskReport> findByCustomerProfileIdAndReportMonth(UUID customerProfileId, String reportMonth);
 

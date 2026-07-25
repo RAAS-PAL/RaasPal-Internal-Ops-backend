@@ -8,7 +8,9 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter;
 
 /**
  * A dedicated security chain for the partner-facing API ({@code /api/partner/**}),
@@ -29,6 +31,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class PartnerSecurityConfig {
 
     private final ApiKeyAuthFilter apiKeyAuthFilter;
+    private final PartnerRateLimitFilter partnerRateLimitFilter;
+    private final PartnerAccessAuditFilter partnerAccessAuditFilter;
     private final PartnerAuthEntryPoint partnerAuthEntryPoint;
 
     // @Order MUST sit on the @Bean method: for SecurityFilterChain beans it is the
@@ -50,7 +54,14 @@ public class PartnerSecurityConfig {
                         ex.authenticationEntryPoint(partnerAuthEntryPoint))
                 .authorizeHttpRequests(auth -> auth
                         .anyRequest().authenticated())
-                .addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                // Filter order matters, and each is anchored to a well-known filter
+                // so the resulting order is unambiguous:
+                //   audit (outermost, sees the final status incl. 401/429)
+                //     → API-key auth
+                //       → rate limit (needs the authenticated key to meter per partner)
+                .addFilterBefore(partnerAccessAuditFilter, WebAsyncManagerIntegrationFilter.class)
+                .addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(partnerRateLimitFilter, AuthorizationFilter.class);
 
         return http.build();
     }

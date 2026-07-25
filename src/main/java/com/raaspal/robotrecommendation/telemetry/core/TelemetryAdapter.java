@@ -17,6 +17,16 @@ public interface TelemetryAdapter {
     boolean supports(String brand);
 
     /**
+     * Whether this adapter has the credentials it needs to call its brand API.
+     * The scheduled sync checks this first so an unconfigured brand is skipped
+     * once with a clear message, instead of throwing for every robot it owns.
+     * Adapters that need no credentials inherit {@code true}.
+     */
+    default boolean isConfigured() {
+        return true;
+    }
+
+    /**
      * Fetches all task reports for the given robot whose start time falls
      * within {@code [from, to]} (inclusive).
      */
