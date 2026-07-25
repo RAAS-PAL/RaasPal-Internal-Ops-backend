@@ -44,6 +44,13 @@ public class PartnerApiKeyService {
     }
 
     /**
+     * A successfully authenticated caller: the key that matched plus the partner
+     * it belongs to. Returned by {@link #authenticate(String)} to the auth filter.
+     */
+    public record AuthenticatedPartner(UUID keyId, UUID partnerId, String partnerName) {
+    }
+
+    /**
      * Mints a new API key for a partner and stores only its hash. The returned
      * {@code apiKey} is the caller's only chance to see the plaintext.
      */
@@ -79,6 +86,21 @@ public class PartnerApiKeyService {
         }
         return partnerApiKeyRepository.findByKeyHash(sha256Hex(plaintextKey))
                 .filter(k -> Boolean.TRUE.equals(k.getIsActive()) && k.getRevokedAt() == null);
+    }
+
+    /**
+     * Full authentication of an incoming key: the key must be active and not
+     * revoked <em>and</em> its owning partner must be active. Disabling a partner
+     * therefore instantly rejects every one of its keys without touching the keys
+     * themselves. Returns the matched key + partner, or empty if anything fails.
+     */
+    @Transactional(readOnly = true)
+    public Optional<AuthenticatedPartner> authenticate(String plaintextKey) {
+        return resolve(plaintextKey)
+                .flatMap(key -> partnerRepository.findById(key.getPartnerId())
+                        .filter(partner -> Boolean.TRUE.equals(partner.getIsActive()))
+                        .map(partner -> new AuthenticatedPartner(
+                                key.getId(), partner.getId(), partner.getName())));
     }
 
     /** All keys ever issued to a partner (active and revoked), newest first. */
