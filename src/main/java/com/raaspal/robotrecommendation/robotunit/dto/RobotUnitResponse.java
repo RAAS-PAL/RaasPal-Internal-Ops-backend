@@ -27,7 +27,9 @@ public record RobotUnitResponse(
             String customerName,
             String site,
             ReportCadence reportCadence,
-            boolean active) {
+            boolean active,
+            /** Distributor/service partner servicing this deployment; {@code null} = RAASPAL-direct. */
+            UUID partnerId) {
     }
 
     /** Build a response from a robot and (optionally) its active deployment. */
@@ -40,7 +42,8 @@ public record RobotUnitResponse(
                     deployment.getCustomerProfile().getCompanyName(),
                     deployment.getSite(),
                     deployment.getReportCadence(),
-                    Boolean.TRUE.equals(deployment.getIsActive()));
+                    Boolean.TRUE.equals(deployment.getIsActive()),
+                    deployment.getPartnerId());
         }
         return new RobotUnitResponse(
                 robot.getId(),
