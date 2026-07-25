@@ -18,7 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Manages robot units and their deployment to customers. A robot is identified
@@ -113,11 +115,21 @@ public class RobotUnitService {
         return RobotUnitResponse.of(robot, deployment);
     }
 
-    /** All registered robots with their active deployment (if any). */
+    /**
+     * All registered robots with their active deployment (if any). Uses two
+     * queries total — one for the robots, one for all active deployments with
+     * robot + customer fetched — instead of an N+1 per-robot deployment lookup,
+     * which was slow for accounts with many robots.
+     */
     @Transactional(readOnly = true)
     public List<RobotUnitResponse> listAll() {
+        Map<UUID, Deployment> activeByRobotId = deploymentRepository.findActiveWithRobotAndCustomer().stream()
+                .collect(Collectors.toMap(
+                        d -> d.getRobotUnit().getId(),
+                        d -> d,
+                        (first, ignored) -> first));
         return robotUnitRepository.findAll().stream()
-                .map(robot -> RobotUnitResponse.of(robot, activeDeploymentFor(robot.getId())))
+                .map(robot -> RobotUnitResponse.of(robot, activeByRobotId.get(robot.getId())))
                 .toList();
     }
 
