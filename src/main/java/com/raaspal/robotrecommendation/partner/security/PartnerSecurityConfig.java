@@ -26,13 +26,17 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  */
 @Configuration
 @RequiredArgsConstructor
-@Order(1)
 public class PartnerSecurityConfig {
 
     private final ApiKeyAuthFilter apiKeyAuthFilter;
     private final PartnerAuthEntryPoint partnerAuthEntryPoint;
 
+    // @Order MUST sit on the @Bean method: for SecurityFilterChain beans it is the
+    // method-level order that sorts the chains. A class-level @Order on the config
+    // is ignored here, which would let the catch-all JWT chain publish first and
+    // make this partner chain unreachable (Spring rejects that at startup).
     @Bean
+    @Order(1)
     public SecurityFilterChain partnerFilterChain(HttpSecurity http) throws Exception {
         http
                 .securityMatcher("/api/partner/**")
