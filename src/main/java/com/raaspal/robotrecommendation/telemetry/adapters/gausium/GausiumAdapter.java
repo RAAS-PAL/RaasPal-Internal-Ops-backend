@@ -37,6 +37,11 @@ public class GausiumAdapter implements TelemetryAdapter {
     }
 
     @Override
+    public boolean isConfigured() {
+        return apiClient.isConfigured();
+    }
+
+    @Override
     public List<TelemetryTaskReport> fetchTaskReports(String robotSerialNumber, LocalDate from, LocalDate to) {
         if (!apiClient.isConfigured()) {
             throw new GausiumApiException("Gausium API credentials are not configured");
