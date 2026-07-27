@@ -10,6 +10,7 @@ import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository
 import com.raaspal.robotrecommendation.robotunit.repository.RobotUnitRepository;
 import com.raaspal.robotrecommendation.telemetry.entity.RobotTaskReport;
 import com.raaspal.robotrecommendation.telemetry.repository.RobotTaskReportRepository;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -65,6 +66,66 @@ public class TelemetrySyncService {
             int updated,
             int duplicatesSkipped,
             long durationMs) {
+    }
+
+    /** Live progress of a background run, plus the last finished summary. */
+    public record SyncStatus(
+            boolean running,
+            int processed,
+            int total,
+            SyncSummary lastSummary) {
+    }
+
+    /*
+     * A fleet sync loops every robot's brand API, which for a large partner takes
+     * minutes — far longer than a browser will wait, and a timed-out request tells
+     * the user nothing while the server keeps working. So the endpoint starts the
+     * run on this single background thread and returns immediately; the UI polls
+     * status() for progress. The single thread plus the compare-and-set flag
+     * guarantee at most one run at a time (a second click is rejected, not queued),
+     * mirroring how report delivery already handles the same problem.
+     */
+    private final ExecutorService runExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "telemetry-sync-run");
+        t.setDaemon(true);
+        return t;
+    });
+    private final AtomicBoolean runInProgress = new AtomicBoolean(false);
+    private volatile int processedRobots;
+    private volatile int totalRobots;
+    private volatile SyncSummary lastSummary;
+
+    /**
+     * Starts a fleet sync in the background. Returns false — without starting
+     * anything — if a run is already in progress.
+     */
+    public boolean startSyncAsync(LocalDate from, LocalDate to, UUID partnerId, boolean refresh) {
+        if (!runInProgress.compareAndSet(false, true)) {
+            log.warn("Telemetry sync rejected — a run is already in progress");
+            return false;
+        }
+        processedRobots = 0;
+        totalRobots = 0;
+        runExecutor.submit(() -> {
+            try {
+                lastSummary = syncAllActive(from, to, partnerId, refresh);
+            } catch (Exception e) {
+                log.error("Background telemetry sync crashed: {}", e.getMessage(), e);
+            } finally {
+                runInProgress.set(false);
+            }
+        });
+        return true;
+    }
+
+    /** Progress of the current run, or the outcome of the last finished one. */
+    public SyncStatus status() {
+        return new SyncStatus(runInProgress.get(), processedRobots, totalRobots, lastSummary);
+    }
+
+    @PreDestroy
+    void shutdownRunExecutor() {
+        runExecutor.shutdownNow();
     }
 
     /**
@@ -148,9 +209,14 @@ public class TelemetrySyncService {
         log.info("Telemetry sync starting for {} actively deployed robot(s) ({}), range {} to {}",
                 byRobotId.size(), partnerId == null ? "whole fleet" : "partner " + partnerId, from, to);
 
+        // Published for status polling so a long run shows real progress.
+        totalRobots = byRobotId.size();
+        processedRobots = 0;
+
         for (Deployment deployment : byRobotId.values()) {
             RobotUnit robot = deployment.getRobotUnit();
             String brand = robot.getBrand();
+            processedRobots++;
 
             Optional<TelemetryAdapter> adapter = usableAdapter(brand, unusableBrands);
             if (adapter.isEmpty()) {
