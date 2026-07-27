@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.telemetry.adapters.gausium;
 
 import com.raaspal.robotrecommendation.telemetry.adapters.gausium.dto.GausiumConsumablesResidual;
+import com.raaspal.robotrecommendation.telemetry.adapters.gausium.dto.GausiumSubTask;
 import com.raaspal.robotrecommendation.telemetry.adapters.gausium.dto.GausiumTaskReport;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetryAdapter;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetryTaskReport;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * {@link TelemetryAdapter} for the Gausium brand, backed by
@@ -59,7 +61,7 @@ public class GausiumAdapter implements TelemetryAdapter {
                 .robotSerialNumber(report.robotSerialNumber())
                 .operator(report.operator())
                 .cleaningPlan(report.displayName())
-                .mapName(report.areaNameList())
+                .mapName(resolveMapName(report))
                 .taskCompletionPct(toPercentage(report.completionPercentage()))
                 .startTime(parseInstant(report.startTime()))
                 .endTime(parseInstant(report.endTime()))
@@ -79,6 +81,28 @@ public class GausiumAdapter implements TelemetryAdapter {
                 .taskReportPngUri(report.taskReportPngUri())
                 .taskEndStatus(report.taskEndStatus())
                 .build();
+    }
+
+    /**
+     * Where the task ran. Gausium reports this in two places and only one is
+     * usually filled: {@code areaNameList} names the sub-areas when a task targets
+     * specific ones, but is an empty string for whole-map tasks — which is most of
+     * them. In that case the map name lives in {@code subTasks[].mapName}, so fall
+     * back to those (joined and de-duplicated when a task spans several maps).
+     */
+    static String resolveMapName(GausiumTaskReport report) { // package-private for testing
+        if (report.areaNameList() != null && !report.areaNameList().isBlank()) {
+            return report.areaNameList();
+        }
+        if (report.subTasks() == null || report.subTasks().isEmpty()) {
+            return null;
+        }
+        String mapNames = report.subTasks().stream()
+                .map(GausiumSubTask::mapName)
+                .filter(name -> name != null && !name.isBlank())
+                .distinct()
+                .collect(Collectors.joining(", "));
+        return mapNames.isBlank() ? null : mapNames;
     }
 
     private static Double toPercentage(Double completionPercentage) {
