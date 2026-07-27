@@ -3,6 +3,7 @@ package com.raaspal.robotrecommendation.robotunit.repository;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -23,6 +24,16 @@ public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
             + "join fetch d.customerProfile "
             + "where d.isActive = true")
     List<Deployment> findActiveWithRobotAndCustomer();
+
+    /**
+     * The same, narrowed to one partner's robots — lets a sync target just the
+     * fleet a partner services instead of every robot RAASPAL manages.
+     */
+    @Query("select d from Deployment d "
+            + "join fetch d.robotUnit "
+            + "join fetch d.customerProfile "
+            + "where d.isActive = true and d.partnerId = :partnerId")
+    List<Deployment> findActiveWithRobotAndCustomerByPartnerId(@Param("partnerId") UUID partnerId);
 
     List<Deployment> findByRobotUnitIdAndIsActiveTrue(UUID robotUnitId);
 

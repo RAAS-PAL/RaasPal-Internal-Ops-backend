@@ -97,12 +97,26 @@ public class TelemetrySyncService {
      * are skipped and reported once per brand rather than failing per robot.
      */
     public SyncSummary syncAllActive(LocalDate from, LocalDate to) {
+        return syncAllActive(from, to, null);
+    }
+
+    /**
+     * As {@link #syncAllActive(LocalDate, LocalDate)}, optionally narrowed to the
+     * robots one partner services ({@code partnerId}; {@code null} = the whole
+     * fleet). Syncing per partner keeps a run proportional to the fleet you
+     * actually care about — onboarding one distributor need not touch every robot.
+     */
+    public SyncSummary syncAllActive(LocalDate from, LocalDate to, UUID partnerId) {
         long startedAt = System.currentTimeMillis();
 
         // One query returns exactly the robots worth syncing (active deployments)
         // with their robot and customer already fetched — no per-robot lookups.
+        List<Deployment> scope = partnerId == null
+                ? deploymentRepository.findActiveWithRobotAndCustomer()
+                : deploymentRepository.findActiveWithRobotAndCustomerByPartnerId(partnerId);
+
         Map<UUID, Deployment> byRobotId = new LinkedHashMap<>();
-        for (Deployment deployment : deploymentRepository.findActiveWithRobotAndCustomer()) {
+        for (Deployment deployment : scope) {
             byRobotId.putIfAbsent(deployment.getRobotUnit().getId(), deployment);
         }
 
@@ -113,8 +127,8 @@ public class TelemetrySyncService {
         int duplicates = 0;
         Set<String> unusableBrands = new HashSet<>();
 
-        log.info("Telemetry sync starting for {} actively deployed robot(s), range {} to {}",
-                byRobotId.size(), from, to);
+        log.info("Telemetry sync starting for {} actively deployed robot(s) ({}), range {} to {}",
+                byRobotId.size(), partnerId == null ? "whole fleet" : "partner " + partnerId, from, to);
 
         for (Deployment deployment : byRobotId.values()) {
             RobotUnit robot = deployment.getRobotUnit();

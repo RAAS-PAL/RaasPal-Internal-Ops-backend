@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.UUID;
 
 /**
  * On-demand telemetry sync — pulls a robot's task reports from its brand API
@@ -39,10 +40,13 @@ public class TelemetryController {
     }
 
     /**
-     * Sync <em>every</em> actively deployed robot for {@code [from, to]} — the same
-     * work the scheduler does, on demand. Useful to backfill history or to verify
-     * the pipeline without waiting for the next cron tick. Idempotent: re-running
-     * an overlapping range never duplicates rows.
+     * Sync actively deployed robots for {@code [from, to]} — the same work the
+     * scheduler does, on demand. Useful to backfill history or to verify the
+     * pipeline without waiting for the next cron tick. Idempotent: re-running an
+     * overlapping range never duplicates rows.
+     *
+     * <p>Optionally narrowed with {@code partnerId} to just the robots one partner
+     * services, which keeps a run proportional to the fleet you care about.
      *
      * <p>Runs inline and can take a while for a large fleet, so callers should use
      * a generous timeout.
@@ -50,8 +54,9 @@ public class TelemetryController {
     @PostMapping("/sync-all")
     public ApiResponse<SyncSummary> syncAll(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        SyncSummary summary = telemetrySyncService.syncAllActive(from, to);
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) UUID partnerId) {
+        SyncSummary summary = telemetrySyncService.syncAllActive(from, to, partnerId);
         return ApiResponse.success(
                 "Synced " + summary.robotsSynced() + " robot(s): " + summary.saved() + " new report(s), "
                         + summary.duplicatesSkipped() + " duplicate(s), " + summary.robotsSkipped() + " skipped, "
