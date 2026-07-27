@@ -167,6 +167,48 @@ class PartnerDataScopingTest {
                 .andExpect(status().isBadRequest());
     }
 
+    /* ── startTimeMin / startTimeMax (Gausium's naming, date-only) ─────────── */
+
+    @Test
+    void startTimeMinAndMaxSelectTheRange() throws Exception {
+        mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
+                        .param("startTimeMin", "2026-07-01")
+                        .param("startTimeMax", "2026-07-31")
+                        .header(HEADER, keyOfA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2));
+    }
+
+    @Test
+    void aLoneStartTimeMinSelectsThatDay() throws Exception {
+        mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
+                        .param("startTimeMin", "2026-07-15")
+                        .header(HEADER, keyOfA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    /** A datetime (what Gausium's own API takes) must be rejected, not truncated. */
+    @Test
+    void startTimeWithATimeComponentIsRejected() throws Exception {
+        mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
+                        .param("startTimeMin", "2026-07-01 00:00:00")
+                        .header(HEADER, keyOfA))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value(org.hamcrest.Matchers.containsString("date only")));
+    }
+
+    @Test
+    void startTimeMinTakesPrecedenceOverTheFromAlias() throws Exception {
+        mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
+                        .param("startTimeMin", "2026-07-15")
+                        .param("from", "2026-06-01") // alias ignored when the primary is present
+                        .header(HEADER, keyOfA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
     @Test
     void reversedDateRangeIsRejected() throws Exception {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")

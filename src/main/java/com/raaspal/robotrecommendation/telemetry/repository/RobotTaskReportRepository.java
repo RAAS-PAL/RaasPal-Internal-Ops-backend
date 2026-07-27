@@ -25,6 +25,12 @@ public interface RobotTaskReportRepository extends JpaRepository<RobotTaskReport
     @Query("select r.externalTaskId from RobotTaskReport r where r.externalTaskId in :ids")
     List<String> findExistingExternalTaskIds(@Param("ids") Collection<String> ids);
 
+    /**
+     * The already-stored rows for a fetched batch — loaded only by a refresh sync,
+     * which updates them in place instead of skipping them.
+     */
+    List<RobotTaskReport> findByExternalTaskIdIn(Collection<String> externalTaskIds);
+
     List<RobotTaskReport> findByCustomerProfileIdAndReportMonth(UUID customerProfileId, String reportMonth);
 
     List<RobotTaskReport> findByRobotUnitIdAndReportMonth(UUID robotUnitId, String reportMonth);

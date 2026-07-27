@@ -90,10 +90,10 @@ public class PartnerDataService {
         Page<RobotTaskReport> reports;
         if (hasFrom || hasTo) {
             // A lone bound means a single day; a range uses both.
-            LocalDate fromDate = parseDate(hasFrom ? from : to, "from");
-            LocalDate toDate = parseDate(hasTo ? to : from, "to");
+            LocalDate fromDate = parseDate(hasFrom ? from : to, "startTimeMin");
+            LocalDate toDate = parseDate(hasTo ? to : from, "startTimeMax");
             if (toDate.isBefore(fromDate)) {
-                throw new BadRequestException("'to' date must not be before 'from' date");
+                throw new BadRequestException("'startTimeMax' must not be before 'startTimeMin'");
             }
             Instant startMin = fromDate.atStartOfDay(REPORT_ZONE).toInstant();
             Instant startMax = toDate.atTime(LocalTime.MAX).atZone(REPORT_ZONE).toInstant();
@@ -110,12 +110,18 @@ public class PartnerDataService {
         return PagedResponse.of(reports, r -> PartnerTaskReportResponse.of(r, robot.getSerialNumber()));
     }
 
+    /**
+     * Parses a date-only bound. A value carrying a time (as Gausium's own API
+     * takes, e.g. {@code "2026-07-01 00:00:00"}) is rejected rather than silently
+     * truncated, so a caller is never told a narrower window than it asked for.
+     */
     private LocalDate parseDate(String value, String field) {
         try {
             return LocalDate.parse(value.trim());
         } catch (DateTimeParseException e) {
             throw new BadRequestException(
-                    "Invalid '" + field + "' date '" + value + "' — expected format YYYY-MM-DD");
+                    "Invalid '" + field + "' value '" + value
+                            + "' — expected a date only, in the format YYYY-MM-DD");
         }
     }
 
