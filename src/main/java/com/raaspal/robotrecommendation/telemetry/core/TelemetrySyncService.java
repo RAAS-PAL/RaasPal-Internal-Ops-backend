@@ -24,9 +24,11 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Syncs robot task reports from each robot's brand telemetry API into
@@ -49,7 +51,7 @@ public class TelemetrySyncService {
     private final ReportCacheService reportCacheService;
 
     /** Result of a sync run for one robot. */
-    public record SyncResult(String serialNumber, int saved, int skipped) {
+    public record SyncResult(String serialNumber, int saved, int updated, int skipped) {
     }
 
     /** Aggregate outcome of a fleet-wide sync run. */
@@ -60,6 +62,7 @@ public class TelemetrySyncService {
             int robotsSkipped,
             int robotsFailed,
             int saved,
+            int updated,
             int duplicatesSkipped,
             long durationMs) {
     }
@@ -72,10 +75,20 @@ public class TelemetrySyncService {
      */
     @Transactional
     public SyncResult syncBySerialNumber(String serialNumber, LocalDate from, LocalDate to) {
+        return syncBySerialNumber(serialNumber, from, to, false);
+    }
+
+    /**
+     * As above, with {@code refresh}: when true, task reports already stored are
+     * <em>updated</em> from the brand API instead of being skipped — the way to
+     * repair rows synced before a mapping fix.
+     */
+    @Transactional
+    public SyncResult syncBySerialNumber(String serialNumber, LocalDate from, LocalDate to, boolean refresh) {
         RobotUnit robotUnit = robotUnitRepository.findBySerialNumber(serialNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("RobotUnit", "serialNumber", serialNumber));
         try {
-            SyncResult result = syncRobotUnit(robotUnit, from, to);
+            SyncResult result = syncRobotUnit(robotUnit, from, to, refresh);
             reportCacheService.evictAll(); // new task data → cached reports may be stale
             return result;
         } catch (Exception e) {
@@ -97,12 +110,30 @@ public class TelemetrySyncService {
      * are skipped and reported once per brand rather than failing per robot.
      */
     public SyncSummary syncAllActive(LocalDate from, LocalDate to) {
+        return syncAllActive(from, to, null, false);
+    }
+
+    public SyncSummary syncAllActive(LocalDate from, LocalDate to, UUID partnerId) {
+        return syncAllActive(from, to, partnerId, false);
+    }
+
+    /**
+     * As {@link #syncAllActive(LocalDate, LocalDate)}, optionally narrowed to the
+     * robots one partner services ({@code partnerId}; {@code null} = the whole
+     * fleet). Syncing per partner keeps a run proportional to the fleet you
+     * actually care about — onboarding one distributor need not touch every robot.
+     */
+    public SyncSummary syncAllActive(LocalDate from, LocalDate to, UUID partnerId, boolean refresh) {
         long startedAt = System.currentTimeMillis();
 
         // One query returns exactly the robots worth syncing (active deployments)
         // with their robot and customer already fetched — no per-robot lookups.
+        List<Deployment> scope = partnerId == null
+                ? deploymentRepository.findActiveWithRobotAndCustomer()
+                : deploymentRepository.findActiveWithRobotAndCustomerByPartnerId(partnerId);
+
         Map<UUID, Deployment> byRobotId = new LinkedHashMap<>();
-        for (Deployment deployment : deploymentRepository.findActiveWithRobotAndCustomer()) {
+        for (Deployment deployment : scope) {
             byRobotId.putIfAbsent(deployment.getRobotUnit().getId(), deployment);
         }
 
@@ -110,11 +141,12 @@ public class TelemetrySyncService {
         int skipped = 0;
         int failed = 0;
         int saved = 0;
+        int updated = 0;
         int duplicates = 0;
         Set<String> unusableBrands = new HashSet<>();
 
-        log.info("Telemetry sync starting for {} actively deployed robot(s), range {} to {}",
-                byRobotId.size(), from, to);
+        log.info("Telemetry sync starting for {} actively deployed robot(s) ({}), range {} to {}",
+                byRobotId.size(), partnerId == null ? "whole fleet" : "partner " + partnerId, from, to);
 
         for (Deployment deployment : byRobotId.values()) {
             RobotUnit robot = deployment.getRobotUnit();
@@ -130,8 +162,10 @@ public class TelemetrySyncService {
                 SyncResult result = persistFetched(
                         robot,
                         deployment.getCustomerProfile(),
-                        adapter.get().fetchTaskReports(robot.getSerialNumber(), from, to));
+                        adapter.get().fetchTaskReports(robot.getSerialNumber(), from, to),
+                        refresh);
                 saved += result.saved();
+                updated += result.updated();
                 duplicates += result.skipped();
                 synced++;
             } catch (Exception e) {
@@ -142,15 +176,15 @@ public class TelemetrySyncService {
             }
         }
 
-        if (saved > 0) {
-            reportCacheService.evictAll(); // new task data → cached reports may be stale
+        if (saved > 0 || updated > 0) {
+            reportCacheService.evictAll(); // changed task data → cached reports may be stale
         }
 
-        SyncSummary summary = new SyncSummary(from, to, synced, skipped, failed, saved, duplicates,
+        SyncSummary summary = new SyncSummary(from, to, synced, skipped, failed, saved, updated, duplicates,
                 System.currentTimeMillis() - startedAt);
         log.info("Telemetry sync complete: {} robot(s) synced, {} skipped, {} failed — "
-                        + "{} new report(s), {} duplicate(s), took {} ms",
-                synced, skipped, failed, saved, duplicates, summary.durationMs());
+                        + "{} new report(s), {} updated, {} duplicate(s), took {} ms",
+                synced, skipped, failed, saved, updated, duplicates, summary.durationMs());
         return summary;
     }
 
@@ -180,17 +214,23 @@ public class TelemetrySyncService {
     /** Syncs a single robot: fetch from its brand API, then persist what is new. */
     @Transactional
     public SyncResult syncRobotUnit(RobotUnit robotUnit, LocalDate from, LocalDate to) {
+        return syncRobotUnit(robotUnit, from, to, false);
+    }
+
+    @Transactional
+    public SyncResult syncRobotUnit(RobotUnit robotUnit, LocalDate from, LocalDate to, boolean refresh) {
         List<Deployment> deployments = deploymentRepository.findByRobotUnitIdAndIsActiveTrue(robotUnit.getId());
         if (deployments.isEmpty()) {
             log.warn("Skipping robot unit {} - no active deployment", robotUnit.getSerialNumber());
-            return new SyncResult(robotUnit.getSerialNumber(), 0, 0);
+            return new SyncResult(robotUnit.getSerialNumber(), 0, 0, 0);
         }
 
         TelemetryAdapter adapter = adapterRegistry.getAdapter(robotUnit.getBrand());
         return persistFetched(
                 robotUnit,
                 deployments.get(0).getCustomerProfile(),
-                adapter.fetchTaskReports(robotUnit.getSerialNumber(), from, to));
+                adapter.fetchTaskReports(robotUnit.getSerialNumber(), from, to),
+                refresh);
     }
 
     /**
@@ -201,31 +241,44 @@ public class TelemetrySyncService {
      */
     private SyncResult persistFetched(RobotUnit robotUnit,
                                       CustomerProfile customer,
-                                      List<TelemetryTaskReport> fetched) {
+                                      List<TelemetryTaskReport> fetched,
+                                      boolean refresh) {
         String serialNumber = robotUnit.getSerialNumber();
         if (fetched.isEmpty()) {
             log.debug("Synced robot unit {}: brand API returned no task reports", serialNumber);
-            return new SyncResult(serialNumber, 0, 0);
+            return new SyncResult(serialNumber, 0, 0, 0);
         }
 
         List<String> externalIds = fetched.stream()
                 .map(TelemetryTaskReport::getExternalTaskId)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .toList();
-        Set<String> existing = externalIds.isEmpty()
-                ? Set.of()
-                : new HashSet<>(taskReportRepository.findExistingExternalTaskIds(externalIds));
+
+        // A refresh needs the stored rows themselves to update; a normal sync only
+        // needs to know which ids exist, which is the cheaper query.
+        Map<String, RobotTaskReport> existingById = Map.of();
+        Set<String> existingIds;
+        if (externalIds.isEmpty()) {
+            existingIds = Set.of();
+        } else if (refresh) {
+            existingById = taskReportRepository.findByExternalTaskIdIn(externalIds).stream()
+                    .collect(Collectors.toMap(RobotTaskReport::getExternalTaskId, r -> r, (a, b) -> a));
+            existingIds = existingById.keySet();
+        } else {
+            existingIds = new HashSet<>(taskReportRepository.findExistingExternalTaskIds(externalIds));
+        }
 
         List<RobotTaskReport> toSave = new ArrayList<>();
         Set<String> seenInBatch = new HashSet<>();
         int skipped = 0;
+        int updated = 0;
         Instant syncedAt = Instant.now();
 
         for (TelemetryTaskReport report : fetched) {
             String externalId = report.getExternalTaskId();
-            // Skip duplicates already stored, and repeats inside this same batch
-            // (a paginated brand API can return an overlapping row twice).
-            if (externalId == null || existing.contains(externalId) || !seenInBatch.add(externalId)) {
+            // Repeats inside this same batch are always skipped — a paginated brand
+            // API can return an overlapping row twice.
+            if (externalId == null || !seenInBatch.add(externalId)) {
                 skipped++;
                 continue;
             }
@@ -237,18 +290,33 @@ public class TelemetrySyncService {
                 continue;
             }
 
-            RobotTaskReport entity = report.toEntity();
+            boolean alreadyStored = existingIds.contains(externalId);
+            if (alreadyStored && !refresh) {
+                skipped++;
+                continue;
+            }
+
+            // Refresh updates the stored row in place, preserving its id and links;
+            // otherwise this is a fresh insert.
+            RobotTaskReport entity = alreadyStored
+                    ? report.applyTo(existingById.get(externalId))
+                    : report.toEntity();
             entity.setRobotUnit(robotUnit);
             entity.setCustomerProfile(customer);
             entity.setReportMonth(YearMonth.from(report.getStartTime().atZone(ZoneOffset.UTC)).toString());
             entity.setSyncedAt(syncedAt);
             toSave.add(entity);
+            if (alreadyStored) {
+                updated++;
+            }
         }
 
         if (!toSave.isEmpty()) {
             taskReportRepository.saveAll(toSave);
         }
-        log.info("Synced robot unit {}: {} saved, {} duplicate(s) skipped", serialNumber, toSave.size(), skipped);
-        return new SyncResult(serialNumber, toSave.size(), skipped);
+        int inserted = toSave.size() - updated;
+        log.info("Synced robot unit {}: {} saved, {} updated, {} duplicate(s) skipped",
+                serialNumber, inserted, updated, skipped);
+        return new SyncResult(serialNumber, inserted, updated, skipped);
     }
 }

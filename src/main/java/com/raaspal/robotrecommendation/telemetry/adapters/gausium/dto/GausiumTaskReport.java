@@ -2,6 +2,8 @@ package com.raaspal.robotrecommendation.telemetry.adapters.gausium.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
+import java.util.List;
+
 /**
  * A single entry in the {@code robotTaskReports} array returned by Gausium's
  * V2 List Robot Task Reports endpoint
@@ -31,6 +33,11 @@ public record GausiumTaskReport(
         String cleaningMode,
         Integer taskEndStatus,
         String taskReportPngUri,
+        /**
+         * Per-map breakdown of the task. Carries the map name, which
+         * {@code areaNameList} does not for whole-map tasks.
+         */
+        List<GausiumSubTask> subTasks,
         String startTime,
         String endTime
 ) {

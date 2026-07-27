@@ -54,22 +54,43 @@ public class PartnerApiController {
      * Paged task reports for one of the partner's robots (by serial number),
      * most recent first. Filters (in precedence order):
      * <ul>
-     *   <li>{@code from} / {@code to} ({@code YYYY-MM-DD}) — a day or date range;
-     *       a lone {@code from} means that single day (Asia/Bangkok).</li>
+     *   <li>{@code startTimeMin} / {@code startTimeMax} ({@code YYYY-MM-DD}) — a
+     *       day or date range on the task's start time; a lone bound means that
+     *       single day (Asia/Bangkok). {@code from} / {@code to} are accepted as
+     *       aliases.</li>
      *   <li>{@code month} ({@code YYYY-MM}).</li>
      * </ul>
-     * A serial number the partner does not service returns 404.
+     *
+     * <p>The bounds are <strong>dates only</strong> — deliberately not the
+     * {@code "YYYY-MM-DD HH:mm:ss"} that Gausium's own API takes. A partner asks
+     * for whole days; passing a time returns a clear 400 rather than being
+     * silently truncated.
+     *
+     * <p>A serial number the partner does not service returns 404.
      */
     @GetMapping("/robots/{serialNumber}/task-reports")
     public ApiResponse<PagedResponse<PartnerTaskReportResponse>> taskReports(
             @AuthenticationPrincipal PartnerPrincipal principal,
             @PathVariable String serialNumber,
             @RequestParam(required = false) String month,
+            @RequestParam(required = false) String startTimeMin,
+            @RequestParam(required = false) String startTimeMax,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ApiResponse.success(partnerDataService.listTaskReports(
-                principal.partnerId(), serialNumber, month, from, to, page, size));
+                principal.partnerId(),
+                serialNumber,
+                month,
+                firstPresent(startTimeMin, from),
+                firstPresent(startTimeMax, to),
+                page,
+                size));
+    }
+
+    /** The preferred parameter, falling back to its alias. */
+    private static String firstPresent(String preferred, String alias) {
+        return preferred != null && !preferred.isBlank() ? preferred : alias;
     }
 }
