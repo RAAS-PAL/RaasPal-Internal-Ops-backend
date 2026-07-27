@@ -1,11 +1,13 @@
 package com.raaspal.robotrecommendation.telemetry.controller;
 
+import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService.SyncResult;
-import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService.SyncSummary;
+import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService.SyncStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -58,16 +60,24 @@ public class TelemetryController {
      * a generous timeout.
      */
     @PostMapping("/sync-all")
-    public ApiResponse<SyncSummary> syncAll(
+    public ApiResponse<SyncStatus> syncAll(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) UUID partnerId,
             @RequestParam(defaultValue = "false") boolean refresh) {
-        SyncSummary summary = telemetrySyncService.syncAllActive(from, to, partnerId, refresh);
-        return ApiResponse.success(
-                "Synced " + summary.robotsSynced() + " robot(s): " + summary.saved() + " new report(s), "
-                        + summary.updated() + " updated, " + summary.duplicatesSkipped() + " duplicate(s), "
-                        + summary.robotsSkipped() + " skipped, " + summary.robotsFailed() + " failed",
-                summary);
+        boolean started = telemetrySyncService.startSyncAsync(from, to, partnerId, refresh);
+        if (!started) {
+            throw new BadRequestException("A telemetry sync is already running — wait for it to finish");
+        }
+        return ApiResponse.success("Telemetry sync started", telemetrySyncService.status());
+    }
+
+    /**
+     * Progress of the running sync, or the outcome of the last finished one.
+     * Polled by the UI while a fleet sync runs.
+     */
+    @GetMapping("/sync-status")
+    public ApiResponse<SyncStatus> syncStatus() {
+        return ApiResponse.success(telemetrySyncService.status());
     }
 }
