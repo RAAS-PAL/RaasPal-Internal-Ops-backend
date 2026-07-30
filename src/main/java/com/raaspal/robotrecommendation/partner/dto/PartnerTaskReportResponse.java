@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.partner.dto;
 
+import com.raaspal.robotrecommendation.telemetry.core.CleaningModeLabels;
 import com.raaspal.robotrecommendation.telemetry.entity.RobotTaskReport;
 
 import java.math.BigDecimal;
@@ -19,7 +20,14 @@ public record PartnerTaskReportResponse(
         String brand,
         String cleaningPlan,
         String mapName,
+        /** English label, translated from the manufacturer's own code. */
         String cleaningMode,
+        /**
+         * Exactly what the manufacturer reported, often Chinese (e.g. {@code 洗地}).
+         * Kept alongside the translation so a value can still be reconciled against
+         * Gausium's own portal, which displays the untranslated term.
+         */
+        String cleaningModeRaw,
         BigDecimal taskCompletionPct,
         Instant startTime,
         Instant endTime,
@@ -44,6 +52,10 @@ public record PartnerTaskReportResponse(
                 r.getBrand(),
                 r.getCleaningPlan(),
                 r.getMapName(),
+                // Translated on the way out, never at storage: the stored value stays
+                // faithful to the manufacturer, so fixing or extending the mapping
+                // corrects every response without re-syncing historical rows.
+                CleaningModeLabels.toEnglish(r.getCleaningMode()),
                 r.getCleaningMode(),
                 r.getTaskCompletionPct(),
                 r.getStartTime(),

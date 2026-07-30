@@ -12,6 +12,8 @@ import java.util.UUID;
  */
 public record ApiKeyResponse(
         UUID id,
+        /** Public OAuth client identifier — displayed permanently, unlike the secret. */
+        String clientId,
         String keyPrefix,
         String label,
         /** Live: active, not revoked, and not expired. */
@@ -32,6 +34,7 @@ public record ApiKeyResponse(
         boolean expired = key.isExpired();
         return new ApiKeyResponse(
                 key.getId(),
+                key.getClientId(),
                 key.getKeyPrefix(),
                 key.getLabel(),
                 key.isUsable(),

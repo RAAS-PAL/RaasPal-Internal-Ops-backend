@@ -30,7 +30,7 @@ import org.springframework.security.web.context.request.async.WebAsyncManagerInt
 @RequiredArgsConstructor
 public class PartnerSecurityConfig {
 
-    private final ApiKeyAuthFilter apiKeyAuthFilter;
+    private final PartnerJwtAuthFilter partnerJwtAuthFilter;
     private final PartnerRateLimitFilter partnerRateLimitFilter;
     private final PartnerAccessAuditFilter partnerAccessAuditFilter;
     private final PartnerAuthEntryPoint partnerAuthEntryPoint;
@@ -53,14 +53,17 @@ public class PartnerSecurityConfig {
                 .exceptionHandling(ex ->
                         ex.authenticationEntryPoint(partnerAuthEntryPoint))
                 .authorizeHttpRequests(auth -> auth
+                        // The token endpoint is what callers use BEFORE they hold a
+                        // token, so it cannot itself require one.
+                        .requestMatchers("/api/partner/v1/oauth/token").permitAll()
                         .anyRequest().authenticated())
                 // Filter order matters, and each is anchored to a well-known filter
                 // so the resulting order is unambiguous:
                 //   audit (outermost, sees the final status incl. 401/429)
-                //     → API-key auth
-                //       → rate limit (needs the authenticated key to meter per partner)
+                //     → bearer-token auth
+                //       → rate limit (needs the authenticated partner to meter per key)
                 .addFilterBefore(partnerAccessAuditFilter, WebAsyncManagerIntegrationFilter.class)
-                .addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(partnerJwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(partnerRateLimitFilter, AuthorizationFilter.class);
 
         return http.build();

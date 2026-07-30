@@ -8,6 +8,7 @@ import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Recommen
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Ring;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
+import com.raaspal.robotrecommendation.telemetry.core.CleaningModeLabels;
 import com.raaspal.robotrecommendation.telemetry.entity.RobotTaskReport;
 import com.raaspal.robotrecommendation.telemetry.repository.RobotTaskReportRepository;
 import lombok.RequiredArgsConstructor;
@@ -198,30 +199,6 @@ public class ReportPreviewService {
     }
 
     /**
-     * Friendly English display names for raw cleaning-mode codes. Gausium returns
-     * some modes in Chinese (and sometimes underscore-prefixed, e.g. "__尘推"),
-     * so both English codes and Chinese terms are mapped to English here.
-     */
-    private static final Map<String, String> MODE_LABELS = Map.ofEntries(
-            Map.entry("mop", "Mopping"),
-            Map.entry("mop_wet", "Wet Mopping"),
-            Map.entry("sweep", "Sweeping"),
-            Map.entry("vacuum", "Vacuuming"),
-            Map.entry("scrub", "Scrubbing"),
-            Map.entry("sweep_vacuum", "Sweep & Vacuum"),
-            Map.entry("洗地", "Floor Washing"),
-            Map.entry("尘推", "Dust Push"),
-            Map.entry("推尘", "Dust Push"),
-            Map.entry("扫地", "Sweeping"),
-            Map.entry("清扫", "Sweeping"),
-            Map.entry("吸尘", "Vacuuming"),
-            Map.entry("拖地", "Mopping"),
-            Map.entry("洗扫", "Wash & Sweep"),
-            Map.entry("轻度清洁", "Light Cleaning"),
-            Map.entry("中度清洁", "Medium Cleaning"),
-            Map.entry("重度清洁", "Deep Cleaning"));
-
-    /**
      * Every cleaning mode used in the month with its run count, most-frequent
      * first, e.g. "Wet Mopping ×7, Mopping ×3". "—" when no mode is recorded.
      */
@@ -239,15 +216,14 @@ public class ReportPreviewService {
                 .collect(Collectors.joining(", "));
     }
 
-    /** Maps a raw mode code (English or Chinese) to a friendly English label. */
+    /**
+     * Maps a raw mode code (English or Chinese) to a friendly English label.
+     * Delegates to {@link CleaningModeLabels} so this report and the partner API
+     * describe the same task identically — a customer and their service partner
+     * comparing notes must not see two different words for one cleaning mode.
+     */
     private static String modeLabel(String mode) {
-        String key = mode.trim().toLowerCase().replaceFirst("^_+", ""); // drop any leading "__"
-        String mapped = MODE_LABELS.get(key);
-        if (mapped != null) return mapped;
-        // Never show raw non-English text (e.g. an unmapped Chinese mode) on the report.
-        if (!key.chars().allMatch(c -> c < 128)) return "Other";
-        String spaced = key.replace('_', ' ');
-        return spaced.isEmpty() ? spaced : Character.toUpperCase(spaced.charAt(0)) + spaced.substring(1);
+        return CleaningModeLabels.toEnglish(mode);
     }
 
     private static String formatHms(long seconds) {

@@ -35,13 +35,19 @@ import java.util.UUID;
 public class PartnerApiKeyService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final String KEY_PREFIX = "pk_"; // partner key
+    private static final String KEY_PREFIX = "pk_"; // partner key (the secret)
+    private static final String CLIENT_ID_PREFIX = "cid_"; // public client identifier
 
     private final PartnerRepository partnerRepository;
     private final PartnerApiKeyRepository partnerApiKeyRepository;
 
-    /** A newly minted key — the plaintext is returned ONCE and never stored. */
-    public record GeneratedKey(UUID id, String apiKey, String keyPrefix, String label, LocalDateTime expiresAt) {
+    /**
+     * A newly minted credential. {@code clientId} is public and can be shown
+     * again later; {@code apiKey} (the client secret) is returned ONCE and never
+     * stored in recoverable form.
+     */
+    public record GeneratedKey(UUID id, String clientId, String apiKey, String keyPrefix,
+                               String label, LocalDateTime expiresAt) {
     }
 
     /**
@@ -69,12 +75,14 @@ public class PartnerApiKeyService {
 
         String plaintext = KEY_PREFIX + randomToken();
         String prefix = plaintext.substring(0, 12); // display + non-security lookup aid
+        String clientId = CLIENT_ID_PREFIX + randomClientId();
         LocalDateTime expiresAt = expiresInDays == null
                 ? null
                 : LocalDateTime.now().plusDays(expiresInDays);
 
         PartnerApiKey saved = partnerApiKeyRepository.save(PartnerApiKey.builder()
                 .partnerId(partner.getId())
+                .clientId(clientId)
                 .keyHash(sha256Hex(plaintext))
                 .keyPrefix(prefix)
                 .label(label)
@@ -82,9 +90,43 @@ public class PartnerApiKeyService {
                 .expiresAt(expiresAt)
                 .build());
 
-        log.info("Generated API key {} for partner {} ({}), expires {}",
-                prefix, partner.getName(), partnerId, expiresAt == null ? "never" : expiresAt);
-        return new GeneratedKey(saved.getId(), plaintext, prefix, label, expiresAt);
+        log.info("Generated credential {} for partner {} ({}), expires {}",
+                clientId, partner.getName(), partnerId, expiresAt == null ? "never" : expiresAt);
+        return new GeneratedKey(saved.getId(), clientId, plaintext, prefix, label, expiresAt);
+    }
+
+    /**
+     * Verifies an OAuth {@code client_id} / {@code client_secret} pair for the
+     * token endpoint. Returns the same {@link AuthenticatedPartner} the API-key
+     * path produces, so everything downstream is identical.
+     *
+     * <p>The secret is compared by hash, and the record must still be usable —
+     * active, not revoked, not expired — with an active owning partner. Any
+     * failure returns empty; the caller reports a single generic
+     * {@code invalid_client} so a probe cannot tell which half was wrong.
+     */
+    @Transactional(readOnly = true)
+    public Optional<AuthenticatedPartner> authenticateClient(String clientId, String clientSecret) {
+        if (clientId == null || clientId.isBlank() || clientSecret == null || clientSecret.isBlank()) {
+            return Optional.empty();
+        }
+        return partnerApiKeyRepository.findByClientId(clientId.trim())
+                .filter(key -> constantTimeEquals(key.getKeyHash(), sha256Hex(clientSecret)))
+                .filter(PartnerApiKey::isUsable)
+                .flatMap(key -> partnerRepository.findById(key.getPartnerId())
+                        .filter(partner -> Boolean.TRUE.equals(partner.getIsActive()))
+                        .map(partner -> new AuthenticatedPartner(
+                                key.getId(), partner.getId(), partner.getName())));
+    }
+
+    /** Whether a stored key is still usable — used to re-check on every bearer request. */
+    @Transactional(readOnly = true)
+    public boolean isKeyStillUsable(UUID keyId) {
+        return partnerApiKeyRepository.findById(keyId)
+                .filter(PartnerApiKey::isUsable)
+                .flatMap(key -> partnerRepository.findById(key.getPartnerId()))
+                .filter(partner -> Boolean.TRUE.equals(partner.getIsActive()))
+                .isPresent();
     }
 
     /** Mints a key that never expires. */
@@ -157,6 +199,27 @@ public class PartnerApiKeyService {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** Public identifier — shorter than the secret, but still unguessable. */
+    private String randomClientId() {
+        byte[] bytes = new byte[12];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /**
+     * Compares two hex digests without leaking, through timing, how many leading
+     * characters matched. Both values are the same fixed length here, so this is
+     * belt-and-braces rather than strictly necessary — but secret comparison is
+     * the wrong place to rely on that staying true.
+     */
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                a.getBytes(StandardCharsets.UTF_8), b.getBytes(StandardCharsets.UTF_8));
     }
 
     private String sha256Hex(String input) {

@@ -48,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PartnerApiHardeningTest {
 
     private static final String ME = "/api/partner/v1/me";
-    private static final String HEADER = "X-API-Key";
+    private static final String HEADER = "Authorization";
 
     @Autowired
     private MockMvc mockMvc;
@@ -66,35 +66,44 @@ class PartnerApiHardeningTest {
     private RobotUnitRepository robotUnitRepository;
     @Autowired
     private DeploymentRepository deploymentRepository;
+    @Autowired
+    private PartnerAuthTestSupport auth;
 
     private Partner partner;
-    private String apiKey;
+    private String authHeader;
 
     @BeforeEach
     void setUp() {
         partner = partnerRepository.save(
                 Partner.builder().name("Hardening " + System.nanoTime()).isActive(true).build());
-        apiKey = partnerApiKeyService.generate(partner.getId(), "hardening", null).apiKey();
+        authHeader = auth.credentialFor(partner).authorizationHeader();
     }
 
     /* ── Key expiry ───────────────────────────────────────────────────────── */
 
     @Test
-    void keyWithFutureExpiryStillWorks() throws Exception {
-        String key = partnerApiKeyService.generate(partner.getId(), "30 days", 30).apiKey();
+    void credentialWithFutureExpiryStillWorks() throws Exception {
+        String bearer = auth.credentialFor(partner, 30).authorizationHeader();
 
-        mockMvc.perform(get(ME).header(HEADER, key)).andExpect(status().isOk());
+        mockMvc.perform(get(ME).header(HEADER, bearer)).andExpect(status().isOk());
     }
 
+    /**
+     * Expiring the credential must invalidate a bearer that was already issued
+     * against it — the token alone is not enough, the key behind it is re-checked.
+     */
     @Test
-    void expiredKeyIsRejected() throws Exception {
-        GeneratedKey generated = partnerApiKeyService.generate(partner.getId(), "expiring", 1);
+    void expiredCredentialRejectsAnAlreadyIssuedToken() throws Exception {
+        PartnerAuthTestSupport.Credential credential = auth.credentialFor(partner, 1);
+        mockMvc.perform(get(ME).header(HEADER, credential.authorizationHeader()))
+                .andExpect(status().isOk());
+
         // Backdate past its expiry — the same state a key reaches on its own.
-        PartnerApiKey stored = partnerApiKeyRepository.findById(generated.id()).orElseThrow();
+        PartnerApiKey stored = partnerApiKeyRepository.findById(credential.key().id()).orElseThrow();
         stored.setExpiresAt(LocalDateTime.now().minusMinutes(1));
         partnerApiKeyRepository.save(stored);
 
-        mockMvc.perform(get(ME).header(HEADER, generated.apiKey()))
+        mockMvc.perform(get(ME).header(HEADER, credential.authorizationHeader()))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -118,7 +127,7 @@ class PartnerApiHardeningTest {
 
     @Test
     void requestsWithinTheLimitAreServedAndAdvertiseTheBudget() throws Exception {
-        mockMvc.perform(get(ME).header(HEADER, apiKey))
+        mockMvc.perform(get(ME).header(HEADER, authHeader))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-RateLimit-Limit", "3"))
                 .andExpect(header().string("X-RateLimit-Remaining", "2"));
@@ -127,10 +136,10 @@ class PartnerApiHardeningTest {
     @Test
     void exceedingTheLimitReturns429WithRetryAfter() throws Exception {
         for (int i = 0; i < 3; i++) {
-            mockMvc.perform(get(ME).header(HEADER, apiKey)).andExpect(status().isOk());
+            mockMvc.perform(get(ME).header(HEADER, authHeader)).andExpect(status().isOk());
         }
         // The 4th request in the same minute is over the 3/min budget.
-        mockMvc.perform(get(ME).header(HEADER, apiKey))
+        mockMvc.perform(get(ME).header(HEADER, authHeader))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"))
                 .andExpect(jsonPath("$.success").value(false));
@@ -140,20 +149,20 @@ class PartnerApiHardeningTest {
     @Test
     void rateLimitIsScopedToTheCallingPartner() throws Exception {
         for (int i = 0; i < 4; i++) {
-            mockMvc.perform(get(ME).header(HEADER, apiKey));
+            mockMvc.perform(get(ME).header(HEADER, authHeader));
         }
         Partner other = partnerRepository.save(
                 Partner.builder().name("Other " + System.nanoTime()).isActive(true).build());
-        String othersKey = partnerApiKeyService.generate(other.getId(), "other", null).apiKey();
+        String othersBearer = auth.credentialFor(other).authorizationHeader();
 
-        mockMvc.perform(get(ME).header(HEADER, othersKey)).andExpect(status().isOk());
+        mockMvc.perform(get(ME).header(HEADER, othersBearer)).andExpect(status().isOk());
     }
 
     /* ── Access audit ─────────────────────────────────────────────────────── */
 
     @Test
     void successfulRequestIsAudited() throws Exception {
-        mockMvc.perform(get(ME).header(HEADER, apiKey)).andExpect(status().isOk());
+        mockMvc.perform(get(ME).header(HEADER, authHeader)).andExpect(status().isOk());
 
         assertThat(accessLogRepository.findAll())
                 .anySatisfy(entry -> {
@@ -168,7 +177,8 @@ class PartnerApiHardeningTest {
     /** Rejected attempts are the ones worth recording — with no partner attached. */
     @Test
     void rejectedRequestIsAuditedWithoutAPartner() throws Exception {
-        mockMvc.perform(get(ME).header(HEADER, "pk_bogus")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(ME).header(HEADER, "Bearer bogus-token"))
+                .andExpect(status().isUnauthorized());
 
         assertThat(accessLogRepository.findAll())
                 .anySatisfy(entry -> {
@@ -182,7 +192,7 @@ class PartnerApiHardeningTest {
     void auditRecordsWhichDataWasRequested() throws Exception {
         String serial = ownedRobotSerial();
         mockMvc.perform(get("/api/partner/v1/robots/" + serial + "/task-reports?month=2026-07")
-                        .header(HEADER, apiKey))
+                        .header(HEADER, authHeader))
                 .andExpect(status().isOk());
 
         assertThat(accessLogRepository.findAll())
@@ -204,7 +214,7 @@ class PartnerApiHardeningTest {
 
         mockMvc.perform(get("/api/partner/v1/robots/" + serial + "/task-reports")
                         .param("month", "2026-7") // not zero-padded
-                        .header(HEADER, apiKey))
+                        .header(HEADER, authHeader))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("YYYY-MM")));
     }
@@ -215,7 +225,7 @@ class PartnerApiHardeningTest {
 
         mockMvc.perform(get("/api/partner/v1/robots/" + serial + "/task-reports")
                         .param("month", "July")
-                        .header(HEADER, apiKey))
+                        .header(HEADER, authHeader))
                 .andExpect(status().isBadRequest());
     }
 
@@ -225,7 +235,7 @@ class PartnerApiHardeningTest {
 
         mockMvc.perform(get("/api/partner/v1/robots/" + serial + "/task-reports")
                         .param("month", "2026-07")
-                        .header(HEADER, apiKey))
+                        .header(HEADER, authHeader))
                 .andExpect(status().isOk());
     }
 

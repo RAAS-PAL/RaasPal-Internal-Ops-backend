@@ -17,5 +17,8 @@ public interface PartnerApiKeyRepository extends JpaRepository<PartnerApiKey, UU
 
     Optional<PartnerApiKey> findByKeyHash(String keyHash);
 
+    /** The OAuth token endpoint's lookup: find the credential by its public client id. */
+    Optional<PartnerApiKey> findByClientId(String clientId);
+
     List<PartnerApiKey> findByPartnerId(UUID partnerId);
 }
