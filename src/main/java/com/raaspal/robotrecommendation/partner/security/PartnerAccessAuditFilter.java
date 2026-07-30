@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -78,7 +77,7 @@ public class PartnerAccessAuditFilter extends OncePerRequestFilter {
                     .queryString(truncate(request.getQueryString(), 1000))
                     .status(response.getStatus())
                     .durationMs((int) ((System.nanoTime() - startedAt) / 1_000_000))
-                    .clientIp(truncate(clientIp(request), 64))
+                    .clientIp(truncate(ClientIpResolver.resolve(request), 64))
                     .requestedAt(requestedAt)
                     .build());
         } catch (Exception e) {
@@ -90,14 +89,14 @@ public class PartnerAccessAuditFilter extends OncePerRequestFilter {
     /**
      * The authenticated caller, or null if the request never authenticated.
      *
-     * <p>Read from the request attribute set by {@link ApiKeyAuthFilter}, not the
-     * SecurityContext: this filter is outermost, and by the time it regains control
-     * Spring Security has already cleared the context — which silently attributed
-     * successful requests to no partner. The SecurityContext is still consulted as
-     * a fallback.
+     * <p>Read from the request attribute set by {@link PartnerJwtAuthFilter}, not
+     * the SecurityContext: this filter is outermost, and by the time it regains
+     * control Spring Security has already cleared the context — which silently
+     * attributed successful requests to no partner. The SecurityContext is still
+     * consulted as a fallback.
      */
     private PartnerPrincipal authenticatedPrincipal(HttpServletRequest request) {
-        if (request.getAttribute(ApiKeyAuthFilter.PARTNER_PRINCIPAL_ATTRIBUTE)
+        if (request.getAttribute(PartnerPrincipal.REQUEST_ATTRIBUTE)
                 instanceof PartnerPrincipal fromRequest) {
             return fromRequest;
         }
@@ -106,16 +105,6 @@ public class PartnerAccessAuditFilter extends OncePerRequestFilter {
             return principal;
         }
         return null;
-    }
-
-    /** Prefers the proxy-forwarded address — Render terminates TLS in front of the app. */
-    private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(forwarded)) {
-            int comma = forwarded.indexOf(',');
-            return (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
-        }
-        return request.getRemoteAddr();
     }
 
     private static String truncate(String value, int max) {

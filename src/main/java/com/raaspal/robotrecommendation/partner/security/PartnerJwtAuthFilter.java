@@ -84,6 +84,6 @@ public class PartnerJwtAuthFilter extends OncePerRequestFilter {
         SecurityContextHolder.getContext().setAuthentication(authentication);
         // Read back by PartnerAccessAuditFilter, which runs outermost and would
         // otherwise find the SecurityContext already cleared.
-        request.setAttribute(ApiKeyAuthFilter.PARTNER_PRINCIPAL_ATTRIBUTE, principal);
+        request.setAttribute(PartnerPrincipal.REQUEST_ATTRIBUTE, principal);
     }
 }

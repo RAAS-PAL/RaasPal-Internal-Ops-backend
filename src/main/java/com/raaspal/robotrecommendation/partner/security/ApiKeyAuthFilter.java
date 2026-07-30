@@ -12,7 +12,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
-import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -20,29 +19,30 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Authenticates partner-API requests by the {@code X-API-Key} header. A valid,
- * active key belonging to an active partner is turned into a {@link PartnerPrincipal}
- * in the SecurityContext; anything else leaves the context empty and the security
- * chain answers 401 via {@code PartnerAuthEntryPoint}.
+ * Authenticates partner-API requests by the {@code X-API-Key} header, turning a
+ * valid, active key belonging to an active partner into a {@link PartnerPrincipal}.
  *
- * <p>Deliberately mirrors {@code AuthTokenFilter} (the JWT filter): it never throws
- * — a bad key simply means "not authenticated" — so a malformed header can never
- * 500. It only runs on the partner chain, which is matched to {@code /api/partner/**}.
+ * <p><strong>RETIRED — not wired into any security chain, and deliberately not a
+ * bean.</strong> The partner API authenticates with OAuth bearer tokens via
+ * {@link PartnerJwtAuthFilter}; raw keys are now only ever exchanged for a token at
+ * the token endpoint. The class is kept for one release so the previous scheme can
+ * be restored quickly if the cutover needs reverting — re-add {@code @Component},
+ * an {@code addFilterBefore} in {@link PartnerSecurityConfig}, and a disabled
+ * registration alongside the others.
+ *
+ * <p>The missing {@code @Component} is the load-bearing part. Spring Boot registers
+ * every {@code Filter} bean with the servlet container at {@code /*}, so while this
+ * was a bean it kept running on every request in the application despite belonging
+ * to no chain: an {@code X-API-Key} header on any staff path still cost a credential
+ * lookup and a {@code last_used_at} write, driven entirely by a caller-supplied
+ * header. It could not grant access — the container copies run after authorisation —
+ * but a retired credential should not be doing database work at all.
  */
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
     public static final String API_KEY_HEADER = "X-API-Key";
-
-    /**
-     * Request attribute holding the authenticated {@link PartnerPrincipal}.
-     * {@link PartnerAccessAuditFilter} reads this rather than the SecurityContext
-     * because it runs outermost, and Spring Security clears the context on the way
-     * out — a request attribute lives for the whole request regardless.
-     */
-    public static final String PARTNER_PRINCIPAL_ATTRIBUTE = "raaspal.partnerPrincipal";
 
     private static final String PARTNER_AUTHORITY = "ROLE_PARTNER";
 
@@ -84,6 +84,6 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
                         List.of(new SimpleGrantedAuthority(PARTNER_AUTHORITY)));
         authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
         SecurityContextHolder.getContext().setAuthentication(authentication);
-        request.setAttribute(PARTNER_PRINCIPAL_ATTRIBUTE, principal);
+        request.setAttribute(PartnerPrincipal.REQUEST_ATTRIBUTE, principal);
     }
 }
