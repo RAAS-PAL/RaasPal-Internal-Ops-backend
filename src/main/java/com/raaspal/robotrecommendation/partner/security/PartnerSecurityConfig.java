@@ -1,6 +1,8 @@
 package com.raaspal.robotrecommendation.partner.security;
 
+import jakarta.servlet.Filter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -14,13 +16,15 @@ import org.springframework.security.web.context.request.async.WebAsyncManagerInt
 
 /**
  * A dedicated security chain for the partner-facing API ({@code /api/partner/**}),
- * fully separate from the JWT chain in {@code SecurityConfig}. It authenticates by
- * {@code X-API-Key} only — no JWT, no session, no form login.
+ * fully separate from the staff JWT chain in {@code SecurityConfig}. Callers
+ * exchange a client id and secret for a bearer token at
+ * {@code /api/partner/v1/oauth/token} and authenticate with that token — no staff
+ * JWT, no session, no form login.
  *
  * <p>{@code @Order(1)} makes this chain win for {@code /api/partner/**}; every other
- * path falls through to the JWT chain ({@code @Order(2)}). Keeping the two apart
- * means a partner key can never reach a staff endpoint, and a staff JWT can never
- * reach a partner endpoint.
+ * path falls through to the staff chain ({@code @Order(2)}). Keeping the two apart,
+ * and giving partner tokens their own signing secret, means a partner token can
+ * never reach a staff endpoint and a staff JWT can never reach a partner endpoint.
  *
  * <p>Hardening choices: stateless (no session fixation surface), CSRF disabled
  * (there is no cookie/session to forge — auth is a header secret), and no CORS
@@ -67,5 +71,48 @@ public class PartnerSecurityConfig {
                 .addFilterBefore(partnerRateLimitFilter, AuthorizationFilter.class);
 
         return http.build();
+    }
+
+    /*
+     * Keeping the partner filters off every other request.
+     *
+     * Spring Boot registers each bean of type Filter with the servlet container at
+     * "/*", and that happens independently of securityMatcher above — being added to
+     * this chain does not remove a filter from the container, it adds a second place
+     * the filter runs. So each @Component filter here also ran on every staff
+     * request, Swagger page and health ping the application served.
+     *
+     * The container copies sort after springSecurityFilterChain, so this was never an
+     * authorisation bypass: by the time they ran, the staff chain had already allowed
+     * or rejected the request. The cost was the audit log. PartnerAccessAuditFilter
+     * has no partner-path check, so it wrote a row per non-partner request — an insert
+     * apiece against the free Supabase tier, every one of them with partner_id NULL,
+     * which is exactly what a failed partner authentication looks like. Audit noise in
+     * that shape hides the probing attempts the table exists to reveal.
+     *
+     * Disabling the registration leaves the bean untouched for Spring Security's use
+     * while removing it from the container. PartnerFilterScopeTest fails if a new
+     * partner filter is added without one of these.
+     */
+
+    @Bean
+    public FilterRegistrationBean<PartnerAccessAuditFilter> partnerAccessAuditFilterNotGlobal() {
+        return notGlobal(partnerAccessAuditFilter);
+    }
+
+    @Bean
+    public FilterRegistrationBean<PartnerJwtAuthFilter> partnerJwtAuthFilterNotGlobal() {
+        return notGlobal(partnerJwtAuthFilter);
+    }
+
+    @Bean
+    public FilterRegistrationBean<PartnerRateLimitFilter> partnerRateLimitFilterNotGlobal() {
+        return notGlobal(partnerRateLimitFilter);
+    }
+
+    private static <T extends Filter> FilterRegistrationBean<T> notGlobal(T filter) {
+        FilterRegistrationBean<T> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 }

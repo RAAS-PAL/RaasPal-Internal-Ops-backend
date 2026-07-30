@@ -45,7 +45,7 @@ public class PartnerTokenService {
 
     public PartnerTokenService(
             @Value("${app.partner.jwt.secret}") String secret,
-            @Value("${app.partner.jwt.expiration-ms:3600000}") long expirationMs) {
+            @Value("${app.partner.jwt.expiration-ms:86400000}") long expirationMs) {
         this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
     }

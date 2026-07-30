@@ -77,7 +77,9 @@ class PartnerOAuthTest {
                 // snake_case per RFC 6749 — off-the-shelf clients look for exactly these.
                 .andExpect(jsonPath("$.access_token").isNotEmpty())
                 .andExpect(jsonPath("$.token_type").value("Bearer"))
-                .andExpect(jsonPath("$.expires_in").value(3600));
+                // 24 hours. Partners are told to cache until this lapses, so a change
+                // here changes their integration — it should be a deliberate edit.
+                .andExpect(jsonPath("$.expires_in").value(86400));
     }
 
     @Test
