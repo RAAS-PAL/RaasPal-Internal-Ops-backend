@@ -4,7 +4,6 @@ import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
 import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
 import com.raaspal.robotrecommendation.partner.entity.Partner;
 import com.raaspal.robotrecommendation.partner.repository.PartnerRepository;
-import com.raaspal.robotrecommendation.partner.service.PartnerApiKeyService;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
@@ -37,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 class PartnerDataScopingTest {
 
-    private static final String HEADER = "X-API-Key";
+    private static final String HEADER = "Authorization";
     private static final String ROBOTS = "/api/partner/v1/robots";
 
     @Autowired
@@ -45,7 +44,7 @@ class PartnerDataScopingTest {
     @Autowired
     private PartnerRepository partnerRepository;
     @Autowired
-    private PartnerApiKeyService partnerApiKeyService;
+    private PartnerAuthTestSupport auth;
     @Autowired
     private CustomerProfileRepository customerProfileRepository;
     @Autowired
@@ -58,7 +57,7 @@ class PartnerDataScopingTest {
     /** Unique per run so rows never collide with another test's fixtures. */
     private final String tag = UUID.randomUUID().toString().substring(0, 8);
 
-    private String keyOfA;
+    private String authOfA;
     private String ownSerial;
     private String otherPartnersSerial;
     private String unassignedSerial;
@@ -69,7 +68,7 @@ class PartnerDataScopingTest {
                 Partner.builder().name("Partner A " + tag).isActive(true).build());
         Partner partnerB = partnerRepository.save(
                 Partner.builder().name("Partner B " + tag).isActive(true).build());
-        keyOfA = partnerApiKeyService.generate(partnerA.getId(), "scoping test").apiKey();
+        authOfA = auth.credentialFor(partnerA).authorizationHeader();
 
         CustomerProfile customerOfA = customer("Customer A " + tag);
         CustomerProfile customerOfB = customer("Customer B " + tag);
@@ -90,7 +89,7 @@ class PartnerDataScopingTest {
 
     @Test
     void robotsListReturnsOnlyThisPartnersRobots() throws Exception {
-        mockMvc.perform(get(ROBOTS).header(HEADER, keyOfA))
+        mockMvc.perform(get(ROBOTS).header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[?(@.serialNumber == '" + ownSerial + "')]").exists())
                 // Another partner's robot and a RAASPAL-direct robot must not appear.
@@ -100,7 +99,7 @@ class PartnerDataScopingTest {
 
     @Test
     void taskReportsAreReadableForAnOwnedRobot() throws Exception {
-        mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports").header(HEADER, keyOfA))
+        mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports").header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(3))
                 .andExpect(jsonPath("$.data.content[0].robotSerialNumber").value(ownSerial));
@@ -109,7 +108,7 @@ class PartnerDataScopingTest {
     /** Another partner's robot must be indistinguishable from one that does not exist. */
     @Test
     void anotherPartnersRobotIsNotFound() throws Exception {
-        mockMvc.perform(get(ROBOTS + "/" + otherPartnersSerial + "/task-reports").header(HEADER, keyOfA))
+        mockMvc.perform(get(ROBOTS + "/" + otherPartnersSerial + "/task-reports").header(HEADER, authOfA))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message")
                         .value("No robot with serial number '" + otherPartnersSerial + "' is available to this partner"));
@@ -118,7 +117,7 @@ class PartnerDataScopingTest {
     @Test
     void unknownRobotIsNotFoundWithTheSameMessageShape() throws Exception {
         String missing = "SN-DOES-NOT-EXIST-" + tag;
-        mockMvc.perform(get(ROBOTS + "/" + missing + "/task-reports").header(HEADER, keyOfA))
+        mockMvc.perform(get(ROBOTS + "/" + missing + "/task-reports").header(HEADER, authOfA))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message")
                         .value("No robot with serial number '" + missing + "' is available to this partner"));
@@ -126,7 +125,7 @@ class PartnerDataScopingTest {
 
     @Test
     void aPartnerCannotReachAnotherPartnersRobotEvenWhenItIsDeployed() throws Exception {
-        mockMvc.perform(get(ROBOTS + "/" + unassignedSerial + "/task-reports").header(HEADER, keyOfA))
+        mockMvc.perform(get(ROBOTS + "/" + unassignedSerial + "/task-reports").header(HEADER, authOfA))
                 .andExpect(status().isNotFound());
     }
 
@@ -134,7 +133,7 @@ class PartnerDataScopingTest {
     void monthFilterSelectsThatMonthOnly() throws Exception {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("month", "2026-06")
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1));
     }
@@ -143,7 +142,7 @@ class PartnerDataScopingTest {
     void singleDayFilterSelectsThatDayOnly() throws Exception {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("from", "2026-07-15")
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1));
     }
@@ -154,7 +153,7 @@ class PartnerDataScopingTest {
                         .param("from", "2026-07-01")
                         .param("to", "2026-07-31")
                         .param("month", "2026-06") // ignored when from/to are present
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(2));
     }
@@ -163,7 +162,7 @@ class PartnerDataScopingTest {
     void invalidDateIsRejected() throws Exception {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("from", "15-07-2026")
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isBadRequest());
     }
 
@@ -174,7 +173,7 @@ class PartnerDataScopingTest {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("startTimeMin", "2026-07-01")
                         .param("startTimeMax", "2026-07-31")
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(2));
     }
@@ -183,7 +182,7 @@ class PartnerDataScopingTest {
     void aLoneStartTimeMinSelectsThatDay() throws Exception {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("startTimeMin", "2026-07-15")
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1));
     }
@@ -193,7 +192,7 @@ class PartnerDataScopingTest {
     void startTimeWithATimeComponentIsRejected() throws Exception {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("startTimeMin", "2026-07-01 00:00:00")
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value(org.hamcrest.Matchers.containsString("date only")));
@@ -204,7 +203,7 @@ class PartnerDataScopingTest {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("startTimeMin", "2026-07-15")
                         .param("from", "2026-06-01") // alias ignored when the primary is present
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1));
     }
@@ -214,7 +213,7 @@ class PartnerDataScopingTest {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("from", "2026-07-31")
                         .param("to", "2026-07-01")
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isBadRequest());
     }
 
@@ -223,7 +222,7 @@ class PartnerDataScopingTest {
     void pageSizeIsCapped() throws Exception {
         mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
                         .param("size", "5000")
-                        .header(HEADER, keyOfA))
+                        .header(HEADER, authOfA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.size").value(100));
     }

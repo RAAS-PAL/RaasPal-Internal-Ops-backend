@@ -39,6 +39,20 @@ public class PartnerApiKey {
     @Column(name = "partner_id", nullable = false)
     private UUID partnerId;
 
+    /**
+     * Public OAuth client identifier — safe to display and re-read, and paired
+     * with the plaintext key (the client secret) at the token endpoint.
+     *
+     * <p>Generated independently of the secret. Deliberately <em>not</em>
+     * {@link #keyPrefix}, which is the secret's own opening characters: using it
+     * here would publish part of the private value.
+     *
+     * <p>Nullable because local development and production share one database —
+     * an older build that predates this column must still be able to insert keys.
+     */
+    @Column(name = "client_id", unique = true, length = 64)
+    private String clientId;
+
     /** SHA-256 of the plaintext key, hex-encoded (64 chars). */
     @Column(name = "key_hash", nullable = false, unique = true, length = 64)
     private String keyHash;

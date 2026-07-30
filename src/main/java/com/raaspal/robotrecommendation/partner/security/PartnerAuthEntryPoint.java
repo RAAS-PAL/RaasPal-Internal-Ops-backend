@@ -36,7 +36,8 @@ public class PartnerAuthEntryPoint implements AuthenticationEntryPoint {
 
         Map<String, Object> body = Map.of(
                 "success", false,
-                "message", "Unauthorized: a valid API key is required in the X-API-Key header",
+                "message", "Unauthorized: a valid bearer token is required. Obtain one from "
+                        + "POST /api/partner/v1/oauth/token using your client_id and client_secret.",
                 "timestamp", LocalDateTime.now().toString()
         );
 
