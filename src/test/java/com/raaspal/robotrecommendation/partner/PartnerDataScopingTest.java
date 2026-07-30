@@ -18,10 +18,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -84,7 +86,9 @@ class PartnerDataScopingTest {
         // Two tasks in July, one in June — enough to prove the month/day filters.
         taskReport(own, customerOfA, "task-jul-15-" + tag, Instant.parse("2026-07-15T05:00:00Z"), "2026-07");
         taskReport(own, customerOfA, "task-jul-20-" + tag, Instant.parse("2026-07-20T05:00:00Z"), "2026-07");
-        taskReport(own, customerOfA, "task-jun-10-" + tag, Instant.parse("2026-06-10T05:00:00Z"), "2026-06");
+        // The June task carries a real Chinese mode from the fleet, so the response
+        // contract can be asserted on data shaped like production's.
+        taskReport(own, customerOfA, "task-jun-10-" + tag, Instant.parse("2026-06-10T05:00:00Z"), "2026-06", "洗地");
     }
 
     @Test
@@ -103,6 +107,31 @@ class PartnerDataScopingTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(3))
                 .andExpect(jsonPath("$.data.content[0].robotSerialNumber").value(ownSerial));
+    }
+
+    /**
+     * PCS asked not to receive the manufacturer's Chinese at all, so the response
+     * carries the translated label only — {@code cleaningModeRaw} was removed rather
+     * than left as a second, un-normalised field for a partner to build against.
+     *
+     * <p>The blanket "no ideographic character anywhere in the body" assertion is the
+     * one that matters. A per-field check would still pass if some other field quietly
+     * carried Chinese through, and the request was about the whole response.
+     */
+    @Test
+    void taskReportsCarryTheTranslatedModeAndNoChineseAtAll() throws Exception {
+        String body = mockMvc.perform(get(ROBOTS + "/" + ownSerial + "/task-reports")
+                        .header(HEADER, authOfA)
+                        .param("month", "2026-06"))
+                .andExpect(status().isOk())
+                // Gausium's own English for 洗地 — not the literal "floor washing".
+                .andExpect(jsonPath("$.data.content[0].cleaningMode").value("Scrubbing"))
+                .andExpect(jsonPath("$.data.content[0].cleaningModeRaw").doesNotExist())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(body.codePoints().noneMatch(Character::isIdeographic))
+                .as("no Chinese may appear anywhere in a partner response: %s", body)
+                .isTrue();
     }
 
     /** Another partner's robot must be indistinguishable from one that does not exist. */
@@ -254,6 +283,12 @@ class PartnerDataScopingTest {
 
     private void taskReport(RobotUnit robot, CustomerProfile customer,
                             String externalTaskId, Instant startTime, String reportMonth) {
+        taskReport(robot, customer, externalTaskId, startTime, reportMonth, null);
+    }
+
+    private void taskReport(RobotUnit robot, CustomerProfile customer,
+                            String externalTaskId, Instant startTime, String reportMonth,
+                            String cleaningMode) {
         taskReportRepository.save(RobotTaskReport.builder()
                 .externalTaskId(externalTaskId)
                 .robotUnit(robot)
@@ -262,6 +297,7 @@ class PartnerDataScopingTest {
                 .startTime(startTime)
                 .endTime(startTime.plusSeconds(3600))
                 .reportMonth(reportMonth)
+                .cleaningMode(cleaningMode)
                 .syncedAt(Instant.now())
                 .build());
     }

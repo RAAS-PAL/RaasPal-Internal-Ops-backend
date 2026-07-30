@@ -36,22 +36,31 @@ public final class CleaningModeLabels {
     /**
      * Every value observed across the production fleet, plus defensive entries.
      *
+     * <p><strong>The English wording is Gausium's own,</strong> supplied by them on
+     * 2026-07-30 in answer to a list of every distinct value in our database. It is
+     * therefore authoritative about meaning and should not be "improved" locally —
+     * where their term differs from the obvious literal reading, theirs is the one
+     * PCS and Gausium's own staff will recognise. Two of their answers overturned
+     * reasonable guesses: {@code 洗地} is <em>Scrubbing</em> rather than "floor
+     * washing", and it is a distinct activity from {@code 清洗} (<em>Washing</em>),
+     * which we had been close to merging.
+     *
      * <p>Chinese and English forms of the same activity deliberately share one
-     * label. Different firmware reports the same mode either way — {@code 尘推}
-     * and {@code dust mop} are one activity — and letting them render differently
-     * would split a partner's totals across two buckets for no real reason.
+     * label. Different firmware reports the same mode either way — Gausium confirmed
+     * {@code 尘推} and {@code dust mop} are one activity — and letting them render
+     * differently would split a partner's totals across two buckets for no reason.
      */
     private static final Map<String, String> MODE_LABELS = Map.ofEntries(
-            // ── Washing / scrubbing ──
-            Map.entry("洗地", "Floor Washing"),
-            Map.entry("清洗", "Washing"),
+            // ── Scrubbing (洗地 == "scrub") ──
+            Map.entry("洗地", "Scrubbing"),
             Map.entry("scrub", "Scrubbing"),
-            Map.entry("洗扫", "Wash & Sweep"),
+            Map.entry("清洗", "Washing"),
+            Map.entry("洗扫", "Scrub & Sweep"),
 
-            // ── Dust pushing (尘推 == "dust mop") ──
-            Map.entry("尘推", "Dust Push"),
-            Map.entry("推尘", "Dust Push"),
-            Map.entry("dust_mop", "Dust Push"),
+            // ── Dust mopping (尘推 / 推尘 == "dust mop") ──
+            Map.entry("尘推", "Dust Mopping"),
+            Map.entry("推尘", "Dust Mopping"),
+            Map.entry("dust_mop", "Dust Mopping"),
 
             // ── Mopping ──
             Map.entry("拖地", "Mopping"),
@@ -67,19 +76,19 @@ public final class CleaningModeLabels {
             // ── Vacuuming / water pickup ──
             Map.entry("吸尘", "Vacuuming"),
             Map.entry("vacuum", "Vacuuming"),
-            Map.entry("吸水", "Water Suction"),
+            Map.entry("吸水", "Water Sucking"),
 
             // ── Intensity tiers (Chinese and English forms must agree) ──
             Map.entry("轻度清洁", "Light Cleaning"),
             Map.entry("light_cleaning", "Light Cleaning"),
-            Map.entry("中度清洁", "Medium Cleaning"),
-            Map.entry("middle_cleaning", "Medium Cleaning"),
-            Map.entry("重度清洁", "Deep Cleaning"),
-            Map.entry("heavy_cleaning", "Deep Cleaning"),
+            Map.entry("中度清洁", "Medium-Duty Cleaning"),
+            Map.entry("middle_cleaning", "Medium-Duty Cleaning"),
+            Map.entry("重度清洁", "Heavy-Duty Cleaning"),
+            Map.entry("heavy_cleaning", "Heavy-Duty Cleaning"),
 
             // ── Not cleaning at all: the robot is inspecting a route ──
-            Map.entry("巡检", "Patrol"),
-            Map.entry("patrol", "Patrol"));
+            Map.entry("巡检", "Patrol Inspection"),
+            Map.entry("patrol", "Patrol Inspection"));
 
     /**
      * The English label for a raw mode, or {@code null} for a null/blank input.
