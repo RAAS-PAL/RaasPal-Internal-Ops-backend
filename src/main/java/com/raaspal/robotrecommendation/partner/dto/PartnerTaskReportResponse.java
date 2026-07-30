@@ -20,14 +20,18 @@ public record PartnerTaskReportResponse(
         String brand,
         String cleaningPlan,
         String mapName,
-        /** English label, translated from the manufacturer's own code. */
-        String cleaningMode,
         /**
-         * Exactly what the manufacturer reported, often Chinese (e.g. {@code 洗地}).
-         * Kept alongside the translation so a value can still be reconciled against
-         * Gausium's own portal, which displays the untranslated term.
+         * English label, translated from the manufacturer's own code using Gausium's
+         * own wording.
+         *
+         * <p>The untranslated value is deliberately <strong>not</strong> exposed. It
+         * was, alongside this field, so a task could be reconciled against Gausium's
+         * portal — but PCS asked not to receive the Chinese at all, and shipping both
+         * invites a partner to build against the raw form and inherit every firmware
+         * inconsistency this mapping exists to absorb. The raw value is still stored
+         * unchanged, so RAASPAL staff can reconcile internally.
          */
-        String cleaningModeRaw,
+        String cleaningMode,
         BigDecimal taskCompletionPct,
         Instant startTime,
         Instant endTime,
@@ -56,7 +60,6 @@ public record PartnerTaskReportResponse(
                 // faithful to the manufacturer, so fixing or extending the mapping
                 // corrects every response without re-syncing historical rows.
                 CleaningModeLabels.toEnglish(r.getCleaningMode()),
-                r.getCleaningMode(),
                 r.getTaskCompletionPct(),
                 r.getStartTime(),
                 r.getEndTime(),

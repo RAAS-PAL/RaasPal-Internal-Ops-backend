@@ -11,6 +11,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Gausium reports cleaning modes in Chinese, which is meaningless to a Thai
  * partner or customer. These pin the translation used by both the monthly
  * reports and the partner API.
+ *
+ * <p>The expected labels are <strong>Gausium's own English wording</strong>,
+ * supplied by them on 2026-07-30. Changing one silently changes what PCS sees, so
+ * these assertions exist to make such a change deliberate rather than incidental.
  */
 class CleaningModeLabelsTest {
 
@@ -23,26 +27,26 @@ class CleaningModeLabelsTest {
     @Test
     void everyModeInProductionResolvesToARealLabel() {
         Map<String, String> observed = new LinkedHashMap<>();
-        observed.put("洗地", "Floor Washing");          // 20,762 tasks
-        observed.put("尘推", "Dust Push");              //  8,508
-        observed.put("清扫", "Sweeping");               //  2,219
-        observed.put("吸尘", "Vacuuming");              //    726
-        observed.put("清洗", "Washing");                //    466
-        observed.put("dust mop", "Dust Push");         //    369
-        observed.put("mop", "Mopping");                //    200
-        observed.put("重度清洁", "Deep Cleaning");       //    162
-        observed.put("vacuum", "Vacuuming");           //    159
-        observed.put("轻度清洁", "Light Cleaning");      //    158
-        observed.put("中度清洁", "Medium Cleaning");     //    149
-        observed.put("patrol", "Patrol");              //     95
-        observed.put("mop_wet", "Wet Mopping");        //     87
-        observed.put("巡检", "Patrol");                 //     48
-        observed.put("scrub", "Scrubbing");            //     43
-        observed.put("middle_cleaning", "Medium Cleaning"); // 21
-        observed.put("吸水", "Water Suction");          //      7
-        observed.put("2_vacuum", "Vacuuming");         //      1
-        observed.put("light_cleaning", "Light Cleaning"); //   1
-        observed.put("1_dust mop", "Dust Push");       //      1
+        observed.put("洗地", "Scrubbing");                    // 20,762 tasks
+        observed.put("尘推", "Dust Mopping");                 //  8,508
+        observed.put("清扫", "Sweeping");                     //  2,219
+        observed.put("吸尘", "Vacuuming");                    //    726
+        observed.put("清洗", "Washing");                      //    466
+        observed.put("dust mop", "Dust Mopping");            //    369
+        observed.put("mop", "Mopping");                      //    200
+        observed.put("重度清洁", "Heavy-Duty Cleaning");        //    162
+        observed.put("vacuum", "Vacuuming");                 //    159
+        observed.put("轻度清洁", "Light Cleaning");             //    158
+        observed.put("中度清洁", "Medium-Duty Cleaning");       //    149
+        observed.put("patrol", "Patrol Inspection");         //     95
+        observed.put("mop_wet", "Wet Mopping");              //     87
+        observed.put("巡检", "Patrol Inspection");             //     48
+        observed.put("scrub", "Scrubbing");                  //     43
+        observed.put("middle_cleaning", "Medium-Duty Cleaning"); // 21
+        observed.put("吸水", "Water Sucking");                 //      7
+        observed.put("2_vacuum", "Vacuuming");               //      1
+        observed.put("light_cleaning", "Light Cleaning");    //      1
+        observed.put("1_dust mop", "Dust Mopping");          //      1
 
         observed.forEach((raw, expected) ->
                 assertThat(CleaningModeLabels.toEnglish(raw))
@@ -77,11 +81,11 @@ class CleaningModeLabelsTest {
      */
     @Test
     void stripsBothUnderscoreAndNumericPrefixes() {
-        assertThat(CleaningModeLabels.toEnglish("__尘推")).isEqualTo("Dust Push");
-        assertThat(CleaningModeLabels.toEnglish("_洗地")).isEqualTo("Floor Washing");
+        assertThat(CleaningModeLabels.toEnglish("__尘推")).isEqualTo("Dust Mopping");
+        assertThat(CleaningModeLabels.toEnglish("_洗地")).isEqualTo("Scrubbing");
         assertThat(CleaningModeLabels.toEnglish("2_vacuum")).isEqualTo("Vacuuming");
-        assertThat(CleaningModeLabels.toEnglish("1_dust mop")).isEqualTo("Dust Push");
-        assertThat(CleaningModeLabels.toEnglish("12_洗地")).isEqualTo("Floor Washing");
+        assertThat(CleaningModeLabels.toEnglish("1_dust mop")).isEqualTo("Dust Mopping");
+        assertThat(CleaningModeLabels.toEnglish("12_洗地")).isEqualTo("Scrubbing");
     }
 
     /** Spaces and underscores are interchangeable in the codes Gausium sends. */
