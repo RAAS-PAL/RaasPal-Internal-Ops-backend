@@ -4,6 +4,7 @@ import com.raaspal.robotrecommendation.ai.dto.AiProposalRequest;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalResult;
 import com.raaspal.robotrecommendation.ai.dto.AiRecommendationOption;
 import com.raaspal.robotrecommendation.ai.dto.AiRecommendationResult;
+import com.raaspal.robotrecommendation.ai.dto.CmReportDraft;
 import com.raaspal.robotrecommendation.ai.dto.ExtractedRequirementData;
 import com.raaspal.robotrecommendation.ai.dto.RobotCatalogData;
 import com.raaspal.robotrecommendation.ai.prompt.AiPromptRules;
@@ -15,12 +16,16 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @ConditionalOnExpression("'${app.anthropic.api-key:}' == ''")
-public class MockAiService implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService, TranslationAiService {
+public class MockAiService implements RequirementExtractionService, RobotRecommendationAiService,
+        ProposalGenerationAiService, TranslationAiService, CmReportExtractionService {
 
     @Override
     public ExtractedRequirementData extract(FileUpload fileUpload, RobotType robotType) {
@@ -216,5 +221,113 @@ public class MockAiService implements RequirementExtractionService, RobotRecomme
             missing.add("robot specifications");
         }
         return missing.isEmpty() ? "No major missing information detected by mock AI." : String.join(", ", missing);
+    }
+
+    // ─── CmReportExtractionService ────────────────────────────────────────────
+
+    /**
+     * Deterministic label-based parse of a pasted ticket.
+     * <p>
+     * Unlike the other mock responses this one is genuinely useful rather than
+     * canned: CM tickets are already written as "label : value" lines, so a plain
+     * scan handles the common case and keeps the feature usable locally without an
+     * API key. It only recognises exact labels — anything unusual comes back null
+     * for the operator to fill in, which is the same contract as the real service.
+     */
+    @Override
+    public CmReportDraft extractCmReport(String sourceText) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        String currentLabel = null;
+        StringBuilder buffer = new StringBuilder();
+
+        for (String rawLine : sourceText.split("\\R")) {
+            String line = rawLine.strip();
+            if (line.isEmpty()) continue;
+
+            String matched = matchLabel(line);
+            if (matched != null) {
+                flush(fields, currentLabel, buffer);
+                currentLabel = matched;
+                buffer.setLength(0);
+                String remainder = line.substring(line.indexOf(':', LABELS.get(matched).length() - 1) + 1).strip();
+                if (!remainder.isEmpty()) buffer.append(remainder);
+            } else if (currentLabel != null) {
+                if (!buffer.isEmpty()) buffer.append('\n');
+                buffer.append(line);
+            }
+        }
+        flush(fields, currentLabel, buffer);
+
+        List<String> actions = fields.containsKey("correctiveActions")
+                ? Arrays.stream(fields.get("correctiveActions").split("\\R"))
+                        .map(s -> s.replaceFirst("^\\s*(?:\\d+[.)]|-)\\s*", "").strip())
+                        .filter(s -> !s.isEmpty())
+                        .toList()
+                : List.of();
+
+        return new CmReportDraft(
+                parseThaiDate(fields.get("reportDate")),
+                fields.get("ticketNo"),
+                fields.get("customerName"),
+                fields.get("technicianName"),
+                fields.get("robotModel"),
+                fields.get("serialNumber"),
+                fields.get("causeDetail"),
+                fields.get("inspectionResult"),
+                actions,
+                fields.get("testResult"));
+    }
+
+    /** Ticket label → draft field. Insertion order is longest-prefix-first where labels overlap. */
+    private static final Map<String, String> LABELS = new LinkedHashMap<>();
+
+    static {
+        LABELS.put("reportDate", "วันที่");
+        LABELS.put("ticketNo", "Ticket No.");
+        LABELS.put("customerName", "ชื่อบริษัทลูกค้า");
+        LABELS.put("technicianName", "เจ้าหน้าที่ผู้เข้าดำเนินการ");
+        LABELS.put("robotModel", "รุ่นหุ่นยนต์");
+        LABELS.put("serialNumber", "Serial Number");
+        LABELS.put("causeDetail", "รายละเอียดของสาเหตุ");
+        LABELS.put("inspectionResult", "ผลการตรวจสอบ");
+        LABELS.put("correctiveActions", "การดำเนินการแก้ไข");
+        LABELS.put("testResult", "ผลการทดสอบ");
+    }
+
+    private static String matchLabel(String line) {
+        for (Map.Entry<String, String> entry : LABELS.entrySet()) {
+            String label = entry.getValue();
+            if (line.startsWith(label) && line.substring(label.length()).stripLeading().startsWith(":")) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    private static void flush(Map<String, String> fields, String label, StringBuilder buffer) {
+        if (label != null && !buffer.isEmpty()) {
+            fields.put(label, buffer.toString().strip());
+        }
+    }
+
+    private static final List<String> THAI_MONTHS = List.of(
+            "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+            "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม");
+
+    /** "17 มิถุนายน 2569" -> "2026-06-17". Returns the input unchanged if it isn't that shape. */
+    private static String parseThaiDate(String value) {
+        if (value == null || value.isBlank()) return null;
+        String[] parts = value.strip().split("\\s+");
+        if (parts.length != 3) return value.strip();
+        int monthIndex = THAI_MONTHS.indexOf(parts[1]);
+        if (monthIndex < 0) return value.strip();
+        try {
+            int day = Integer.parseInt(parts[0]);
+            int year = Integer.parseInt(parts[2]);
+            if (year > 2200) year -= 543; // Buddhist era
+            return String.format("%04d-%02d-%02d", year, monthIndex + 1, day);
+        } catch (NumberFormatException e) {
+            return value.strip();
+        }
     }
 }

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalRequest;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalResult;
 import com.raaspal.robotrecommendation.ai.dto.AiRecommendationResult;
+import com.raaspal.robotrecommendation.ai.dto.CmReportDraft;
 import com.raaspal.robotrecommendation.ai.dto.ExtractedRequirementData;
 import com.raaspal.robotrecommendation.ai.dto.RobotCatalogData;
 import com.raaspal.robotrecommendation.proposal.dto.SlideManifest;
@@ -44,7 +45,8 @@ import java.util.Map;
 @Service
 @ConditionalOnExpression("'${app.anthropic.api-key:}' != ''")
 public class ClaudeAiService
-        implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService, TranslationAiService {
+        implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService,
+        TranslationAiService, CmReportExtractionService {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeAiService.class);
 
@@ -410,6 +412,52 @@ public class ClaudeAiService
         } catch (JsonProcessingException e) {
             log.warn("Could not parse translation response; using originals: {}", e.getMessage());
             return fallback;
+        }
+    }
+
+    // ─── CmReportExtractionService ────────────────────────────────────────────
+
+    /**
+     * Field extraction from one pasted ticket — a small, well-specified task, so it
+     * runs on Haiku rather than the default model. At roughly a cent per report the
+     * cost is negligible, and every field is reviewed by a human before it is saved.
+     */
+    private static final String CM_MODEL = "claude-haiku-4-5-20251001";
+
+    @Override
+    public CmReportDraft extractCmReport(String sourceText) {
+        String system = AiPromptTemplates.cmReportExtractionSystemPrompt();
+        String user = """
+                Extract the Corrective Maintenance report fields from the service ticket below.
+
+                Return ONLY a valid JSON object — no explanation, no markdown code fences — with
+                exactly these fields:
+                {
+                  "reportDate": "yyyy-MM-dd or null",
+                  "ticketNo": "string or null",
+                  "customerName": "string or null",
+                  "technicianName": "string or null",
+                  "robotModel": "string or null",
+                  "serialNumber": "string or null",
+                  "causeDetail": "string or null",
+                  "inspectionResult": "string or null",
+                  "correctiveActions": ["step", "step"],
+                  "testResult": "string or null"
+                }
+
+                Ticket:
+                ---
+                %s
+                ---
+                """.formatted(sourceText);
+        try {
+            String response = callClaude(system, user, null, null, CM_MODEL);
+            return objectMapper.readValue(extractJson(response), CmReportDraft.class);
+        } catch (Exception e) {
+            // Degrade rather than fail: the operator still gets the form, pre-filled with
+            // the raw paste, and can type the fields in by hand.
+            log.warn("CM report extraction failed — returning an empty draft: {}", e.getMessage());
+            return new CmReportDraft(null, null, null, null, null, null, sourceText, null, List.of(), null);
         }
     }
 
