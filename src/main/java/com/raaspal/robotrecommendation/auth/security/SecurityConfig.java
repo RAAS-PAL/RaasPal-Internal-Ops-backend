@@ -58,6 +58,13 @@ public class SecurityConfig {
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**"
                         ).permitAll()
+                        // RIMS inventory surface. Warehouse staff and admins only —
+                        // RAASPAL_TEAM works the proposal side and has no business
+                        // adjusting stock, and CUSTOMER must never reach it at all.
+                        // This is the enforcement boundary: RIMS's own lib/rbac.ts
+                        // decides what to *render*, which is navigation, not security.
+                        .requestMatchers("/api/v1/inventory/**")
+                                .hasAnyRole("ADMIN", "INVENTORY_STAFF")
                         // Everything else requires a valid JWT
                         .anyRequest().authenticated()
                 )
