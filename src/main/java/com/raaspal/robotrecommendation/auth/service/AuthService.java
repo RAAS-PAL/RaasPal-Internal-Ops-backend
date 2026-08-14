@@ -22,7 +22,7 @@ public class AuthService {
     private final JwtUtils jwtUtils;
 
     public void verifyPassword(String email, VerifyPasswordRequest request) {
-        User user = userRepository.findByEmailAndIsActiveTrue(email)
+        User user = userRepository.findByEmailIgnoreCaseAndIsActiveTrue(email)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             throw new IllegalArgumentException("Incorrect password");
@@ -30,7 +30,7 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmailAndIsActiveTrue(request.email())
+        User user = userRepository.findByEmailIgnoreCaseAndIsActiveTrue(request.email())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid email or password"));
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {

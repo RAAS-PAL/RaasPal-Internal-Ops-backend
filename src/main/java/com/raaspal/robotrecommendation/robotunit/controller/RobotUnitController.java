@@ -2,13 +2,18 @@ package com.raaspal.robotrecommendation.robotunit.controller;
 
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.robotunit.dto.BulkCadenceRequest;
+import com.raaspal.robotrecommendation.robotunit.dto.ReceiveStockRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.RegisterRobotRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.dto.UpdateCadenceRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.UpdateRobotRequest;
+import com.raaspal.robotrecommendation.robotunit.dto.UpdateStockStatusRequest;
+import com.raaspal.robotrecommendation.robotunit.dto.UpdateStockUnitRequest;
+import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -55,14 +60,67 @@ public class RobotUnitController {
     @GetMapping
     public ApiResponse<List<RobotUnitResponse>> list(
             @RequestParam(required = false) UUID customerId,
-            @RequestParam(required = false) String serialNumber) {
+            @RequestParam(required = false) String serialNumber,
+            @RequestParam(required = false) RobotUnitStatus status) {
         if (serialNumber != null && !serialNumber.isBlank()) {
             return ApiResponse.success(List.of(robotUnitService.getBySerialNumber(serialNumber)));
         }
         if (customerId != null) {
             return ApiResponse.success(robotUnitService.listByCustomer(customerId));
         }
+        if (status != null) {
+            return ApiResponse.success(robotUnitService.listByStatus(status));
+        }
         return ApiResponse.success(robotUnitService.listAll());
+    }
+
+    /**
+     * Receive robots into the warehouse — stock, with no customer attached.
+     *
+     * <p>Restricted to warehouse staff and admins: this creates fleet records, and a
+     * mistaken batch has to be unpicked serial by serial.
+     */
+    @PostMapping("/stock")
+    @PreAuthorize("hasAnyRole('ADMIN','INVENTORY_STAFF')")
+    public ApiResponse<List<RobotUnitResponse>> receiveStock(@Valid @RequestBody ReceiveStockRequest request) {
+        List<RobotUnitResponse> received = robotUnitService.receiveIntoStock(request);
+        return ApiResponse.success("Received " + received.size() + " robot(s) into stock", received);
+    }
+
+    /** Everything the warehouse holds — available stock plus units out on demo. */
+    @GetMapping("/warehouse")
+    public ApiResponse<List<RobotUnitResponse>> warehouse() {
+        return ApiResponse.success(robotUnitService.listWarehouse());
+    }
+
+    /**
+     * Move a unit between IN_STOCK and DEMO.
+     *
+     * <p>RENT and SOLD are rejected: both follow from a customer agreement, and
+     * setting them from a warehouse screen would leave the fleet claiming a sale
+     * that has no deployment and no record behind it.
+     */
+    @PatchMapping("/{robotUnitId}/status")
+    @PreAuthorize("hasAnyRole('ADMIN','INVENTORY_STAFF')")
+    public ApiResponse<RobotUnitResponse> updateStockStatus(
+            @PathVariable UUID robotUnitId,
+            @Valid @RequestBody UpdateStockStatusRequest request) {
+        return ApiResponse.success("Status updated",
+                robotUnitService.updateStockStatus(robotUnitId, request));
+    }
+
+    /**
+     * Edit a robot that is in the warehouse — details, status and photo.
+     *
+     * <p>Distinct from {@code PUT /{robotUnitId}} below, which edits a robot together
+     * with its deployment and therefore requires a customer. A stock unit has none.
+     */
+    @PutMapping("/{robotUnitId}/stock")
+    @PreAuthorize("hasAnyRole('ADMIN','INVENTORY_STAFF')")
+    public ApiResponse<RobotUnitResponse> updateStockUnit(
+            @PathVariable UUID robotUnitId,
+            @Valid @RequestBody UpdateStockUnitRequest request) {
+        return ApiResponse.success("Robot updated", robotUnitService.updateStockUnit(robotUnitId, request));
     }
 
     /** Edit a robot's details and deployment (serial number is immutable). */

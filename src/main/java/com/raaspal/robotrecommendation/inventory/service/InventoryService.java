@@ -1,0 +1,295 @@
+package com.raaspal.robotrecommendation.inventory.service;
+
+import com.raaspal.robotrecommendation.common.exception.BadRequestException;
+import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
+import com.raaspal.robotrecommendation.inventory.dto.*;
+import com.raaspal.robotrecommendation.inventory.entity.InventoryItem;
+import com.raaspal.robotrecommendation.inventory.entity.MovementType;
+import com.raaspal.robotrecommendation.inventory.entity.StockMovement;
+import com.raaspal.robotrecommendation.inventory.repository.InventoryItemRepository;
+import com.raaspal.robotrecommendation.inventory.repository.RobotStockEntryRepository;
+import com.raaspal.robotrecommendation.inventory.repository.StockMovementRepository;
+import com.raaspal.robotrecommendation.robot.entity.Robot;
+import com.raaspal.robotrecommendation.robot.repository.RobotRepository;
+import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
+import com.raaspal.robotrecommendation.robotunit.repository.RobotUnitRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class InventoryService {
+
+    /** Enough to fill a dashboard tile; the full list lives behind ?lowStock=true. */
+    private static final int LOW_STOCK_PREVIEW = 10;
+
+    private final InventoryItemRepository itemRepository;
+    private final StockMovementRepository movementRepository;
+    private final RobotStockEntryRepository robotStockRepository;
+    private final RobotRepository robotRepository;
+    private final RobotUnitRepository robotUnitRepository;
+
+    /* ─── Reads ───────────────────────────────────────────────────────────── */
+
+    @Transactional(readOnly = true)
+    public Page<InventoryItemResponse> search(String keyword,
+                                              String category,
+                                              UUID robotId,
+                                              boolean lowStock,
+                                              boolean includeInactive,
+                                              Pageable pageable) {
+        Page<InventoryItem> page = itemRepository.search(
+                blankToNull(keyword), blankToNull(category), robotId, lowStock, !includeInactive, pageable);
+        Map<UUID, String> models = resolveModels(page.getContent());
+        return page.map(i -> InventoryItemResponse.from(i, models.get(i.getRobotId())));
+    }
+
+    @Transactional(readOnly = true)
+    public InventoryItemResponse getById(UUID id) {
+        InventoryItem item = require(id);
+        return InventoryItemResponse.from(item, resolveModel(item.getRobotId()));
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> getCategories() {
+        return itemRepository.findCategories();
+    }
+
+    /** The RIMS dashboard header, including the low-stock alert. */
+    @Transactional(readOnly = true)
+    public InventorySummaryResponse getSummary() {
+        List<InventoryItem> low = itemRepository.findLowStock();
+        List<InventoryItem> preview = low.size() > LOW_STOCK_PREVIEW ? low.subList(0, LOW_STOCK_PREVIEW) : low;
+        Map<UUID, String> models = resolveModels(preview);
+
+        BigDecimal value = itemRepository.sumStockValue();
+
+        return new InventorySummaryResponse(
+                itemRepository.countActive(),
+                itemRepository.countLowStock(),
+                value == null ? BigDecimal.ZERO : value,
+                // From the warehouse's own list, not the fleet: robot_units counts
+                // machines already at customers, which is a different question.
+                robotStockRepository.sumQuantityByStatus(RobotUnitStatus.IN_STOCK),
+                robotStockRepository.sumQuantityByStatus(RobotUnitStatus.DEMO),
+                preview.stream().map(i -> InventoryItemResponse.from(i, models.get(i.getRobotId()))).toList());
+    }
+
+
+    @Transactional(readOnly = true)
+    public Page<StockMovementResponse> getHistory(UUID itemId, Pageable pageable) {
+        InventoryItem item = require(itemId);
+        return movementRepository.findByInventoryItemIdOrderByCreatedAtDesc(itemId, pageable)
+                .map(m -> StockMovementResponse.from(m, item.getName(), item.getSku(), null, null));
+    }
+
+    /**
+     * Recent movements across every item — the activity feed.
+     *
+     * <p>Item names are resolved in one query rather than per row: a page of forty
+     * movements would otherwise be forty-one round trips to a pooled database that
+     * allows fifteen connections.
+     */
+    @Transactional(readOnly = true)
+    public Page<StockMovementResponse> getRecentMovements(Pageable pageable) {
+        Page<StockMovement> page = movementRepository.findAllByOrderByCreatedAtDesc(pageable);
+
+        Map<UUID, InventoryItem> items = itemRepository
+                .findAllById(page.getContent().stream()
+                        .map(StockMovement::getInventoryItemId)
+                        .distinct()
+                        .toList())
+                .stream()
+                .collect(Collectors.toMap(InventoryItem::getId, i -> i));
+
+        return page.map(m -> {
+            // A movement whose item was since deleted still belongs in the trail; it
+            // is shown without a name rather than dropped from the history.
+            InventoryItem item = items.get(m.getInventoryItemId());
+            return StockMovementResponse.from(
+                    m,
+                    item == null ? null : item.getName(),
+                    item == null ? null : item.getSku(),
+                    null,
+                    null);
+        });
+    }
+
+    /* ─── Writes ──────────────────────────────────────────────────────────── */
+
+    @Transactional
+    public InventoryItemResponse create(InventoryItemRequest request) {
+        String sku = (request.sku() == null || request.sku().isBlank())
+                ? generateSku()
+                : request.sku().trim();
+
+        if (itemRepository.existsBySkuIgnoreCase(sku)) {
+            throw new BadRequestException("An item with SKU '" + sku + "' already exists");
+        }
+        if (request.robotId() != null && !robotRepository.existsById(request.robotId())) {
+            throw new BadRequestException("Unknown robot model: " + request.robotId());
+        }
+
+        InventoryItem item = InventoryItem.builder()
+                .sku(sku)
+                .supplierPartNo(blankToNull(request.supplierPartNo()))
+                .barcode(blankToNull(request.barcode()))
+                .name(request.name().trim())
+                .category(request.category().trim())
+                .robotId(request.robotId())
+                .unitOfMeasure(request.unitOfMeasure() == null || request.unitOfMeasure().isBlank()
+                        ? "EA" : request.unitOfMeasure().trim())
+                .quantityOnHand(0)      // stock only ever arrives through a movement
+                .reorderPoint(request.reorderPoint() == null ? 10 : request.reorderPoint())
+                .reorderQuantity(request.reorderQuantity() == null ? 0 : request.reorderQuantity())
+                .unitCost(request.unitCost())
+                .location(blankToNull(request.location()))
+                .isActive(request.isActive() == null || request.isActive())
+                .build();
+
+        return InventoryItemResponse.from(itemRepository.save(item), resolveModel(item.getRobotId()));
+    }
+
+    /**
+     * Edit an item's details. Deliberately cannot touch {@code quantityOnHand} —
+     * that only moves through {@link #recordMovement}.
+     */
+    @Transactional
+    public InventoryItemResponse update(UUID id, InventoryItemRequest request) {
+        InventoryItem item = require(id);
+
+        if (request.sku() != null && !request.sku().isBlank()
+                && !request.sku().equalsIgnoreCase(item.getSku())) {
+            if (itemRepository.existsBySkuIgnoreCase(request.sku().trim())) {
+                throw new BadRequestException("An item with SKU '" + request.sku().trim() + "' already exists");
+            }
+            item.setSku(request.sku().trim());
+        }
+        if (request.robotId() != null && !robotRepository.existsById(request.robotId())) {
+            throw new BadRequestException("Unknown robot model: " + request.robotId());
+        }
+
+        item.setSupplierPartNo(blankToNull(request.supplierPartNo()));
+        item.setBarcode(blankToNull(request.barcode()));
+        item.setName(request.name().trim());
+        item.setCategory(request.category().trim());
+        item.setRobotId(request.robotId());
+        if (request.unitOfMeasure() != null && !request.unitOfMeasure().isBlank()) {
+            item.setUnitOfMeasure(request.unitOfMeasure().trim());
+        }
+        if (request.reorderPoint() != null)    item.setReorderPoint(request.reorderPoint());
+        if (request.reorderQuantity() != null) item.setReorderQuantity(request.reorderQuantity());
+        item.setUnitCost(request.unitCost());
+        item.setLocation(blankToNull(request.location()));
+        if (request.isActive() != null) item.setIsActive(request.isActive());
+
+        return InventoryItemResponse.from(itemRepository.save(item), resolveModel(item.getRobotId()));
+    }
+
+    /**
+     * The only place a stock level changes.
+     *
+     * <p>One transaction appends the ledger row and updates the cached balance, so
+     * the two cannot drift. Nothing else in the codebase may write
+     * {@code quantityOnHand} — if it does, the {@code balanceAfter} column stops
+     * agreeing with the running sum and the discrepancy becomes visible.
+     */
+    @Transactional
+    public StockMovementResponse recordMovement(UUID itemId, StockMovementRequest request, UUID actorId) {
+        InventoryItem item = require(itemId);
+
+        int change = request.quantityChange();
+        if (change == 0) {
+            throw new BadRequestException("A movement must change the quantity by a non-zero amount");
+        }
+
+        // Direction is carried by the sign, but a RECEIPT of -5 is almost certainly a
+        // typo for +5, and silently accepting it would corrupt the count. Rejecting
+        // costs the operator one correction; accepting costs a stocktake to find.
+        boolean shouldBePositive = request.movementType() == MovementType.RECEIPT
+                || request.movementType() == MovementType.RETURN;
+        if (shouldBePositive && change < 0) {
+            throw new BadRequestException(request.movementType() + " must be a positive quantity");
+        }
+        if (request.movementType() == MovementType.ISSUE && change > 0) {
+            throw new BadRequestException("ISSUE must be a negative quantity");
+        }
+
+        int balanceAfter = item.getQuantityOnHand() + change;
+
+        // ADJUSTMENT is exempt: a stocktake sometimes finds less than the ledger
+        // claims, and blocking that would push staff into inventing a fake ISSUE.
+        if (balanceAfter < 0 && request.movementType() != MovementType.ADJUSTMENT) {
+            throw new BadRequestException(
+                    "Not enough stock: " + item.getQuantityOnHand() + " on hand, tried to remove " + Math.abs(change));
+        }
+        if (request.robotUnitId() != null && !robotUnitRepository.existsById(request.robotUnitId())) {
+            throw new BadRequestException("Unknown robot unit: " + request.robotUnitId());
+        }
+
+        StockMovement movement = movementRepository.save(StockMovement.builder()
+                .inventoryItemId(itemId)
+                .movementType(request.movementType())
+                .quantityChange(change)
+                .balanceAfter(balanceAfter)
+                .robotUnitId(request.robotUnitId())
+                .note(blankToNull(request.note()))
+                .createdBy(actorId)
+                .build());
+
+        item.setQuantityOnHand(balanceAfter);
+        itemRepository.save(item);
+
+        return StockMovementResponse.from(movement, item.getName(), item.getSku(), null, null);
+    }
+
+    /* ─── Helpers ─────────────────────────────────────────────────────────── */
+
+    private InventoryItem require(UUID id) {
+        return itemRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("InventoryItem", "id", id));
+    }
+
+    /** {@code INV-000001}. The sequence lives in the database so two operators
+     *  creating items at once cannot be handed the same number. */
+    private String generateSku() {
+        return "INV-%06d".formatted(itemRepository.nextSkuNumber());
+    }
+
+    /** One query for every model referenced on the page, rather than one per row. */
+    private Map<UUID, String> resolveModels(List<InventoryItem> items) {
+        List<UUID> ids = items.stream().map(InventoryItem::getRobotId).filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<UUID, String> out = new HashMap<>();
+        robotRepository.findAllById(ids).forEach(r -> out.put(r.getId(), r.getBrand() + " " + r.getModel()));
+        return out;
+    }
+
+    private String resolveModel(UUID robotId) {
+        if (robotId == null) return null;
+        return robotRepository.findById(robotId)
+                .map(r -> r.getBrand() + " " + r.getModel())
+                .orElse(null);
+    }
+
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
+    }
+
+    /** Convenience for callers that want the default page of history. */
+    public static Pageable defaultHistoryPage() {
+        return PageRequest.of(0, 50);
+    }
+}

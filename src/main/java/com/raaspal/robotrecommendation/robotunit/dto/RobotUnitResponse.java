@@ -1,8 +1,10 @@
 package com.raaspal.robotrecommendation.robotunit.dto;
 
+import com.raaspal.robotrecommendation.common.enums.RobotType;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.entity.ReportCadence;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
+import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 
 import java.util.UUID;
 
@@ -18,6 +20,15 @@ public record RobotUnitResponse(
         String brand,
         String model,
         String name,
+        /* ─── Stock (V28) — internal staff only. These must never reach the partner
+           API: status and location tell an external service partner which robots we
+           hold and where, and which customers bought rather than rented. That surface
+           builds PartnerRobotResponse separately and deliberately omits them. ─── */
+        RobotUnitStatus status,
+        String version,
+        RobotType robotType,
+        UUID robotId,
+        String location,
         DeploymentInfo deployment) {
 
     /** The active deployment side of the link; {@code null} if the robot is not deployed. */
@@ -51,6 +62,16 @@ public record RobotUnitResponse(
                 robot.getBrand(),
                 robot.getModel(),
                 robot.getName(),
+                robot.getStatus(),
+                robot.getVersion(),
+                robot.getRobotType(),
+                robot.getRobotId(),
+                robot.getLocation(),
                 info);
+    }
+
+    /** A unit sitting in the warehouse — no deployment, by definition. */
+    public static RobotUnitResponse fromStock(RobotUnit robot) {
+        return of(robot, null);
     }
 }

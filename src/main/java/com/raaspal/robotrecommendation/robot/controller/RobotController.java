@@ -7,6 +7,7 @@ import com.raaspal.robotrecommendation.common.enums.TestStatus;
 import com.raaspal.robotrecommendation.robot.dto.RobotImportResult;
 import com.raaspal.robotrecommendation.robot.dto.RobotRequest;
 import com.raaspal.robotrecommendation.robot.dto.RobotResponse;
+import com.raaspal.robotrecommendation.robot.dto.RobotSpecMatrixRow;
 import com.raaspal.robotrecommendation.robot.service.RobotImportService;
 import com.raaspal.robotrecommendation.robot.service.RobotService;
 import jakarta.validation.Valid;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -37,6 +39,15 @@ public class RobotController {
     @GetMapping
     public ApiResponse<PagedResponse<RobotResponse>> getAll(Pageable pageable) {
         return ApiResponse.success(PagedResponse.of(robotService.getAll(pageable)));
+    }
+
+    /**
+     * Side-by-side specifications for every cleaning model that has them.
+     * Unpaginated by design — see {@code RobotService#getCleaningSpecMatrix}.
+     */
+    @GetMapping("/spec-matrix")
+    public ApiResponse<List<RobotSpecMatrixRow>> getSpecMatrix() {
+        return ApiResponse.success(robotService.getCleaningSpecMatrix());
     }
 
     @GetMapping("/{id}")
