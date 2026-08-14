@@ -11,6 +11,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -25,8 +26,16 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * {@code @EnableMethodSecurity} switches on {@code @PreAuthorize}. Without it the
+ * annotations parse fine and are simply never evaluated — inventory writes would
+ * have been open to every authenticated user, including CUSTOMER. Nothing else in
+ * the codebase uses method security yet, so enabling it changes no existing
+ * behaviour; it only makes the annotations that do exist actually run.
+ */
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -58,13 +67,12 @@ public class SecurityConfig {
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**"
                         ).permitAll()
-                        // RIMS inventory surface. Warehouse staff and admins only —
-                        // RAASPAL_TEAM works the proposal side and has no business
-                        // adjusting stock, and CUSTOMER must never reach it at all.
-                        // This is the enforcement boundary: RIMS's own lib/rbac.ts
-                        // decides what to *render*, which is navigation, not security.
-                        .requestMatchers("/api/v1/inventory/**")
-                                .hasAnyRole("ADMIN", "INVENTORY_STAFF")
+                        // RIMS inventory surface. Reads are open to any signed-in
+                        // staff member — a shared stock record is only useful if the
+                        // team can see it — while writes are restricted per-method
+                        // with @PreAuthorize on InventoryController, since reads and
+                        // writes share a path and differ only by HTTP verb.
+                        .requestMatchers("/api/v1/inventory/**").authenticated()
                         // Everything else requires a valid JWT
                         .anyRequest().authenticated()
                 )

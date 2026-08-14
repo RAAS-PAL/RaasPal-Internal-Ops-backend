@@ -5,8 +5,12 @@ import com.raaspal.robotrecommendation.common.enums.TestStatus;
 import com.raaspal.robotrecommendation.recommendation.repository.RecommendationItemRepository;
 import com.raaspal.robotrecommendation.robot.dto.RobotRequest;
 import com.raaspal.robotrecommendation.robot.dto.RobotResponse;
+import com.raaspal.robotrecommendation.robot.dto.RobotSpecMatrixRow;
 import com.raaspal.robotrecommendation.robot.dto.RobotSpecRequest;
 import com.raaspal.robotrecommendation.robot.dto.RobotSpecResponse;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raaspal.robotrecommendation.robot.entity.Robot;
 import com.raaspal.robotrecommendation.robot.entity.RobotSpec;
 import com.raaspal.robotrecommendation.robot.repository.RobotRepository;
@@ -17,12 +21,22 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class RobotService {
+
+    /**
+     * Column order from {@code to_jsonb} is the table's own, which is the order the
+     * datasheet defines. A LinkedHashMap preserves it so the UI does not have to
+     * re-sort 101 fields to look like the source document.
+     */
+    private static final ObjectMapper SPEC_JSON = new ObjectMapper();
 
     private final RobotRepository robotRepository;
     private final RobotSpecRepository robotSpecRepository;
@@ -31,6 +45,38 @@ public class RobotService {
     @Transactional(readOnly = true)
     public Page<RobotResponse> getAll(Pageable pageable) {
         return robotRepository.findAll(pageable).map(this::toResponse);
+    }
+
+    /**
+     * Every cleaning model that has specs, for the side-by-side comparison matrix.
+     *
+     * <p>Not paginated: the whole point is comparing models against each other, and
+     * a page boundary through the middle of that defeats it. The catalogue is a
+     * dozen-odd models, so the payload stays small even at 101 columns each.
+     */
+    @Transactional(readOnly = true)
+    public List<RobotSpecMatrixRow> getCleaningSpecMatrix() {
+        return robotRepository.findCleaningSpecMatrix().stream()
+                .map(row -> new RobotSpecMatrixRow(
+                        (UUID) row[0],
+                        (String) row[1],
+                        (String) row[2],
+                        (String) row[3],
+                        parseSpecs((String) row[4])))
+                .toList();
+    }
+
+    private Map<String, Object> parseSpecs(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return SPEC_JSON.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() {});
+        } catch (JsonProcessingException e) {
+            // A malformed spec row must not take down the whole matrix — the other
+            // models still render, and the gap is visible in the UI.
+            return Map.of();
+        }
     }
 
     @Transactional(readOnly = true)

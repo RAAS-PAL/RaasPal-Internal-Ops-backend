@@ -22,7 +22,7 @@ public class DataSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        if (userRepository.existsByEmail(ADMIN_EMAIL)) {
+        if (userRepository.existsByEmailIgnoreCase(ADMIN_EMAIL)) {
             log.info("Default admin already exists — skipping seed.");
             return;
         }
