@@ -3,8 +3,12 @@ package com.raaspal.robotrecommendation.report.service;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
 import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
+import com.raaspal.robotrecommendation.report.dto.CustomerBundlePreviewResponse;
 import com.raaspal.robotrecommendation.report.dto.CustomerReportBundleResponse;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse;
+import com.raaspal.robotrecommendation.report.entity.CustomerReportExclusion;
+import com.raaspal.robotrecommendation.report.repository.CustomerReportExclusionRepository;
+import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,12 +19,18 @@ import java.time.YearMonth;
 import java.time.format.TextStyle;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Aggregates every robot deployed to a customer into one monthly report
  * bundle, so a customer with several robots gets a single combined report
  * (and a single email) instead of one per robot.
+ *
+ * <p>Robots the customer success team has held back for the month are dropped
+ * here rather than in the UI, so the customer's public link and the staff
+ * preview cannot disagree about what was sent.
  */
 @Service
 @RequiredArgsConstructor
@@ -29,18 +39,74 @@ public class CustomerReportBundleService {
     private final CustomerProfileRepository customerProfileRepository;
     private final RobotUnitService robotUnitService;
     private final ReportCacheService reportCacheService;
+    private final CustomerReportExclusionRepository exclusionRepository;
 
+    /** What the customer sees: the reports actually being sent, excluded robots omitted. */
     @Transactional(readOnly = true)
     public CustomerReportBundleResponse build(UUID customerProfileId, String month) {
-        CustomerProfile customer = customerProfileRepository.findById(customerProfileId)
-                .orElseThrow(() -> new ResourceNotFoundException("CustomerProfile", "id", customerProfileId));
+        CustomerProfile customer = require(customerProfileId);
+        Set<UUID> excluded = excludedRobotUnitIds(customerProfileId, month);
 
         // Each robot's report is served from cache (computed once per robot+month).
         List<ReportPreviewResponse> robots = robotUnitService.listByCustomer(customerProfileId).stream()
+                .filter(robot -> !excluded.contains(robot.id()))
                 .map(robot -> reportCacheService.getRobotReport(robot.serialNumber(), month))
                 .toList();
 
         return new CustomerReportBundleResponse(customer.getCompanyName(), periodLabel(month), robots);
+    }
+
+    /**
+     * What staff review before sending: every deployed robot, including the ones
+     * currently held back, each flagged with whether it logged any activity.
+     */
+    @Transactional(readOnly = true)
+    public CustomerBundlePreviewResponse buildPreview(UUID customerProfileId, String month) {
+        CustomerProfile customer = require(customerProfileId);
+        Set<UUID> excluded = excludedRobotUnitIds(customerProfileId, month);
+
+        List<CustomerBundlePreviewResponse.Robot> robots = robotUnitService.listByCustomer(customerProfileId).stream()
+                .map(robot -> {
+                    ReportPreviewResponse report = reportCacheService.getRobotReport(robot.serialNumber(), month);
+                    return new CustomerBundlePreviewResponse.Robot(
+                            robot.id(),
+                            robot.serialNumber(),
+                            report.robotName(),
+                            site(robot),
+                            hasData(report),
+                            excluded.contains(robot.id()),
+                            report);
+                })
+                .toList();
+
+        int included = (int) robots.stream().filter(r -> !r.excluded()).count();
+        return new CustomerBundlePreviewResponse(
+                customerProfileId, customer.getCompanyName(), periodLabel(month), month, included, robots);
+    }
+
+    /**
+     * A robot with no completed tasks logged nothing that month — almost always
+     * because it was offline. Its report still renders, as a page of zeros, which
+     * reads as a broken report rather than an accurate one; the UI uses this to
+     * offer excluding it.
+     */
+    private static boolean hasData(ReportPreviewResponse report) {
+        return report.executive() != null && report.executive().totalTasksCompleted() > 0;
+    }
+
+    private static String site(RobotUnitResponse robot) {
+        return robot.deployment() != null ? robot.deployment().site() : "—";
+    }
+
+    private Set<UUID> excludedRobotUnitIds(UUID customerProfileId, String month) {
+        return exclusionRepository.findAllByCustomerProfileIdAndReportMonth(customerProfileId, month).stream()
+                .map(CustomerReportExclusion::getRobotUnitId)
+                .collect(Collectors.toSet());
+    }
+
+    private CustomerProfile require(UUID customerProfileId) {
+        return customerProfileRepository.findById(customerProfileId)
+                .orElseThrow(() -> new ResourceNotFoundException("CustomerProfile", "id", customerProfileId));
     }
 
     private String periodLabel(String month) {
