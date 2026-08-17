@@ -38,3 +38,10 @@ application-local.properties
 uploads/
 
 *.pptx
+
+### Large source assets — the app ships optimised copies instead ───────────
+# Original 1400x320 / 520KB email banner. The version actually attached to report
+# emails is the resized 129KB copy at src/main/resources/email/email-footer-banner.png,
+# which IS committed (it has to be on the classpath at runtime). Keeping the heavy
+# original out of the repo avoids carrying 520KB that nothing reads.
+docs/email_bottom_photo.png
