@@ -10,6 +10,7 @@ import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,17 @@ public class ReportEmailService {
 
     @Value("${app.mail.from}")
     private String from;
+
+    /**
+     * Standing CC for report emails — the RAASPAL team addresses that keep a copy
+     * of what customers receive. Empty means no CC.
+     * <p>
+     * Deliberately scoped to this service. Announcements have their own per-send CC
+     * box, and a standing CC there would silently widen the audience of a one-off
+     * message the sender thought they were addressing narrowly.
+     */
+    @Value("${app.mail.cc:}")
+    private String cc;
 
     @Value("${app.public.base-url}")
     private String baseUrl;
@@ -102,13 +114,23 @@ public class ReportEmailService {
      * branches are separate customer records and are emailed independently.
      */
     private void sendToAll(List<String> recipients, String subject, String html, String context) {
+        List<String> ccList = ccAddresses(recipients);
         try {
             MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            // multipart=true is required for addInline below — the footer banner is
+            // carried in the message rather than fetched from a URL.
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(from);
             helper.setTo(recipients.toArray(new String[0]));
+            if (!ccList.isEmpty()) {
+                helper.setCc(ccList.toArray(new String[0]));
+            }
             helper.setSubject(subject);
+            // setText before addInline: the helper needs the body part to exist before
+            // an inline part can be related to it, or the image arrives as a plain
+            // attachment instead of rendering in place.
             helper.setText(html, true);
+            attachFooterImage(helper);
             mailSender.send(message);
         } catch (Exception e) {
             log.error("Failed to email {} to {}: {}", context, recipients, e.getMessage(), e);
@@ -117,19 +139,62 @@ public class ReportEmailService {
         }
     }
 
+    /** Content-ID the HTML body references for the footer banner. */
+    private static final String FOOTER_IMAGE_CID = "raaspalFooterBanner";
+
+    private static final String FOOTER_IMAGE_PATH = "email/email-footer-banner.png";
+
+    /**
+     * Attaches the RAAS PAL footer banner as an inline part.
+     * <p>
+     * Deliberately non-fatal: a missing or unreadable image leaves a broken
+     * placeholder at the bottom of the mail, which is far better than failing the
+     * monthly send for every customer over a decorative asset.
+     */
+    private void attachFooterImage(MimeMessageHelper helper) {
+        ClassPathResource image = new ClassPathResource(FOOTER_IMAGE_PATH);
+        if (!image.exists()) {
+            log.warn("Email footer image {} not found on the classpath — sending without it", FOOTER_IMAGE_PATH);
+            return;
+        }
+        try {
+            helper.addInline(FOOTER_IMAGE_CID, image, "image/png");
+        } catch (Exception e) {
+            log.warn("Could not attach the email footer image: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * The configured CC list, minus anyone already on the To line.
+     * <p>
+     * The overlap matters: a colleague listed as a customer contact would otherwise
+     * receive the same mail twice and appear in both headers, which looks like a
+     * bug to the customer reading it.
+     */
+    private List<String> ccAddresses(List<String> recipients) {
+        List<String> to = recipients.stream().map(s -> s.toLowerCase(Locale.ROOT)).toList();
+        return splitAddresses(cc).stream()
+                .filter(address -> !to.contains(address.toLowerCase(Locale.ROOT)))
+                .toList();
+    }
+
+    /** Splits a comma/semicolon separated address list, trimming blanks and duplicates. */
+    private static List<String> splitAddresses(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        return Arrays.stream(raw.split("[,;]"))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .toList();
+    }
+
     /**
      * The customer's contact address(es). {@code contactEmail} may hold several
      * addresses separated by comma or semicolon; each is trimmed and blanks are
      * dropped. Throws if none are usable.
      */
     private List<String> recipientsOf(CustomerProfile customer) {
-        String raw = customer.getContactEmail();
-        List<String> recipients = raw == null ? List.of()
-                : Arrays.stream(raw.split("[,;]"))
-                        .map(String::trim)
-                        .filter(s -> !s.isBlank())
-                        .distinct()
-                        .toList();
+        List<String> recipients = splitAddresses(customer.getContactEmail());
         if (recipients.isEmpty()) {
             throw new BadRequestException("Customer '" + customer.getCompanyName()
                     + "' has no contact email. Add one in the Customers tab first.");
@@ -160,9 +225,15 @@ public class ReportEmailService {
                   <p style="margin:0 0 14px;">หากท่านมีข้อสงสัย หรือต้องการข้อมูลเพิ่มเติม สามารถติดต่อ Customer Success Team
                      ผ่านช่องทางกลุ่ม Line หรือ Call Center 02 576 5555</p>
                   <p style="margin:0 0 20px;">ขอขอบพระคุณที่ให้ความไว้วางใจ RAASPAL ในการดูแลระบบหุ่นยนต์ของท่าน</p>
-                  <p style="margin:0;">ขอแสดงความนับถือ<br>Customer Success Team</p>
+                  <p style="margin:0 0 24px;">ขอแสดงความนับถือ<br>Customer Success Team</p>
+                  <!-- Referenced by CID rather than a hosted URL: an inline part renders
+                       without the recipient having to click "display images", and does not
+                       break if the frontend is redeployed or moved. width/height are set as
+                       attributes as well as CSS because Outlook ignores the style. -->
+                  <img src="cid:%s" alt="RAAS PAL — Leader in Service Robot Design Solutions"
+                       width="560" style="display:block; width:100%%; max-width:560px; height:auto; border:0;">
                 </div>
-                """.formatted(escape(periodLabel), url, url, url);
+                """.formatted(escape(periodLabel), url, url, url, FOOTER_IMAGE_CID);
     }
 
     /** "2026-06" → "June 2026". */
