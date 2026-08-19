@@ -1,0 +1,18 @@
+-- When a customer's contract actually begins.
+--
+-- Monthly reports are bucketed by calendar month, so a customer who signed on the
+-- 15th received a "July report" counting every task the robot performed since the
+-- 1st — including two weeks of work done before they were a customer. The totals
+-- were real but they were not the customer's, which is both confusing and wrong to
+-- put in front of them.
+--
+-- With this set, a report clips to the contract start: July covers 15-31 July, and
+-- August onwards is a normal full month with no further action. Null means "no
+-- known start", which reports as the whole month exactly as before — so this is
+-- inert for every existing customer until someone fills it in.
+--
+-- Deliberately a plain DATE, not a timestamp: a contract begins on a day, not at an
+-- instant. The day is interpreted in the business's own timezone when reports are
+-- built (see ReportPreviewService), because a cleaning robot running at 02:00 in
+-- Bangkok is still the previous day in UTC.
+ALTER TABLE customer_profiles ADD COLUMN contract_start_date DATE;

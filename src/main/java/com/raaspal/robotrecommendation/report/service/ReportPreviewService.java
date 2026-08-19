@@ -6,18 +6,24 @@ import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Executiv
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Operational;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Recommendation;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Ring;
+import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
+import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import com.raaspal.robotrecommendation.telemetry.core.CleaningModeLabels;
 import com.raaspal.robotrecommendation.telemetry.entity.RobotTaskReport;
 import com.raaspal.robotrecommendation.telemetry.repository.RobotTaskReportRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.Month;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
@@ -38,6 +44,17 @@ public class ReportPreviewService {
 
     private final RobotUnitService robotUnitService;
     private final RobotTaskReportRepository reportRepository;
+    private final CustomerProfileRepository customerProfileRepository;
+
+    /**
+     * Timezone the contract start date is interpreted in. A contract begins on a
+     * calendar day in the business's own timezone, not at a UTC instant — and the
+     * difference is not academic here, because cleaning robots routinely run
+     * overnight: 02:00 in Bangkok on the start date is still the previous day in UTC,
+     * and those tasks belong to the customer.
+     */
+    @Value("${app.reports.business-zone:Asia/Bangkok}")
+    private String businessZone;
 
     /**
      * Builds the report for a robot (by serial number) and a month ("YYYY-MM").
@@ -48,6 +65,7 @@ public class ReportPreviewService {
     public ReportPreviewResponse build(String serialNumber, String month) {
         RobotUnitResponse robot = robotUnitService.getBySerialNumber(serialNumber);
         List<RobotTaskReport> reports = reportRepository.findByRobotUnitIdAndReportMonth(robot.id(), month);
+        reports = clipToContractStart(reports, robot, month);
 
         String customerName = robot.deployment() != null ? robot.deployment().customerName() : "Unassigned customer";
         String site = robot.deployment() != null ? robot.deployment().site() : "—";
@@ -187,6 +205,46 @@ public class ReportPreviewService {
             case 3 -> "Startup failure";
             default -> "Unknown";
         };
+    }
+
+    /**
+     * Drops tasks performed before the customer's contract began.
+     * <p>
+     * Without this a customer who signed on the 15th received a "July report" that
+     * counted two weeks of work done before they were a customer — real numbers, but
+     * not theirs. Only the first month is affected: from the following month the
+     * contract start is before the month begins and this is a no-op.
+     * <p>
+     * A null contract start (the default for existing customers) reports the whole
+     * month, exactly as before.
+     */
+    private List<RobotTaskReport> clipToContractStart(
+            List<RobotTaskReport> reports, RobotUnitResponse robot, String month) {
+        Instant from = contractStartInstant(robot, month);
+        if (from == null) return reports;
+        return reports.stream()
+                .filter(r -> r.getStartTime() != null && !r.getStartTime().isBefore(from))
+                .toList();
+    }
+
+    /**
+     * The instant the customer's contract starts, or null when no clipping applies —
+     * either because no start date is recorded, or because it precedes the month.
+     */
+    private Instant contractStartInstant(RobotUnitResponse robot, String month) {
+        if (robot.deployment() == null) return null;
+        LocalDate contractStart = customerProfileRepository
+                .findById(robot.deployment().customerProfileId())
+                .map(CustomerProfile::getContractStartDate)
+                .orElse(null);
+        if (contractStart == null) return null;
+        try {
+            // A start on or before the first of the month clips nothing.
+            if (!contractStart.isAfter(YearMonth.parse(month).atDay(1))) return null;
+        } catch (Exception e) {
+            return null;
+        }
+        return contractStart.atStartOfDay(ZoneId.of(businessZone)).toInstant();
     }
 
     private String periodLabel(String month) {
