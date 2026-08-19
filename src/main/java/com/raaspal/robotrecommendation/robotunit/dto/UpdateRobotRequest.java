@@ -4,6 +4,7 @@ import com.raaspal.robotrecommendation.robotunit.entity.ReportCadence;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 /**
@@ -18,5 +19,8 @@ public record UpdateRobotRequest(
         String name,
         @NotNull(message = "Customer is required") UUID customerProfileId,
         String site,
-        ReportCadence reportCadence) {
+        ReportCadence reportCadence,
+
+        /** When this robot's contract starts; the first monthly report clips to it. */
+        LocalDate contractStartDate) {
 }

@@ -6,6 +6,7 @@ import com.raaspal.robotrecommendation.robotunit.entity.ReportCadence;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 /**
@@ -40,7 +41,10 @@ public record RobotUnitResponse(
             ReportCadence reportCadence,
             boolean active,
             /** Distributor/service partner servicing this deployment; {@code null} = RAASPAL-direct. */
-            UUID partnerId) {
+            UUID partnerId,
+
+            /** When the contract started; monthly reports clip to it. Null = whole month. */
+            LocalDate contractStartDate) {
     }
 
     /** Build a response from a robot and (optionally) its active deployment. */
@@ -54,7 +58,8 @@ public record RobotUnitResponse(
                     deployment.getSite(),
                     deployment.getReportCadence(),
                     Boolean.TRUE.equals(deployment.getIsActive()),
-                    deployment.getPartnerId());
+                    deployment.getPartnerId(),
+                    deployment.getContractStartDate());
         }
         return new RobotUnitResponse(
                 robot.getId(),

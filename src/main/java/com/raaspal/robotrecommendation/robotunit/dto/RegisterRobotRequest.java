@@ -5,6 +5,7 @@ import com.raaspal.robotrecommendation.robotunit.entity.ReportCadence;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 /**
@@ -25,5 +26,12 @@ public record RegisterRobotRequest(
          * explicitly for anything else — a delivery robot registered without it is
          * stored as a cleaning robot and will be filtered as one in RIMS.
          */
-        RobotType robotType) {
+        RobotType robotType,
+
+        /**
+         * When this robot's contract with the customer starts. The first monthly
+         * report clips to it, so a robot deployed mid-month does not report work done
+         * before the customer had it. Null reports whole months.
+         */
+        LocalDate contractStartDate) {
 }

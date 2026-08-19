@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.robotunit.service;
 
 import com.raaspal.robotrecommendation.common.enums.RobotType;
+import com.raaspal.robotrecommendation.common.config.CacheConfig;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
@@ -18,6 +19,7 @@ import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
 import com.raaspal.robotrecommendation.robotunit.repository.RobotUnitRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -211,6 +213,7 @@ public class RobotUnitService {
                 .isActive(true)
                 .reportCadence(cadence)
                 .deployedAt(LocalDateTime.now())
+                .contractStartDate(request.contractStartDate())
                 .build());
 
         return RobotUnitResponse.of(robot, deployment);
@@ -222,6 +225,13 @@ public class RobotUnitService {
      * deployment it is updated in place — including reassigning to another
      * customer; if it has none (deactivated), a fresh active deployment is created.
      */
+    /**
+     * Evicts the report cache because {@code contractStartDate} changes which tasks a
+     * report includes. Without it, correcting a wrong start date would keep serving the
+     * old report until the TTL expired. Robot edits are rare and the cache is cheap to
+     * refill, so clearing all of it is the right trade.
+     */
+    @CacheEvict(cacheNames = CacheConfig.ROBOT_MONTHLY_REPORTS, allEntries = true)
     @Transactional
     public RobotUnitResponse update(UUID robotUnitId, UpdateRobotRequest request) {
         RobotUnit robot = robotUnitRepository.findById(robotUnitId)
@@ -251,6 +261,7 @@ public class RobotUnitService {
         deployment.setCustomerProfile(customer);
         deployment.setSite(request.site());
         deployment.setReportCadence(cadence);
+        deployment.setContractStartDate(request.contractStartDate());
         deploymentRepository.save(deployment);
 
         return RobotUnitResponse.of(robot, deployment);

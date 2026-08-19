@@ -6,6 +6,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -53,6 +54,18 @@ public class Deployment {
     @Enumerated(EnumType.STRING)
     @Column(name = "report_cadence", nullable = false, length = 20)
     private ReportCadence reportCadence = ReportCadence.MONTHLY;
+
+    /**
+     * When this robot started working for this customer under contract.
+     * <p>
+     * Monthly reports clip to it, so a robot deployed mid-month does not report work
+     * it did before the contract began. Null means unknown and reports the whole month.
+     * <p>
+     * Distinct from {@link #deployedAt}, which is set to now() at registration and so
+     * records when the robot was entered into the system, not when its contract started.
+     */
+    @Column(name = "contract_start_date")
+    private LocalDate contractStartDate;
 
     @Column(name = "deployed_at", nullable = false)
     private LocalDateTime deployedAt;
