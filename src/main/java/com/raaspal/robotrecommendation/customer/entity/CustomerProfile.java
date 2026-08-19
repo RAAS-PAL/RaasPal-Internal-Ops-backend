@@ -6,6 +6,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -40,6 +41,14 @@ public class CustomerProfile {
     /** Email the monthly report is delivered to. */
     @Column(name = "contact_email", length = 255)
     private String contactEmail;
+
+    /**
+     * When this customer's contract began. Monthly reports clip to it, so a customer
+     * who signed mid-month is not shown work done before they were a customer.
+     * Null means unknown, which reports the whole month exactly as before.
+     */
+    @Column(name = "contract_start_date")
+    private LocalDate contractStartDate;
 
     @Column(name = "contact_phone")
     private String contactPhone;

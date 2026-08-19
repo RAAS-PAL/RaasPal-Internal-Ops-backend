@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.customer.service;
 
+import com.raaspal.robotrecommendation.common.config.CacheConfig;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.customer.dto.CustomerRequest;
@@ -8,6 +9,7 @@ import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
 import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,10 +54,18 @@ public class CustomerService {
                 .contactPhone(request.contactPhone())
                 .branch(request.branch())
                 .notes(request.notes())
+                .contractStartDate(request.contractStartDate())
                 .build());
         return CustomerResponse.of(c, 0);
     }
 
+    /**
+     * Evicts the report cache because {@code contractStartDate} changes which tasks a
+     * report includes. Without this, correcting a wrong start date would leave the old,
+     * wrong report being served until the TTL expired. Customer edits are rare and the
+     * cache is cheap to refill, so clearing all of it is the right trade.
+     */
+    @CacheEvict(cacheNames = CacheConfig.ROBOT_MONTHLY_REPORTS, allEntries = true)
     @Transactional
     public CustomerResponse update(UUID id, CustomerRequest request) {
         CustomerProfile c = require(id);
@@ -65,6 +75,7 @@ public class CustomerService {
         c.setContactPhone(request.contactPhone());
         c.setBranch(request.branch());
         c.setNotes(request.notes());
+        c.setContractStartDate(request.contractStartDate());
         customerProfileRepository.save(c);
         return CustomerResponse.of(c, robotCount(id));
     }
