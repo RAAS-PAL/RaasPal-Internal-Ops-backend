@@ -2,7 +2,6 @@ package com.raaspal.robotrecommendation.customer.dto;
 
 import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -15,7 +14,6 @@ public record CustomerResponse(
         String contactPhone,
         String branch,
         String notes,
-        LocalDate contractStartDate,
         long robotCount,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
@@ -29,7 +27,6 @@ public record CustomerResponse(
                 c.getContactPhone(),
                 c.getBranch(),
                 c.getNotes(),
-                c.getContractStartDate(),
                 robotCount,
                 c.getCreatedAt(),
                 c.getUpdatedAt());

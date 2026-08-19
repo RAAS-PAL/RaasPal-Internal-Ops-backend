@@ -25,11 +25,13 @@ import java.time.ZoneId;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Clipping a monthly report to the customer's contract start.
+ * Clipping a monthly report to the deployment's contract start.
  *
- * <p>A customer who signs on the 15th must not be shown the two weeks of work the
- * robot did before they were a customer — the numbers are real, but they are not
- * theirs.
+ * <p>A robot deployed on the 15th must not report the two weeks of work it did
+ * before the customer had it — the numbers are real, but they are not theirs.
+ *
+ * <p>The date sits on the deployment, not the customer: one customer commonly takes
+ * on robots at different times across different sites.
  */
 @SpringBootTest
 @Transactional
@@ -46,6 +48,7 @@ class ContractStartClippingTest {
 
     private CustomerProfile customer;
     private RobotUnit robot;
+    private Deployment deployment;
 
     @BeforeEach
     void setUp() {
@@ -53,7 +56,7 @@ class ContractStartClippingTest {
                 CustomerProfile.builder().companyName("Mid-Contract Co").build());
         robot = robotUnitRepository.save(RobotUnit.builder()
                 .serialNumber("GS-CLIP-1").brand("Gausium").model("M50").name("Clip Test").build());
-        deploymentRepository.save(Deployment.builder()
+        deployment = deploymentRepository.save(Deployment.builder()
                 .robotUnit(robot).customerProfile(customer).site("Site A")
                 .isActive(true).deployedAt(LocalDateTime.now()).build());
     }
@@ -81,8 +84,8 @@ class ContractStartClippingTest {
     }
 
     private void setContractStart(LocalDate date) {
-        customer.setContractStartDate(date);
-        customerProfileRepository.save(customer);
+        deployment.setContractStartDate(date);
+        deploymentRepository.save(deployment);
     }
 
     private int tasksInReport() {
@@ -90,7 +93,7 @@ class ContractStartClippingTest {
         return report.executive().totalTasksCompleted();
     }
 
-    /** The default for every existing customer: no start date, nothing changes. */
+    /** The default for every existing deployment: no start date, nothing changes. */
     @Test
     void withNoContractStartTheWholeMonthIsReported() {
         taskOn(5);
@@ -154,6 +157,53 @@ class ContractStartClippingTest {
         setContractStart(LocalDate.of(2026, 6, 10));
 
         assertThat(tasksInReport()).isEqualTo(2);
+    }
+
+    /**
+     * The reason this lives on the deployment rather than the customer: one customer
+     * takes on robots at different times across different sites, and each robot's
+     * report must clip to its own contract — not to a single date for the whole account.
+     */
+    @Test
+    void twoRobotsForTheSameCustomerClipToTheirOwnStartDates() {
+        // Second robot, same customer, deployed two weeks later.
+        RobotUnit later = robotUnitRepository.save(RobotUnit.builder()
+                .serialNumber("GS-CLIP-2").brand("Gausium").model("M50").name("Later Site").build());
+        Deployment laterDeployment = deploymentRepository.save(Deployment.builder()
+                .robotUnit(later).customerProfile(customer).site("Site B")
+                .isActive(true).deployedAt(LocalDateTime.now())
+                .contractStartDate(LocalDate.of(2026, 7, 20))
+                .build());
+        assertThat(laterDeployment.getId()).isNotNull();
+
+        for (int day : new int[] {5, 25}) {
+            taskReportRepository.save(RobotTaskReport.builder()
+                    .externalTaskId("later-" + day)
+                    .robotUnit(later)
+                    .customerProfile(customer)
+                    .brand("Gausium")
+                    .reportMonth(MONTH)
+                    .startTime(LocalDate.of(2026, 7, day).atTime(10, 0).atZone(BANGKOK).toInstant())
+                    .endTime(LocalDate.of(2026, 7, day).atTime(11, 0).atZone(BANGKOK).toInstant())
+                    .workingTimeSeconds(3600)
+                    .cleaningAreaSqm(new BigDecimal("100"))
+                    .plannedAreaSqm(new BigDecimal("100"))
+                    .syncedAt(Instant.now())
+                    .taskCompletionPct(new BigDecimal("100"))
+                    .build());
+        }
+
+        // First robot: started on the 1st, so both its tasks count.
+        taskOn(5);
+        taskOn(25);
+        setContractStart(LocalDate.of(2026, 7, 1));
+
+        assertThat(tasksInReport())
+                .as("the robot on contract from the 1st reports both tasks")
+                .isEqualTo(2);
+        assertThat(reportPreviewService.build("GS-CLIP-2", MONTH).executive().totalTasksCompleted())
+                .as("the robot on contract from the 20th reports only the later task")
+                .isEqualTo(1);
     }
 
     /** A start date after the month means the customer had no contract yet. */

@@ -6,8 +6,6 @@ import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Executiv
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Operational;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Recommendation;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse.Ring;
-import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
-import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import com.raaspal.robotrecommendation.telemetry.core.CleaningModeLabels;
@@ -44,7 +42,6 @@ public class ReportPreviewService {
 
     private final RobotUnitService robotUnitService;
     private final RobotTaskReportRepository reportRepository;
-    private final CustomerProfileRepository customerProfileRepository;
 
     /**
      * Timezone the contract start date is interpreted in. A contract begins on a
@@ -208,12 +205,15 @@ public class ReportPreviewService {
     }
 
     /**
-     * Drops tasks performed before the customer's contract began.
+     * Drops tasks performed before this robot's contract with the customer began.
      * <p>
-     * Without this a customer who signed on the 15th received a "July report" that
-     * counted two weeks of work done before they were a customer — real numbers, but
-     * not theirs. Only the first month is affected: from the following month the
-     * contract start is before the month begins and this is a no-op.
+     * Without this a robot deployed on the 15th reported a full "July" including two
+     * weeks of work done before the customer had it — real numbers, but not theirs.
+     * Only the first month is affected: from the following month the contract start
+     * precedes the month and this is a no-op.
+     * <p>
+     * Per deployment rather than per customer: one customer commonly takes on robots
+     * at different times across different sites.
      * <p>
      * A null contract start (the default for existing customers) reports the whole
      * month, exactly as before.
@@ -228,15 +228,12 @@ public class ReportPreviewService {
     }
 
     /**
-     * The instant the customer's contract starts, or null when no clipping applies —
+     * The instant this deployment's contract starts, or null when no clipping applies —
      * either because no start date is recorded, or because it precedes the month.
      */
     private Instant contractStartInstant(RobotUnitResponse robot, String month) {
         if (robot.deployment() == null) return null;
-        LocalDate contractStart = customerProfileRepository
-                .findById(robot.deployment().customerProfileId())
-                .map(CustomerProfile::getContractStartDate)
-                .orElse(null);
+        LocalDate contractStart = robot.deployment().contractStartDate();
         if (contractStart == null) return null;
         try {
             // A start on or before the first of the month clips nothing.
