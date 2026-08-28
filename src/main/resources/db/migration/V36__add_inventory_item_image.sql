@@ -1,0 +1,17 @@
+-- A photo for a spare part, same as robot_inventory_temp already has.
+--
+-- Stored as a base64 data: URI in the row, matching how robot photos work. The
+-- alternative — files on disk — is still ruled out by Render's ephemeral disk,
+-- the same constraint that put CM report signatures in-row.
+--
+-- What changes with this migration is not storage but DELIVERY. Photos are no
+-- longer returned inside list responses; the list carries a hasImage flag and the
+-- browser fetches each photo from its own endpoint. That matters here more than
+-- it did for robots: the warehouse sheet runs to roughly 320 parts, and at the
+-- ~145 KB a robot photo averages, inlining them would have made the inventory
+-- list a 46 MB response.
+--
+-- (For scale: 92 robot photos inlined already make every RIMS page carry 3.8 MB,
+-- because the layout reads the robot list for sidebar counts. Same defect, and
+-- this is why the robot endpoints move to the same delivery model.)
+ALTER TABLE inventory_items ADD COLUMN image_url TEXT;

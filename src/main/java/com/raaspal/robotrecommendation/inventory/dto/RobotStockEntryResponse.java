@@ -14,7 +14,16 @@ public record RobotStockEntryResponse(
         String brand,
         String model,
         String version,
-        String imageUrl,
+        /**
+         * Whether a photo exists, rather than the photo itself.
+         * <p>
+         * This used to carry the full base64 data URI. The layout reads the robot
+         * list on every page to count robots for the sidebar, so every page in RIMS
+         * was downloading 3.8 MB of photographs to compute a number and then
+         * discarding them. The bytes now come from
+         * {@code GET /inventory/robot-stock/{id}/image}.
+         */
+        boolean hasImage,
         Integer quantity,
 
         /** What it was before the last change to the count. One step back, not a history. */
@@ -40,7 +49,7 @@ public record RobotStockEntryResponse(
                 e.getBrand(),
                 e.getModel(),
                 e.getVersion(),
-                e.getImageUrl(),
+                e.getImageUrl() != null && !e.getImageUrl().isBlank(),
                 e.getQuantity(),
                 e.getPreviousQuantity(),
                 e.getPreviousQuantityAt(),

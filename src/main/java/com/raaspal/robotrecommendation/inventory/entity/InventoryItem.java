@@ -33,9 +33,14 @@ public class InventoryItem {
     private UUID id;
 
     /**
-     * Our own code, always present — generated as {@code INV-000001} when the
-     * operator leaves it blank. Distinct from {@link #supplierPartNo}: not every
-     * part has a manufacturer code, but every part needs something searchable.
+     * The part number — what RIMS labels 'Part number' and what the warehouse's
+     * stock sheet calls Part Code. Holds the manufacturer's code when there is
+     * one; generated as {@code INV-000001} when the operator leaves it blank, so
+     * a part handed over with no visible number is still searchable.
+     *
+     * <p>UNIQUE, so two parts cannot share a number. Note the warehouse sheet does
+     * contain repeats (the short- and long-shaft casters both read A0308010021),
+     * and those are rejected on the second save rather than silently merged.
      */
     @Column(nullable = false, unique = true, length = 64)
     private String sku;
@@ -47,6 +52,17 @@ public class InventoryItem {
 
     @Column(length = 64)
     private String barcode;
+
+    /**
+     * Photo of the part, as a base64 {@code data:} URI or an http(s) URL.
+     * <p>
+     * Never returned in a list response — {@code InventoryItemResponse} carries
+     * {@code hasImage} and the browser fetches the bytes from
+     * {@code /inventory/items/{id}/image}. At ~320 parts, inlining photos would
+     * make the parts list a multi-megabyte payload that cannot be cached.
+     */
+    @Column(name = "image_url", columnDefinition = "TEXT")
+    private String imageUrl;
 
     @Column(nullable = false, length = 255)
     private String name;
@@ -83,7 +99,12 @@ public class InventoryItem {
     @Builder.Default
     private Set<UUID> robotStockIds = new HashSet<>();
 
-    /** EA | L | M | BOX | SET. Without it "5" is meaningless. */
+    /**
+     * Always "EA". The column is NOT NULL and kept for now, but the field was
+     * dropped from the form and the API: RAASPAL counts every part in pieces, so
+     * asking for a unit bought nothing and printing "9 EA" everywhere was noise.
+     * This default is the only thing that writes it.
+     */
     @Column(name = "unit_of_measure", nullable = false, length = 16)
     @Builder.Default
     private String unitOfMeasure = "EA";

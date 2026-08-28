@@ -4,7 +4,6 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,12 +17,26 @@ import java.util.UUID;
  */
 public record InventoryItemRequest(
 
-        /** Leave blank and one is generated (INV-000001). */
+        /**
+         * The part number, shown in RIMS simply as "Part number". Holds the
+         * manufacturer's code when there is one; left blank, the service issues
+         * INV-000001 from a sequence so the column's NOT NULL UNIQUE still holds.
+         * <p>
+         * There used to be a second field, supplierPartNo, for the manufacturer's
+         * code. Two part numbers on one form asked warehouse staff to categorise a
+         * number they had simply been handed, so the pair was collapsed into this.
+         */
         @Size(max = 64) String sku,
 
-        @Size(max = 64) String supplierPartNo,
-
         @Size(max = 64) String barcode,
+
+        /**
+         * http(s) URL or a base64 {@code data:} URI.
+         * <p>
+         * Omit to leave an existing photo alone; send an empty string to remove
+         * it. A form without a picker must not silently wipe one.
+         */
+        String imageUrl,
 
         @NotBlank @Size(max = 255) String name,
 
@@ -36,15 +49,9 @@ public record InventoryItemRequest(
          */
         List<UUID> robotStockIds,
 
-        @Size(max = 16) String unitOfMeasure,
-
         @Min(0) Integer reorderPoint,
 
         @Min(0) Integer reorderQuantity,
-
-        BigDecimal unitCost,
-
-        @Size(max = 128) String location,
 
         Boolean isActive
 ) {

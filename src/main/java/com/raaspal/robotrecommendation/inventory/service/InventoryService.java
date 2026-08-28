@@ -12,9 +12,11 @@ import com.raaspal.robotrecommendation.inventory.repository.StockMovementReposit
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import com.raaspal.robotrecommendation.robotunit.repository.RobotUnitRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -141,18 +143,14 @@ public class InventoryService {
 
         InventoryItem item = InventoryItem.builder()
                 .sku(sku)
-                .supplierPartNo(blankToNull(request.supplierPartNo()))
                 .barcode(blankToNull(request.barcode()))
+                .imageUrl(validateImage(request.imageUrl()))
                 .name(request.name().trim())
                 .category(request.category().trim())
                 .robotStockIds(validatedRobotStockIds(request.robotStockIds()))
-                .unitOfMeasure(request.unitOfMeasure() == null || request.unitOfMeasure().isBlank()
-                        ? "EA" : request.unitOfMeasure().trim())
                 .quantityOnHand(0)      // stock only ever arrives through a movement
                 .reorderPoint(request.reorderPoint() == null ? 10 : request.reorderPoint())
                 .reorderQuantity(request.reorderQuantity() == null ? 0 : request.reorderQuantity())
-                .unitCost(request.unitCost())
-                .location(blankToNull(request.location()))
                 .isActive(request.isActive() == null || request.isActive())
                 .build();
 
@@ -175,21 +173,19 @@ public class InventoryService {
             }
             item.setSku(request.sku().trim());
         }
-        item.setSupplierPartNo(blankToNull(request.supplierPartNo()));
         item.setBarcode(blankToNull(request.barcode()));
+        // Null means "not mentioned" and leaves the photo alone; empty means remove.
+        if (request.imageUrl() != null) {
+            item.setImageUrl(request.imageUrl().isBlank() ? null : validateImage(request.imageUrl()));
+        }
         item.setName(request.name().trim());
         item.setCategory(request.category().trim());
         // Replace the whole link set: the form submits what is ticked, and "what
         // is ticked" is the entire intent — patching would make an untick ambiguous.
         item.getRobotStockIds().clear();
         item.getRobotStockIds().addAll(validatedRobotStockIds(request.robotStockIds()));
-        if (request.unitOfMeasure() != null && !request.unitOfMeasure().isBlank()) {
-            item.setUnitOfMeasure(request.unitOfMeasure().trim());
-        }
         if (request.reorderPoint() != null)    item.setReorderPoint(request.reorderPoint());
         if (request.reorderQuantity() != null) item.setReorderQuantity(request.reorderQuantity());
-        item.setUnitCost(request.unitCost());
-        item.setLocation(blankToNull(request.location()));
         if (request.isActive() != null) item.setIsActive(request.isActive());
 
         InventoryItem saved = itemRepository.save(item);
@@ -254,6 +250,38 @@ public class InventoryService {
     }
 
     /* ─── Helpers ─────────────────────────────────────────────────────────── */
+
+    /** The part's photo as real image bytes. 404 when it has none. */
+    @Transactional(readOnly = true)
+    public ResponseEntity<Resource> getImage(UUID id) {
+        return StoredImage.serve(require(id).getImageUrl(), "InventoryItem image", id);
+    }
+
+    /**
+     * Accepts an http(s) URL or a base64 data:image URI and caps the size.
+     * Mirrors RobotStockService.validateImage — the client downscales before
+     * upload, and this is the boundary that actually enforces it.
+     */
+    private static String validateImage(String value) {
+        String trimmed = blankToNull(value);
+        if (trimmed == null) return null;
+
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            if (trimmed.length() > 2048) throw new BadRequestException("Image URL is too long");
+            return trimmed;
+        }
+        if (!trimmed.startsWith("data:image/")) {
+            throw new BadRequestException("Image must be an http(s) URL or a base64 data:image/... URI");
+        }
+        if (trimmed.length() > MAX_IMAGE_CHARS) {
+            throw new BadRequestException(
+                    "Image is too large. Resize it to under " + (MAX_IMAGE_CHARS / 1024) + " KB.");
+        }
+        return trimmed;
+    }
+
+    /** ~1 MB of image; base64 inflates by about a third, hence the char budget. */
+    private static final int MAX_IMAGE_CHARS = 1_400_000;
 
     private InventoryItem require(UUID id) {
         return itemRepository.findById(id)
