@@ -49,8 +49,7 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItem, UU
              AND (:lowStock = false OR i.quantityOnHand <= i.reorderPoint)
              AND (:keyword IS NULL
                   OR LOWER(i.name) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%'))
-                  OR LOWER(i.sku)  LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%'))
-                  OR LOWER(COALESCE(i.supplierPartNo, '')) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')))
+                  OR LOWER(i.sku)  LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')))
            """)
     Page<InventoryItem> search(@Param("keyword") String keyword,
                                @Param("category") String category,

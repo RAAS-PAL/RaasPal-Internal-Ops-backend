@@ -2,7 +2,6 @@ package com.raaspal.robotrecommendation.inventory.dto;
 
 import com.raaspal.robotrecommendation.inventory.entity.InventoryItem;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -18,7 +17,6 @@ import java.util.UUID;
 public record InventoryItemResponse(
         UUID id,
         String sku,
-        String supplierPartNo,
         String barcode,
         String name,
         String category,
@@ -26,12 +24,9 @@ public record InventoryItemResponse(
         /** The warehouse robots this part fits. Empty = universal. */
         List<LinkedRobot> robots,
 
-        String unitOfMeasure,
         Integer quantityOnHand,
         Integer reorderPoint,
         Integer reorderQuantity,
-        BigDecimal unitCost,
-        String location,
         Boolean isActive,
         boolean lowStock,
         LocalDateTime updatedAt
@@ -50,17 +45,13 @@ public record InventoryItemResponse(
         return new InventoryItemResponse(
                 i.getId(),
                 i.getSku(),
-                i.getSupplierPartNo(),
                 i.getBarcode(),
                 i.getName(),
                 i.getCategory(),
                 robots,
-                i.getUnitOfMeasure(),
                 i.getQuantityOnHand(),
                 i.getReorderPoint(),
                 i.getReorderQuantity(),
-                i.getUnitCost(),
-                i.getLocation(),
                 i.getIsActive(),
                 i.isLowStock(),
                 i.getUpdatedAt());

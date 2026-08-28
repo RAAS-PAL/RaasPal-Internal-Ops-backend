@@ -141,18 +141,13 @@ public class InventoryService {
 
         InventoryItem item = InventoryItem.builder()
                 .sku(sku)
-                .supplierPartNo(blankToNull(request.supplierPartNo()))
                 .barcode(blankToNull(request.barcode()))
                 .name(request.name().trim())
                 .category(request.category().trim())
                 .robotStockIds(validatedRobotStockIds(request.robotStockIds()))
-                .unitOfMeasure(request.unitOfMeasure() == null || request.unitOfMeasure().isBlank()
-                        ? "EA" : request.unitOfMeasure().trim())
                 .quantityOnHand(0)      // stock only ever arrives through a movement
                 .reorderPoint(request.reorderPoint() == null ? 10 : request.reorderPoint())
                 .reorderQuantity(request.reorderQuantity() == null ? 0 : request.reorderQuantity())
-                .unitCost(request.unitCost())
-                .location(blankToNull(request.location()))
                 .isActive(request.isActive() == null || request.isActive())
                 .build();
 
@@ -175,7 +170,6 @@ public class InventoryService {
             }
             item.setSku(request.sku().trim());
         }
-        item.setSupplierPartNo(blankToNull(request.supplierPartNo()));
         item.setBarcode(blankToNull(request.barcode()));
         item.setName(request.name().trim());
         item.setCategory(request.category().trim());
@@ -183,13 +177,8 @@ public class InventoryService {
         // is ticked" is the entire intent — patching would make an untick ambiguous.
         item.getRobotStockIds().clear();
         item.getRobotStockIds().addAll(validatedRobotStockIds(request.robotStockIds()));
-        if (request.unitOfMeasure() != null && !request.unitOfMeasure().isBlank()) {
-            item.setUnitOfMeasure(request.unitOfMeasure().trim());
-        }
         if (request.reorderPoint() != null)    item.setReorderPoint(request.reorderPoint());
         if (request.reorderQuantity() != null) item.setReorderQuantity(request.reorderQuantity());
-        item.setUnitCost(request.unitCost());
-        item.setLocation(blankToNull(request.location()));
         if (request.isActive() != null) item.setIsActive(request.isActive());
 
         InventoryItem saved = itemRepository.save(item);
