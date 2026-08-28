@@ -32,8 +32,7 @@ public record RobotStockEntryResponse(
 ) {
 
     public static RobotStockEntryResponse from(RobotStockEntry e) {
-        String display = (e.getBrand() + " " + e.getModel()
-                + (e.getVersion() == null || e.getVersion().isBlank() ? "" : " " + e.getVersion())).trim();
+        String display = e.displayName();
 
         return new RobotStockEntryResponse(
                 e.getId(),

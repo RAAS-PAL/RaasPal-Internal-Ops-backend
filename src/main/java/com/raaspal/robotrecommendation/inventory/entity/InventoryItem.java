@@ -7,6 +7,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -55,10 +57,31 @@ public class InventoryItem {
     @Column(nullable = false, length = 64)
     private String category;
 
-    /** The robot MODEL this part fits, or null for universal items such as
-     *  detergent. Points at the model because every Phantas takes the same brush. */
-    @Column(name = "robot_id")
-    private UUID robotId;
+    /**
+     * The warehouse robots this part fits ({@code robot_inventory_temp} ids).
+     * Empty means universal — detergent, cloths — usable with any robot.
+     * <p>
+     * A set of ids over a join table rather than a single FK, because the
+     * relationship is genuinely many-to-many: one filter fits both the M50 and
+     * the M75. And it points at the RIMS warehouse list, not the {@code robots}
+     * catalogue — only 15% of the warehouse's models exist in the catalogue
+     * (measured before V34), so a catalogue link would leave most parts
+     * unlinkable to the robots they are actually bought for.
+     * <p>
+     * An {@code @ElementCollection} of ids rather than an entity association:
+     * the link has no attributes of its own, and this keeps
+     * {@code RobotStockEntry} free of a back-reference it has no use for.
+     */
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "inventory_item_robots", joinColumns = @JoinColumn(name = "inventory_item_id"))
+    @Column(name = "robot_stock_id", nullable = false)
+    // SUBSELECT is load-bearing, not tuning: without it a 200-row parts list
+    // lazily loads 200 link sets one query each — 200 round trips to a pooled
+    // Supabase that allows 15 connections. With it, touching the first set loads
+    // every set in the persistence context in one query.
+    @org.hibernate.annotations.Fetch(org.hibernate.annotations.FetchMode.SUBSELECT)
+    @Builder.Default
+    private Set<UUID> robotStockIds = new HashSet<>();
 
     /** EA | L | M | BOX | SET. Without it "5" is meaningless. */
     @Column(name = "unit_of_measure", nullable = false, length = 16)
