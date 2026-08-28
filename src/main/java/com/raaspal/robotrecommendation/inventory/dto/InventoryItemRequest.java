@@ -30,6 +30,14 @@ public record InventoryItemRequest(
 
         @Size(max = 64) String barcode,
 
+        /**
+         * http(s) URL or a base64 {@code data:} URI.
+         * <p>
+         * Omit to leave an existing photo alone; send an empty string to remove
+         * it. A form without a picker must not silently wipe one.
+         */
+        String imageUrl,
+
         @NotBlank @Size(max = 255) String name,
 
         @NotBlank @Size(max = 64) String category,

@@ -7,6 +7,8 @@ import com.raaspal.robotrecommendation.inventory.dto.*;
 import com.raaspal.robotrecommendation.inventory.service.InventoryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -55,6 +57,19 @@ public class InventoryController {
     @GetMapping("/items/{id}")
     public ApiResponse<InventoryItemResponse> getById(@PathVariable UUID id) {
         return ApiResponse.success(inventoryService.getById(id));
+    }
+
+    /**
+     * A part's photo, as an image response rather than JSON.
+     * <p>
+     * Deliberately its own endpoint: lists carry {@code hasImage} and the browser
+     * comes here for the bytes, so a list stays small, images load in parallel and
+     * each one is cached on its own URL. Readable by any signed-in staff member,
+     * matching the read rule for the rest of the inventory surface.
+     */
+    @GetMapping("/items/{id}/image")
+    public ResponseEntity<Resource> itemImage(@PathVariable UUID id) {
+        return inventoryService.getImage(id);
     }
 
     /** Stock history for one item, newest first. */

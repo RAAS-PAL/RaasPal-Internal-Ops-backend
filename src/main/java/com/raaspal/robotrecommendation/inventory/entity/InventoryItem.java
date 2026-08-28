@@ -53,6 +53,17 @@ public class InventoryItem {
     @Column(length = 64)
     private String barcode;
 
+    /**
+     * Photo of the part, as a base64 {@code data:} URI or an http(s) URL.
+     * <p>
+     * Never returned in a list response — {@code InventoryItemResponse} carries
+     * {@code hasImage} and the browser fetches the bytes from
+     * {@code /inventory/items/{id}/image}. At ~320 parts, inlining photos would
+     * make the parts list a multi-megabyte payload that cannot be cached.
+     */
+    @Column(name = "image_url", columnDefinition = "TEXT")
+    private String imageUrl;
+
     @Column(nullable = false, length = 255)
     private String name;
 

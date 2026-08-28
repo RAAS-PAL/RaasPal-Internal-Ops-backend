@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.auth.controller;
 
 import com.raaspal.robotrecommendation.auth.dto.AuthResponse;
 import com.raaspal.robotrecommendation.auth.dto.LoginRequest;
+import com.raaspal.robotrecommendation.auth.dto.ChangePasswordRequest;
 import com.raaspal.robotrecommendation.auth.dto.VerifyPasswordRequest;
 import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
 import com.raaspal.robotrecommendation.auth.service.AuthService;
@@ -36,6 +37,18 @@ public class AuthController {
             @Valid @RequestBody VerifyPasswordRequest request) {
         authService.verifyPassword(principal.getUsername(), request);
         return ApiResponse.success("Password verified");
+    }
+
+    /**
+     * Change your own password. Requires the current one, and acts only on the
+     * signed-in account — there is no account parameter to point elsewhere.
+     */
+    @PostMapping("/change-password")
+    public ApiResponse<Void> changePassword(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        authService.changePassword(principal.getUsername(), request);
+        return ApiResponse.success("Password changed");
     }
 
     @PostMapping("/logout")

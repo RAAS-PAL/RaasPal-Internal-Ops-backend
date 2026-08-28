@@ -21,6 +21,13 @@ public record InventoryItemResponse(
         String name,
         String category,
 
+        /**
+         * Whether a photo exists, rather than the photo itself. The bytes are
+         * served by {@code GET /inventory/items/{id}/image} so a list of parts
+         * stays small and each image is cached by the browser on its own URL.
+         */
+        boolean hasImage,
+
         /** The warehouse robots this part fits. Empty = universal. */
         List<LinkedRobot> robots,
 
@@ -48,6 +55,7 @@ public record InventoryItemResponse(
                 i.getBarcode(),
                 i.getName(),
                 i.getCategory(),
+                i.getImageUrl() != null && !i.getImageUrl().isBlank(),
                 robots,
                 i.getQuantityOnHand(),
                 i.getReorderPoint(),

@@ -9,6 +9,8 @@ import com.raaspal.robotrecommendation.inventory.entity.RobotStockEntry;
 import com.raaspal.robotrecommendation.inventory.repository.RobotStockEntryRepository;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -147,6 +149,12 @@ public class RobotStockService {
     }
 
     /* ─── Helpers ─────────────────────────────────────────────────────────── */
+
+    /** The robot's photo as real image bytes. 404 when it has none. */
+    @Transactional(readOnly = true)
+    public ResponseEntity<Resource> getImage(UUID id) {
+        return StoredImage.serve(require(id).getImageUrl(), "RobotStockEntry image", id);
+    }
 
     private RobotStockEntry require(UUID id) {
         return repository.findById(id)
