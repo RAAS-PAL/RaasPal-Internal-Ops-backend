@@ -30,9 +30,13 @@ final class StoredImage {
     private static final Pattern DATA_URI = Pattern.compile("^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", Pattern.DOTALL);
 
     /**
-     * Images are immutable for a given URL: replacing a photo writes a new row value
-     * and the browser asks again only because the page told it to. A year is the
-     * conventional "as long as you like" for content addressed this way.
+     * Safe only because callers version the URL. This path is keyed on the row id,
+     * which does <em>not</em> change when someone uploads a replacement photo — so a
+     * year-long lifetime on the path alone meant a new picture never appeared until
+     * the cache expired. RIMS appends the row updatedAt as a query parameter, which
+     * changes on every edit and gives each version of a photo its own cache entry.
+     *
+     * <p>Any other client of this endpoint must do the same, or accept stale images.
      */
     private static final Duration CACHE_FOR = Duration.ofDays(365);
 
