@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.inventory.dto;
 
 import com.raaspal.robotrecommendation.common.enums.RobotType;
+import com.raaspal.robotrecommendation.inventory.entity.Packaging;
 import com.raaspal.robotrecommendation.inventory.entity.RobotStockEntry;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 
@@ -31,6 +32,10 @@ public record RobotStockEntryResponse(
         LocalDateTime previousQuantityAt,
 
         RobotUnitStatus status,
+
+        /** BOX, UNBOX, or null where nobody has recorded it. */
+        Packaging packaging,
+
         String location,
         String note,
 
@@ -54,6 +59,7 @@ public record RobotStockEntryResponse(
                 e.getPreviousQuantity(),
                 e.getPreviousQuantityAt(),
                 e.getStatus(),
+                e.getPackaging(),
                 e.getLocation(),
                 e.getNote(),
                 display,

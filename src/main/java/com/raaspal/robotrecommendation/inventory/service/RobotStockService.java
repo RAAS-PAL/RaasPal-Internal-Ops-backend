@@ -60,7 +60,7 @@ public class RobotStockService {
 
     @Transactional
     public RobotStockEntryResponse create(RobotStockEntryRequest request, UUID actorId) {
-        RobotUnitStatus status = warehouseStatus(request.status());
+        RobotUnitStatus status = stockRoomStatus(request.status());
         String brand = required(request.brand(), "Brand");
         String model = required(request.model(), "Model");
         String version = blankToNull(request.version());
@@ -82,6 +82,7 @@ public class RobotStockService {
                 .imageUrl(validateImage(request.imageUrl()))
                 .quantity(request.quantity() == null ? 0 : request.quantity())
                 .status(status)
+                .packaging(request.packaging())
                 .location(blankToNull(request.location()))
                 .note(blankToNull(request.note()))
                 .updatedBy(actorId)
@@ -94,7 +95,7 @@ public class RobotStockService {
     public RobotStockEntryResponse update(UUID id, RobotStockEntryRequest request, UUID actorId) {
         RobotStockEntry entry = require(id);
 
-        RobotUnitStatus status = warehouseStatus(request.status());
+        RobotUnitStatus status = stockRoomStatus(request.status());
         String brand = required(request.brand(), "Brand");
         String model = required(request.model(), "Model");
         String version = blankToNull(request.version());
@@ -113,6 +114,7 @@ public class RobotStockService {
         entry.setModel(model);
         entry.setVersion(version);
         entry.setStatus(status);
+        entry.setPackaging(request.packaging());
         entry.setLocation(blankToNull(request.location()));
         entry.setNote(blankToNull(request.note()));
 
@@ -162,16 +164,21 @@ public class RobotStockService {
     }
 
     /**
-     * Only IN_STOCK and DEMO belong here. RENT and SOLD describe a robot at a
-     * customer under an agreement — that is the fleet's record, and this table
+     * The four store-room states, and only those. RENT and SOLD describe a robot at
+     * a customer under an agreement: that is the fleet record, and this table
      * deliberately knows nothing about it.
+     *
+     * <p>Checks {@link RobotUnitStatus#isStockRoomStatus} rather than
+     * {@code isWarehouseVisible} — the latter guards the fleet own endpoints, and
+     * the two sets stopped being the same when the repair states arrived in V37.
      */
-    private static RobotUnitStatus warehouseStatus(RobotUnitStatus status) {
+    private static RobotUnitStatus stockRoomStatus(RobotUnitStatus status) {
         RobotUnitStatus resolved = status == null ? RobotUnitStatus.IN_STOCK : status;
-        if (!resolved.isWarehouseVisible()) {
+        if (!resolved.isStockRoomStatus()) {
             throw new BadRequestException(
-                    "Only IN_STOCK and DEMO can be recorded here. " + resolved
-                            + " describes a robot at a customer.");
+                    resolved + " describes a robot at a customer and cannot be "
+                            + "recorded here. Use New Stock, Demo Unit, Under Repair "
+                            + "or Returned from Customer.");
         }
         return resolved;
     }
