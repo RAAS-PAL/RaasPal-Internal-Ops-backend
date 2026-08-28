@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.inventory.dto;
 
 import com.raaspal.robotrecommendation.common.enums.RobotType;
+import com.raaspal.robotrecommendation.inventory.entity.Packaging;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -35,8 +36,17 @@ public record RobotStockEntryRequest(
         @Min(value = 0, message = "Quantity cannot be negative")
         Integer quantity,
 
-        /** IN_STOCK or DEMO. Anything else is rejected. */
+        /**
+         * IN_STOCK, DEMO, UNDER_REPAIR or RETURNED_FROM_CUSTOMER. RENT and SOLD are
+         * rejected: those describe a robot at a customer, which has no row here.
+         */
         RobotUnitStatus status,
+
+        /**
+         * BOX or UNBOX. Null leaves it unrecorded, which is a legitimate answer for a
+         * shelf nobody has checked rather than a field somebody forgot.
+         */
+        Packaging packaging,
 
         @Size(max = 128)
         String location,

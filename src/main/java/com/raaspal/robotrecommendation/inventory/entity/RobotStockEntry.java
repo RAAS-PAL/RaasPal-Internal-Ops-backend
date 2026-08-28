@@ -85,14 +85,29 @@ public class RobotStockEntry {
     private LocalDateTime previousQuantityAt;
 
     /**
-     * IN_STOCK or DEMO only. Reuses the fleet's enum for the two values it shares —
-     * RENT and SOLD describe a customer agreement and are rejected in the service,
-     * because a robot at a customer is the fleet's business and has no row here.
+     * Where this shelf stands: IN_STOCK, DEMO, UNDER_REPAIR or RETURNED_FROM_CUSTOMER.
+     *
+     * <p>Reuses the fleet enum, but only the values
+     * {@link RobotUnitStatus#isStockRoomStatus} admits. RENT and SOLD describe a
+     * customer agreement and are rejected in the service, because a robot at a
+     * customer is the fleet business and has no row here.
+     *
+     * <p>Widened to 32 in V37: RETURNED_FROM_CUSTOMER does not fit in 20 characters.
      */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 32)
     @Builder.Default
     private RobotUnitStatus status = RobotUnitStatus.IN_STOCK;
+
+    /**
+     * Boxed or not, or null where nobody has recorded it.
+     *
+     * <p>Not part of the row identity, so one value covers the whole quantity on the
+     * row. See {@link Packaging} and V37 for why that trade was made.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private Packaging packaging;
 
     @Column(length = 128)
     private String location;

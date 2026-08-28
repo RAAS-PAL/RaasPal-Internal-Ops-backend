@@ -37,7 +37,7 @@ public class RobotStockController {
 
     private final RobotStockService robotStockService;
 
-    /** Everything held. Omit {@code status} for stock and demo together. */
+    /** Everything held. Omit {@code status} for all four store-room states together. */
     @GetMapping
     public ApiResponse<List<RobotStockEntryResponse>> list(
             @RequestParam(required = false) String q,
