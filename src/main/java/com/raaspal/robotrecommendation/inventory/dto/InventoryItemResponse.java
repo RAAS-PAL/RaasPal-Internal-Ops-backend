@@ -4,6 +4,7 @@ import com.raaspal.robotrecommendation.inventory.entity.InventoryItem;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -21,8 +22,10 @@ public record InventoryItemResponse(
         String barcode,
         String name,
         String category,
-        UUID robotId,
-        String robotModel,
+
+        /** The warehouse robots this part fits. Empty = universal. */
+        List<LinkedRobot> robots,
+
         String unitOfMeasure,
         Integer quantityOnHand,
         Integer reorderPoint,
@@ -34,8 +37,16 @@ public record InventoryItemResponse(
         LocalDateTime updatedAt
 ) {
 
-    /** @param robotModel resolved by the service; null for universal items. */
-    public static InventoryItemResponse from(InventoryItem i, String robotModel) {
+    /**
+     * A robot this part fits — id to link to its page, display name to render.
+     * The name is resolved by the service ("Gausium Phantas v1.3"); a link whose
+     * robot was since deleted is dropped rather than shown nameless.
+     */
+    public record LinkedRobot(UUID id, String displayName) {
+    }
+
+    /** @param robots resolved by the service; empty for universal items. */
+    public static InventoryItemResponse from(InventoryItem i, List<LinkedRobot> robots) {
         return new InventoryItemResponse(
                 i.getId(),
                 i.getSku(),
@@ -43,8 +54,7 @@ public record InventoryItemResponse(
                 i.getBarcode(),
                 i.getName(),
                 i.getCategory(),
-                i.getRobotId(),
-                robotModel,
+                robots,
                 i.getUnitOfMeasure(),
                 i.getQuantityOnHand(),
                 i.getReorderPoint(),

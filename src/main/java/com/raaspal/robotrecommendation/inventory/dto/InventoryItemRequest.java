@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -28,8 +29,12 @@ public record InventoryItemRequest(
 
         @NotBlank @Size(max = 64) String category,
 
-        /** The robot model this part fits; null for universal items. */
-        UUID robotId,
+        /**
+         * The warehouse robots this part fits (robot stock ids). Null or empty
+         * means universal. The full set is replaced on every save — the form
+         * submits what is ticked, and "what is ticked" is the whole intent.
+         */
+        List<UUID> robotStockIds,
 
         @Size(max = 16) String unitOfMeasure,
 

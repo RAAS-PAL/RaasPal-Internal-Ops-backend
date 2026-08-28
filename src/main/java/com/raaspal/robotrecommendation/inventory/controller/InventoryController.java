@@ -43,12 +43,13 @@ public class InventoryController {
     public ApiResponse<PagedResponse<InventoryItemResponse>> list(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) UUID robotId,
+            /** Only parts linked to this warehouse robot — the robot detail page's query. */
+            @RequestParam(required = false) UUID robotStockId,
             @RequestParam(defaultValue = "false") boolean lowStock,
             @RequestParam(defaultValue = "false") boolean includeInactive,
             Pageable pageable) {
         return ApiResponse.success(PagedResponse.of(
-                inventoryService.search(q, category, robotId, lowStock, includeInactive, pageable)));
+                inventoryService.search(q, category, robotStockId, lowStock, includeInactive, pageable)));
     }
 
     @GetMapping("/items/{id}")

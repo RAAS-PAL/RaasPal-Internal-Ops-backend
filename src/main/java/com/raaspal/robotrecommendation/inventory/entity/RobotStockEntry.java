@@ -111,4 +111,14 @@ public class RobotStockEntry {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    /**
+     * "Gausium Phantas v1.3" — assembled once here so every surface agrees.
+     * Moved from {@code RobotStockEntryResponse} when inventory items started
+     * naming their linked robots too; two assemblies would eventually differ.
+     */
+    public String displayName() {
+        return (brand + " " + model
+                + (version == null || version.isBlank() ? "" : " " + version)).trim();
+    }
 }

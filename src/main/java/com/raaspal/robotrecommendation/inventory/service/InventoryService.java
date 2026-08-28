@@ -9,8 +9,6 @@ import com.raaspal.robotrecommendation.inventory.entity.StockMovement;
 import com.raaspal.robotrecommendation.inventory.repository.InventoryItemRepository;
 import com.raaspal.robotrecommendation.inventory.repository.RobotStockEntryRepository;
 import com.raaspal.robotrecommendation.inventory.repository.StockMovementRepository;
-import com.raaspal.robotrecommendation.robot.entity.Robot;
-import com.raaspal.robotrecommendation.robot.repository.RobotRepository;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import com.raaspal.robotrecommendation.robotunit.repository.RobotUnitRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -38,7 +38,6 @@ public class InventoryService {
     private final InventoryItemRepository itemRepository;
     private final StockMovementRepository movementRepository;
     private final RobotStockEntryRepository robotStockRepository;
-    private final RobotRepository robotRepository;
     private final RobotUnitRepository robotUnitRepository;
 
     /* ─── Reads ───────────────────────────────────────────────────────────── */
@@ -46,20 +45,21 @@ public class InventoryService {
     @Transactional(readOnly = true)
     public Page<InventoryItemResponse> search(String keyword,
                                               String category,
-                                              UUID robotId,
+                                              UUID robotStockId,
                                               boolean lowStock,
                                               boolean includeInactive,
                                               Pageable pageable) {
         Page<InventoryItem> page = itemRepository.search(
-                blankToNull(keyword), blankToNull(category), robotId, lowStock, !includeInactive, pageable);
-        Map<UUID, String> models = resolveModels(page.getContent());
-        return page.map(i -> InventoryItemResponse.from(i, models.get(i.getRobotId())));
+                blankToNull(keyword), blankToNull(category), robotStockId, lowStock, !includeInactive, pageable);
+        Map<UUID, String> names = resolveRobotNames(page.getContent());
+        return page.map(i -> InventoryItemResponse.from(i, linkedRobots(i, names)));
     }
 
     @Transactional(readOnly = true)
     public InventoryItemResponse getById(UUID id) {
         InventoryItem item = require(id);
-        return InventoryItemResponse.from(item, resolveModel(item.getRobotId()));
+        Map<UUID, String> names = resolveRobotNames(List.of(item));
+        return InventoryItemResponse.from(item, linkedRobots(item, names));
     }
 
     @Transactional(readOnly = true)
@@ -72,7 +72,7 @@ public class InventoryService {
     public InventorySummaryResponse getSummary() {
         List<InventoryItem> low = itemRepository.findLowStock();
         List<InventoryItem> preview = low.size() > LOW_STOCK_PREVIEW ? low.subList(0, LOW_STOCK_PREVIEW) : low;
-        Map<UUID, String> models = resolveModels(preview);
+        Map<UUID, String> names = resolveRobotNames(preview);
 
         BigDecimal value = itemRepository.sumStockValue();
 
@@ -84,7 +84,7 @@ public class InventoryService {
                 // machines already at customers, which is a different question.
                 robotStockRepository.sumQuantityByStatus(RobotUnitStatus.IN_STOCK),
                 robotStockRepository.sumQuantityByStatus(RobotUnitStatus.DEMO),
-                preview.stream().map(i -> InventoryItemResponse.from(i, models.get(i.getRobotId()))).toList());
+                preview.stream().map(i -> InventoryItemResponse.from(i, linkedRobots(i, names))).toList());
     }
 
 
@@ -138,9 +138,6 @@ public class InventoryService {
         if (itemRepository.existsBySkuIgnoreCase(sku)) {
             throw new BadRequestException("An item with SKU '" + sku + "' already exists");
         }
-        if (request.robotId() != null && !robotRepository.existsById(request.robotId())) {
-            throw new BadRequestException("Unknown robot model: " + request.robotId());
-        }
 
         InventoryItem item = InventoryItem.builder()
                 .sku(sku)
@@ -148,7 +145,7 @@ public class InventoryService {
                 .barcode(blankToNull(request.barcode()))
                 .name(request.name().trim())
                 .category(request.category().trim())
-                .robotId(request.robotId())
+                .robotStockIds(validatedRobotStockIds(request.robotStockIds()))
                 .unitOfMeasure(request.unitOfMeasure() == null || request.unitOfMeasure().isBlank()
                         ? "EA" : request.unitOfMeasure().trim())
                 .quantityOnHand(0)      // stock only ever arrives through a movement
@@ -159,7 +156,8 @@ public class InventoryService {
                 .isActive(request.isActive() == null || request.isActive())
                 .build();
 
-        return InventoryItemResponse.from(itemRepository.save(item), resolveModel(item.getRobotId()));
+        InventoryItem saved = itemRepository.save(item);
+        return InventoryItemResponse.from(saved, linkedRobots(saved, resolveRobotNames(List.of(saved))));
     }
 
     /**
@@ -177,15 +175,14 @@ public class InventoryService {
             }
             item.setSku(request.sku().trim());
         }
-        if (request.robotId() != null && !robotRepository.existsById(request.robotId())) {
-            throw new BadRequestException("Unknown robot model: " + request.robotId());
-        }
-
         item.setSupplierPartNo(blankToNull(request.supplierPartNo()));
         item.setBarcode(blankToNull(request.barcode()));
         item.setName(request.name().trim());
         item.setCategory(request.category().trim());
-        item.setRobotId(request.robotId());
+        // Replace the whole link set: the form submits what is ticked, and "what
+        // is ticked" is the entire intent — patching would make an untick ambiguous.
+        item.getRobotStockIds().clear();
+        item.getRobotStockIds().addAll(validatedRobotStockIds(request.robotStockIds()));
         if (request.unitOfMeasure() != null && !request.unitOfMeasure().isBlank()) {
             item.setUnitOfMeasure(request.unitOfMeasure().trim());
         }
@@ -195,7 +192,8 @@ public class InventoryService {
         item.setLocation(blankToNull(request.location()));
         if (request.isActive() != null) item.setIsActive(request.isActive());
 
-        return InventoryItemResponse.from(itemRepository.save(item), resolveModel(item.getRobotId()));
+        InventoryItem saved = itemRepository.save(item);
+        return InventoryItemResponse.from(saved, linkedRobots(saved, resolveRobotNames(List.of(saved))));
     }
 
     /**
@@ -268,20 +266,52 @@ public class InventoryService {
         return "INV-%06d".formatted(itemRepository.nextSkuNumber());
     }
 
-    /** One query for every model referenced on the page, rather than one per row. */
-    private Map<UUID, String> resolveModels(List<InventoryItem> items) {
-        List<UUID> ids = items.stream().map(InventoryItem::getRobotId).filter(java.util.Objects::nonNull).distinct().toList();
+    /**
+     * Display names for every robot linked from the given items, in one query
+     * rather than one per row. The items' link sets load via SUBSELECT (see the
+     * entity), so a whole page costs two round trips, not 2N.
+     */
+    private Map<UUID, String> resolveRobotNames(List<InventoryItem> items) {
+        List<UUID> ids = items.stream()
+                .flatMap(i -> i.getRobotStockIds().stream())
+                .distinct()
+                .toList();
         if (ids.isEmpty()) return Map.of();
         Map<UUID, String> out = new HashMap<>();
-        robotRepository.findAllById(ids).forEach(r -> out.put(r.getId(), r.getBrand() + " " + r.getModel()));
+        robotStockRepository.findAllById(ids).forEach(r -> out.put(r.getId(), r.displayName()));
         return out;
     }
 
-    private String resolveModel(UUID robotId) {
-        if (robotId == null) return null;
-        return robotRepository.findById(robotId)
-                .map(r -> r.getBrand() + " " + r.getModel())
-                .orElse(null);
+    /**
+     * The response's linked-robot list, sorted by name so chips render stably.
+     * A link whose robot has since vanished is dropped rather than shown
+     * nameless — CASCADE should prevent that, but a phantom chip helps nobody.
+     */
+    private static List<InventoryItemResponse.LinkedRobot> linkedRobots(InventoryItem item, Map<UUID, String> names) {
+        return item.getRobotStockIds().stream()
+                .filter(names::containsKey)
+                .map(id -> new InventoryItemResponse.LinkedRobot(id, names.get(id)))
+                .sorted(Comparator.comparing(InventoryItemResponse.LinkedRobot::displayName))
+                .toList();
+    }
+
+    /**
+     * Rejects links to robots that do not exist. Validated as a set up front —
+     * one bad id fails the save with a message naming it, rather than a
+     * half-written link set.
+     */
+    private Set<UUID> validatedRobotStockIds(List<UUID> requested) {
+        if (requested == null || requested.isEmpty()) return new HashSet<>();
+        Set<UUID> unique = new HashSet<>(requested);
+        Set<UUID> known = robotStockRepository.findAllById(unique).stream()
+                .map(com.raaspal.robotrecommendation.inventory.entity.RobotStockEntry::getId)
+                .collect(Collectors.toSet());
+        for (UUID id : unique) {
+            if (!known.contains(id)) {
+                throw new BadRequestException("Unknown robot: " + id);
+            }
+        }
+        return unique;
     }
 
     private static String blankToNull(String s) {

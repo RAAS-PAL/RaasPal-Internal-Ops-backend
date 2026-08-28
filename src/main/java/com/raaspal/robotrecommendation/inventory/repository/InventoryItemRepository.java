@@ -36,11 +36,16 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItem, UU
      * does this for the same reason; it is the house pattern for an optional text
      * filter and worth copying rather than rediscovering.
      */
+    /*
+     * The robot filter walks the inventory_item_robots join table (MEMBER OF
+     * compiles to an EXISTS subquery), so "parts for this robot" is the same
+     * query as everything else — a robot detail page is just ?robotStockId=.
+     */
     @Query("""
            SELECT i FROM InventoryItem i
            WHERE (:activeOnly = false OR i.isActive = true)
              AND (:category IS NULL OR LOWER(i.category) = LOWER(CAST(:category AS string)))
-             AND (:robotId IS NULL OR i.robotId = :robotId)
+             AND (:robotStockId IS NULL OR :robotStockId MEMBER OF i.robotStockIds)
              AND (:lowStock = false OR i.quantityOnHand <= i.reorderPoint)
              AND (:keyword IS NULL
                   OR LOWER(i.name) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%'))
@@ -49,7 +54,7 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItem, UU
            """)
     Page<InventoryItem> search(@Param("keyword") String keyword,
                                @Param("category") String category,
-                               @Param("robotId") UUID robotId,
+                               @Param("robotStockId") UUID robotStockId,
                                @Param("lowStock") boolean lowStock,
                                @Param("activeOnly") boolean activeOnly,
                                Pageable pageable);

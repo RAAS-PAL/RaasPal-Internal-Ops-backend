@@ -1,0 +1,26 @@
+-- Puts back the column V34 dropped, because dropping it was sequenced wrong.
+--
+-- V34 added inventory_item_robots AND dropped inventory_items.robot_id in one
+-- step. Local development and production share a single Supabase database, so
+-- the drop took effect against the deployed Render instance immediately — and
+-- that instance still runs the previous code, whose entity maps robot_id. Every
+-- query against inventory_items began failing with
+-- "column ii1_0.robot_id does not exist", which took the RIMS inventory page,
+-- the dashboard summary and the low-stock alert down with it.
+--
+-- This is the expand/contract sequencing the V24 partner migration already
+-- documented for exactly this shared-database reason: add first, deploy, drop
+-- last. V34 skipped the middle step.
+--
+-- The column is restored nullable and unused. Old code reads and writes null
+-- happily; the current code does not reference it at all, since links now live
+-- in inventory_item_robots. So both versions run against this schema, which is
+-- the whole point of an expand phase.
+--
+-- Nothing is lost by restoring it empty: inventory_items was verified to hold
+-- zero rows before V34 dropped the column, so there was never any data in it.
+--
+-- TO FINISH THE CONTRACT: once every deployment runs V34-or-later code, a
+-- follow-up migration should drop this column again. Doing it before then
+-- reproduces this outage.
+ALTER TABLE inventory_items ADD COLUMN robot_id UUID;

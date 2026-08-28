@@ -50,6 +50,34 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ex.getMessage()));
     }
 
+    /**
+     * A {@code @PreAuthorize} denial must reach the caller as 403, and without
+     * this handler it never does: method security throws from inside the
+     * controller invocation, so the exception lands in the {@code Exception}
+     * catch-all below — which turned every denied inventory write into a 500
+     * "unexpected error". Found by the view-only account tests.
+     */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error("You do not have permission to do this."));
+    }
+
+    /**
+     * The wrong verb on a real path is 405, not 500. Same trap as the access-denied
+     * handler above: Spring throws this rather than returning a status, so without a
+     * handler it lands in the catch-all and an integrator calling DELETE on a
+     * soft-delete-only resource is told "an unexpected error occurred" — which sends
+     * them looking for a server fault that does not exist.
+     */
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(
+            org.springframework.web.HttpRequestMethodNotSupportedException ex) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGeneric(Exception ex) {
         log.error("Unhandled exception: {}", ex.getMessage(), ex);
