@@ -19,11 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.Month;
-import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -32,9 +29,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Aggregates a robot's synced task reports for a month into the web report's
- * {@link ReportPreviewResponse}. Read-only; uses the same telemetry the Excel
- * generator does, but produces summary metrics for the report page.
+ * Aggregates a robot's synced task reports for a {@link ReportPeriod} — a calendar
+ * month or an ISO week — into the web report's {@link ReportPreviewResponse}.
+ * Read-only; uses the same telemetry the Excel generator does, but produces
+ * summary metrics for the report page.
  */
 @Service
 @RequiredArgsConstructor
@@ -60,9 +58,23 @@ public class ReportPreviewService {
      */
     @Transactional(readOnly = true)
     public ReportPreviewResponse build(String serialNumber, String month) {
+        return build(serialNumber, ReportPeriod.ofMonth(month));
+    }
+
+    /**
+     * Builds the report for a robot and an ISO week ("YYYY-Www", Monday–Sunday).
+     * Same aggregation as the monthly report over a shorter window — the figures
+     * mean the same thing, so a week's numbers reconcile with the month's.
+     */
+    @Transactional(readOnly = true)
+    public ReportPreviewResponse buildForWeek(String serialNumber, String week) {
+        return build(serialNumber, ReportPeriod.ofWeek(week));
+    }
+
+    private ReportPreviewResponse build(String serialNumber, ReportPeriod period) {
         RobotUnitResponse robot = robotUnitService.getBySerialNumber(serialNumber);
-        List<RobotTaskReport> reports = reportRepository.findByRobotUnitIdAndReportMonth(robot.id(), month);
-        reports = clipToContractStart(reports, robot, month);
+        List<RobotTaskReport> reports = load(robot, period);
+        reports = clipToContractStart(reports, robot, period);
 
         String customerName = robot.deployment() != null ? robot.deployment().customerName() : "Unassigned customer";
         String site = robot.deployment() != null ? robot.deployment().site() : "—";
@@ -71,7 +83,7 @@ public class ReportPreviewService {
                 : (robot.brand() + (robot.model() != null ? " " + robot.model() : "")).trim();
 
         if (reports.isEmpty()) {
-            return empty(robot, customerName, site, robotName, month);
+            return empty(robot, customerName, site, robotName, period);
         }
 
         int taskCount = reports.size();
@@ -116,16 +128,29 @@ public class ReportPreviewService {
 
         return new ReportPreviewResponse(
                 robot.brand(), customerName, site, robotName, robot.serialNumber(),
-                periodLabel(month), executive, operational, consumables,
+                period.label(), executive, operational, consumables,
                 recommendations(avgCompletion, consumables));
     }
 
     /* ─── Helpers ────────────────────────────────────────────────────────── */
 
-    private ReportPreviewResponse empty(RobotUnitResponse robot, String customerName, String site, String robotName, String month) {
+    /**
+     * The task reports this period covers. A month reads the stored, indexed
+     * {@code reportMonth}; a week has to be a start-time range, since it can span
+     * two of them.
+     */
+    private List<RobotTaskReport> load(RobotUnitResponse robot, ReportPeriod period) {
+        return switch (period.type()) {
+            case MONTH -> reportRepository.findByRobotUnitIdAndReportMonth(robot.id(), period.key());
+            case WEEK -> reportRepository.findByRobotUnitIdAndStartTimeBetween(
+                    robot.id(), period.startInstant(zone()), period.endInstant(zone()));
+        };
+    }
+
+    private ReportPreviewResponse empty(RobotUnitResponse robot, String customerName, String site, String robotName, ReportPeriod period) {
         return new ReportPreviewResponse(
                 robot.brand(), customerName, site, robotName, robot.serialNumber(),
-                periodLabel(month),
+                period.label(),
                 new Executive(0, "0 h 0 min 0 sec", 0, 0, 0, "—"),
                 new Operational(
                         List.of(new Ring("Task Completion Rate", 0), new Ring("Cleaning Coverage Rate", 0)),
@@ -180,7 +205,7 @@ public class ReportPreviewService {
     }
 
     /**
-     * Every task-end status in the month with its count, most-frequent first,
+     * Every task-end status in the period with its count, most-frequent first,
      * e.g. "Completed ×8, Abnormal termination ×2". A missing status counts as
      * "Completed" (a finished task that reported no explicit end status).
      */
@@ -209,18 +234,18 @@ public class ReportPreviewService {
      * <p>
      * Without this a robot deployed on the 15th reported a full "July" including two
      * weeks of work done before the customer had it — real numbers, but not theirs.
-     * Only the first month is affected: from the following month the contract start
-     * precedes the month and this is a no-op.
+     * Only the period containing the start date is affected: every later one begins
+     * after the contract start and this is a no-op.
      * <p>
      * Per deployment rather than per customer: one customer commonly takes on robots
      * at different times across different sites.
      * <p>
      * A null contract start (the default for existing customers) reports the whole
-     * month, exactly as before.
+     * period, exactly as before.
      */
     private List<RobotTaskReport> clipToContractStart(
-            List<RobotTaskReport> reports, RobotUnitResponse robot, String month) {
-        Instant from = contractStartInstant(robot, month);
+            List<RobotTaskReport> reports, RobotUnitResponse robot, ReportPeriod period) {
+        Instant from = contractStartInstant(robot, period);
         if (from == null) return reports;
         return reports.stream()
                 .filter(r -> r.getStartTime() != null && !r.getStartTime().isBefore(from))
@@ -229,32 +254,26 @@ public class ReportPreviewService {
 
     /**
      * The instant this deployment's contract starts, or null when no clipping applies —
-     * either because no start date is recorded, or because it precedes the month.
+     * either because no start date is recorded, or because it precedes the period.
      */
-    private Instant contractStartInstant(RobotUnitResponse robot, String month) {
+    private Instant contractStartInstant(RobotUnitResponse robot, ReportPeriod period) {
         if (robot.deployment() == null) return null;
         LocalDate contractStart = robot.deployment().contractStartDate();
         if (contractStart == null) return null;
-        try {
-            // A start on or before the first of the month clips nothing.
-            if (!contractStart.isAfter(YearMonth.parse(month).atDay(1))) return null;
-        } catch (Exception e) {
-            return null;
-        }
-        return contractStart.atStartOfDay(ZoneId.of(businessZone)).toInstant();
+        // An unparseable month has no start date to compare against; it matches no
+        // stored report anyway, so there is nothing to clip.
+        if (period.startDate() == null) return null;
+        // A start on or before the first day of the period clips nothing.
+        if (!contractStart.isAfter(period.startDate())) return null;
+        return contractStart.atStartOfDay(zone()).toInstant();
     }
 
-    private String periodLabel(String month) {
-        try {
-            YearMonth ym = YearMonth.parse(month);
-            return Month.of(ym.getMonthValue()).getDisplayName(TextStyle.FULL, Locale.ENGLISH) + " " + ym.getYear();
-        } catch (Exception e) {
-            return month;
-        }
+    private ZoneId zone() {
+        return ZoneId.of(businessZone);
     }
 
     /**
-     * Every cleaning mode used in the month with its run count, most-frequent
+     * Every cleaning mode used in the period with its run count, most-frequent
      * first, e.g. "Wet Mopping ×7, Mopping ×3". "—" when no mode is recorded.
      */
     private static String taskTypeBreakdown(List<RobotTaskReport> reports) {
