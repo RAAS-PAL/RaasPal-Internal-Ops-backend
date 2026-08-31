@@ -37,6 +37,14 @@ public interface RobotTaskReportRepository extends JpaRepository<RobotTaskReport
 
     List<RobotTaskReport> findByReportMonth(String reportMonth);
 
+    /**
+     * Every task report for one robot started within {@code [startTimeMin,
+     * startTimeMax]} — the weekly report window. A week straddles months, so it
+     * cannot be served off the stored {@code reportMonth} the monthly report uses.
+     */
+    List<RobotTaskReport> findByRobotUnitIdAndStartTimeBetween(
+            UUID robotUnitId, Instant startTimeMin, Instant startTimeMax);
+
     /** Paged task reports for one robot, most recent first (partner API). */
     Page<RobotTaskReport> findByRobotUnitIdOrderByStartTimeDesc(UUID robotUnitId, Pageable pageable);
 
