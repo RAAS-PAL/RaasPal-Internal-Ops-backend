@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.common.exception;
 
+import com.raaspal.robotrecommendation.casereport.adapters.monday.MondayApiException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +76,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(
             org.springframework.web.HttpRequestMethodNotSupportedException ex) {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    /**
+     * A monday.com failure (bad token, board hidden from it, GraphQL error) is an
+     * upstream problem, not ours. 502 lets the console say "monday is unavailable"
+     * instead of "the backend crashed", and keeps the message, which names the
+     * board or the request id.
+     */
+    @ExceptionHandler(MondayApiException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMondayApi(MondayApiException ex) {
+        log.warn("monday.com request failed: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(ApiResponse.error(ex.getMessage()));
     }
 
