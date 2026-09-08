@@ -45,3 +45,5 @@ uploads/
 # which IS committed (it has to be on the classpath at runtime). Keeping the heavy
 # original out of the repo avoids carrying 520KB that nothing reads.
 docs/email_bottom_photo.png
+deploy/api.env
+deploy/*.pem
