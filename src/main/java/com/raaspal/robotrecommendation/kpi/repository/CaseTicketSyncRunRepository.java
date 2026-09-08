@@ -12,4 +12,6 @@ import java.util.UUID;
 public interface CaseTicketSyncRunRepository extends JpaRepository<CaseTicketSyncRun, UUID> {
 
     List<CaseTicketSyncRun> findAllByOrderByStartedAtDesc(Pageable pageable);
+
+    List<CaseTicketSyncRun> findAllByStatus(CaseTicketSyncRun.Status status);
 }

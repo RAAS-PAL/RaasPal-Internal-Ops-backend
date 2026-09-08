@@ -245,4 +245,24 @@ class MondayCaseSyncServiceTest {
         assertThat(service.status().configured()).isFalse();
         assertThat(runRepository.count()).isZero();
     }
+
+    /** A row left RUNNING by a dead process would otherwise say "in progress" forever. */
+    @Test
+    void runsLeftRunningByAPreviousProcessAreFailedOnStartup() {
+        runRepository.save(CaseTicketSyncRun.builder()
+                .sourceBoardId(CLEANING_BOARD)
+                .serviceLine(ServiceLine.CLEANING)
+                .ticketType(TicketType.CM)
+                .status(CaseTicketSyncRun.Status.RUNNING)
+                .triggeredBy(CaseTicketSyncRun.Trigger.SCHEDULED)
+                .startedAt(java.time.LocalDateTime.of(2026, 9, 8, 11, 16, 58))
+                .build());
+
+        service.failInterruptedRuns();
+
+        CaseTicketSyncRun run = runRepository.findAll().get(0);
+        assertThat(run.getStatus()).isEqualTo(CaseTicketSyncRun.Status.FAILED);
+        assertThat(run.getFinishedAt()).isNotNull();
+        assertThat(run.getErrorMessage()).contains("restarted");
+    }
 }

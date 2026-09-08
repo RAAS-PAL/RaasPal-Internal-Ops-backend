@@ -11,6 +11,7 @@ import com.raaspal.robotrecommendation.kpi.entity.CaseTicketSyncRun;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
 import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketSyncRunRepository;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -219,6 +220,30 @@ public class MondayCaseSyncService {
             groups.forEach(group -> ids.add(group.id()));
         }
         return ids;
+    }
+
+    /**
+     * A run row is written RUNNING when a board starts and finished when it ends.
+     * If the process dies in between - a restart, a crash, or the hung request
+     * this service once suffered - the row stays RUNNING forever and the console
+     * shows a sync that is still "in progress" days later. Nothing in a fresh
+     * process can be running yet, so anything still marked RUNNING at startup is,
+     * by definition, a run that was interrupted.
+     */
+    @PostConstruct
+    public void failInterruptedRuns() {
+        List<CaseTicketSyncRun> stale = runRepository.findAllByStatus(CaseTicketSyncRun.Status.RUNNING);
+        if (stale.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (CaseTicketSyncRun run : stale) {
+            run.setStatus(CaseTicketSyncRun.Status.FAILED);
+            run.setFinishedAt(now);
+            run.setErrorMessage("Interrupted: the backend restarted while this run was in progress");
+        }
+        runRepository.saveAll(stale);
+        log.warn("Marked {} monday sync run(s) left RUNNING by a previous process as FAILED", stale.size());
     }
 
     @PreDestroy

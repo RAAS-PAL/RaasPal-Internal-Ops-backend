@@ -2,11 +2,9 @@
 
 Everything below runs against a **throwaway docker Postgres**, never Supabase.
 That matters: local dev and production share one Supabase database, so starting
-the backend against it would apply **V38** to production.
+the backend against it would apply **V38–V40** to production.
 
-## One-time setup
-
-Already done on this machine, listed so it can be rebuilt:
+## One-time setup (already done on this Mac; listed so it can be rebuilt)
 
 ```bash
 docker run -d --name raaspal-kpi-pg \
@@ -14,8 +12,11 @@ docker run -d --name raaspal-kpi-pg \
   -p 5433:5432 postgres:16
 ```
 
-`src/main/resources/application-local.properties` (gitignored) points at it and
-sets `server.port=8081`, because **Jenkins owns port 8080** on this Mac.
+`src/main/resources/application-local.properties` (gitignored — keep it so) points
+at that database, sets `server.port=8081` because **Jenkins owns port 8080** on this
+machine, and holds `app.monday.api.token`. The token file is the only copy; it is
+never committed and never echoed. If it ever appears in a screenshot or a chat,
+rotate it in monday (Admin → API).
 
 ## Each session
 
@@ -23,100 +24,104 @@ sets `server.port=8081`, because **Jenkins owns port 8080** on this Mac.
 docker start raaspal-kpi-pg
 cd ~/Desktop/RassPal/RaasPal-Internal-Ops-backend
 git checkout feat/re-kpi-dashboard
-
-export MONDAY_API_TOKEN='<paste your token>'      # never commit this
 sh mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 `sh mvnw`, not `./mvnw` — the wrapper is not executable here and `mvn` is not on PATH.
+Wait for `Started RobotRecommendationApiApplication`; Flyway applies any new
+migration to the local database on the way up.
 
-Log in for a bearer token (the seeded admin, created on first start):
+Console (separate terminal), pointed at the local API rather than Render:
+
+```bash
+cd ~/Desktop/RassPal/RaasPal-Ops-frontend
+BACKEND_PROXY_TARGET=http://localhost:8081 npm run dev
+```
+
+Log in for a bearer token — the seeded admin, created on first start. This is the
+**app** token, unrelated to the monday one:
 
 ```bash
 TOKEN=$(curl -s -X POST localhost:8081/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@raaspal.com","password":"Admin@1234"}' \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["token"])')
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["accessToken"])')
 H="Authorization: Bearer $TOKEN"
 ```
 
-## Step 1 — confirm the token is seen
+Environment variables do not cross terminals: set `TOKEN` in the terminal that runs
+the curls, or every call answers 401.
+
+## The boards, and the rule for reading them
+
+| Board | id | Ticket type | Serial column |
+|---|---|---|---|
+| Cleaning Tickets | `3451717331` | CM | `text0` |
+| Delivery Tickets | `1647612496` | CM | `tags42` |
+| Installation Tickets | `3109668017` | INSTALLATION | `text33` |
+
+Every column id in `app.kpi.monday.boards[*]` was verified against the live boards on
+2026-09-08. **The S/N is the foreign key across all three**: an installation board
+row says nothing about whether the robot is cleaning or delivery, so its serial is
+looked up on the two single-line CM boards.
+
+**Strict rule: never pull ticket rows into a transcript, log or scratch file.**
+Schema, column names, status labels and counts only. The endpoints that respect it:
 
 ```bash
-curl -s -H "$H" localhost:8081/api/v1/kpi/monday/config | python3 -m json.tool
+curl -s -H "$H" localhost:8081/api/v1/kpi/monday/boards            # every board: id, name, state
+curl -s -H "$H" localhost:8081/api/v1/kpi/monday/boards/3109668017 # columns (+ status labels), groups — no rows
+curl -s -H "$H" localhost:8081/api/v1/kpi/monday/config            # effective mapping; never the token
 ```
 
-`tokenConfigured` must be `true`. If it is `false`, the export did not reach the
-JVM — export it in the same shell that runs Maven.
+`/api/v1/case-reports/monday/preview` returns rows. Do not use it for this work.
 
-## Step 2 — read the real column ids (do this before syncing)
+## The formulas (RE team, 2026-09-08)
 
-```bash
-curl -s -H "$H" localhost:8081/api/v1/kpi/monday/boards/3451717331 | python3 -m json.tool  # Cleaning
-curl -s -H "$H" localhost:8081/api/v1/kpi/monday/boards/1647612496 | python3 -m json.tool  # Delivery
-```
-
-This lists every column's `id`, `title` and `type`, plus the group ids. Compare
-against the `app.kpi.monday.boards[*].columns.*` block in
-`application.properties`. Only these were verified on 2026-08-26:
-
-| Board | Verified | Assumed — check these |
+| KPI | Rule | Config |
 |---|---|---|
-| Cleaning `3451717331` | `date8` open date, `status`, `status_1` issue level, `text` main issue | `text6` branch, `asset_owner3__1` project, `text0` serial |
-| Delivery `1647612496` | `status`, `status_1` sup status | `date5` open date, `asset_owner` serial, `text6` branch, `tags42` branch code, `tags2` project |
+| 1st Time Install | later date of the TimeLine, +30 days; any CM naming the same S/N → 0 | `install-follow-up-days=30` |
+| First Time Fix | another CM naming the same S/N within 14 days → 0 | `repeat-window-days=14` |
+| SLA | RE Action date within 7 days of Open Date | `boards[*].sla-days=7` |
 
-**Neither board has a close-date column mapped.** Without one, every ticket
-reports `slaUnknown` and the SLA rate is null. Find the real column (or the
-status values meaning "finished") and set it:
+Blank serial → counted as success and reported as `withoutSerial`. Unclassifiable
+installation → fleet total only, reported as `unclassifiedTickets`. No RE Action
+date → `slaUnknown`, never a breach. Neither ticket board has a close-date column;
+SLA is time-to-first-action by design.
 
-```bash
-export APP_KPI_MONDAY_BOARDS_0_COLUMNS_CLOSEDATE=date_xxxx
-export APP_KPI_MONDAY_BOARDS_0_CLOSED_STATUSES='Done,ปิดงาน'
-```
-
-Restart after changing these. Nothing needs a redeploy or a code change — the
-mapping is configuration, and every column is archived in
-`case_ticket.raw_columns` regardless, so a mapping corrected later applies on
-the next sync without re-reading history.
-
-## Step 3 — run a sync
+## Sync and read
 
 ```bash
-curl -s -X POST -H "$H" localhost:8081/api/v1/kpi/monday/sync        # 202, runs in background
-curl -s -H "$H" localhost:8081/api/v1/kpi/monday/sync/status | python3 -m json.tool
-curl -s -H "$H" localhost:8081/api/v1/kpi/monday/sync/runs | python3 -m json.tool
-```
-
-A run row per board records items read/inserted/updated and, on failure, the
-monday error. One board failing does not stop the other.
-
-## Step 4 — read the KPIs
-
-```bash
+curl -s -X POST -H "$H" localhost:8081/api/v1/kpi/monday/sync                       # 202, background
+curl -s -H "$H" localhost:8081/api/v1/kpi/monday/sync/status | python3 -m json.tool  # poll until running=false
+curl -s -H "$H" localhost:8081/api/v1/kpi/monday/sync/runs   | python3 -m json.tool  # one row per board per run
 curl -s -H "$H" 'localhost:8081/api/v1/kpi/cm-cases?from=2026-01&to=2026-06' | python3 -m json.tool
 ```
 
-Sanity checks against the deck (Jan–Jun 2026): 1,458 total cases,
-643 cleaning / 815 delivery. A large gap means the wrong groups or the wrong
-open-date column. The deck's FTFR uses 1,270 "KPI cases" out of 1,458, so it
-excludes something this module does not — expect first-time-fix to differ until
-the RE team confirms the rule.
-
-Inspect rows directly:
+A full first sync of the three boards is about five minutes and about 150 API
+calls (page size 100). The backend log prints a line per page, so a board that is
+reading looks like it. Later syncs land as updates. Verify by counting, never by
+selecting:
 
 ```bash
 docker exec raaspal-kpi-pg psql -U postgres -d robot_recommendation_db -c \
-  "select service_line, count(*), count(open_date), count(close_date), count(serials_normalised) from case_ticket group by 1;"
+  "select source_board_id, ticket_type, count(*), count(serials_normalised), count(action_date), count(install_date) from case_ticket group by 1,2 order by 1;"
 ```
 
-## Watch out for
+Expected against the Jan–Jun 2026 deck: delivery CM 815 (live 816), cleaning CM
+643 (live 756 — Apr/May differ, under review), FTF 72.3% (live 75.7%).
 
-- **monday's daily API budget** is 1,000 calls on Free/Basic/Standard. A full
-  sync costs roughly one call per 50 tickets per group, plus one per board for
-  group discovery. Don't loop it.
-- **The nightly scheduler stays off** unless `KPI_MONDAY_SYNC_ENABLED=true`.
-  Leave it off locally; the manual endpoint works either way.
-- `/actuator/health` requires auth in this app, so an unauthenticated probe
-  returns 401, not a health body.
-- Stop cleanly when done: `Ctrl-C`, then `docker stop raaspal-kpi-pg`. Never
-  leave a local backend running against Supabase.
+## Known limits
+
+- Only ~177 of 833 installation tickets record a serial, so 1st Time Install is
+  truly measured for about a fifth of installs. That is how the board is filled,
+  not a code fault.
+- The installation board's "Job Type" is not filtered; if it includes robot
+  transport jobs the install denominator is inflated. Labels not yet confirmed.
+- PM Complete and CSAT are not shown. PM is sourceable (`PM Yip-upload` 2957857962
+  for visits; `PM Cleaning` 2048972900 / `PM Delivery` 4129404143 for contracts)
+  once the visits-due-per-robot rule is known.
+- monday's daily API budget is 1,000 calls on Free/Basic/Standard. Don't loop syncs.
+- `/actuator/health` needs auth here; an unauthenticated probe returns 401.
+- Stop cleanly: `Ctrl-C`, then `docker stop raaspal-kpi-pg`. Never leave a local
+  backend running against Supabase.
