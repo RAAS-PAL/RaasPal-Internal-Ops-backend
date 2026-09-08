@@ -159,6 +159,10 @@ public class MondayBoardReader {
             }
             cursor = itemPage.cursor();
             page++;
+            // Per page, so a slow board shows progress in the log instead of looking
+            // hung. A full first sync of an archive group is dozens of pages.
+            log.info("monday board {} group {}: page {} read, {} items so far{}",
+                    boardId, groupId, page, allItems.size(), cursor == null ? " (last page)" : "");
         } while (cursor != null && page < MAX_PAGES);
 
         boolean complete = cursor == null;
