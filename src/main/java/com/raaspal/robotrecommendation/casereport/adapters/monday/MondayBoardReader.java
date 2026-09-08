@@ -95,8 +95,16 @@ public class MondayBoardReader {
             }
             """;
 
-    /** Guards against a cursor that never returns null; 50 pages is far more than any group here. */
-    private static final int MAX_PAGES = 50;
+    /**
+     * Guards against a cursor that never returns null. Configurable because the
+     * original 50 was wrong: the Delivery board's "DONE-Ticket" archive alone holds
+     * more than 2,500 tickets, and the read was silently cut off at page 50 - the
+     * KPI would have been computed on whichever half of the archive monday happened
+     * to return first. At the default page size the new default allows 50,000 rows
+     * per group, which is beyond any board here; a genuinely runaway cursor still
+     * stops, and the read is still flagged incomplete when it does.
+     */
+    private final int maxPages;
 
     private final MondayApiClient client;
     private final ObjectMapper objectMapper;
@@ -106,12 +114,14 @@ public class MondayBoardReader {
     public MondayBoardReader(
             MondayApiClient client,
             ObjectMapper objectMapper,
-            @Value("${app.monday.api.page-size:50}") int pageSize,
-            @Value("${app.monday.api.updates-per-item:10}") int updatesPerItem) {
+            @Value("${app.monday.api.page-size:100}") int pageSize,
+            @Value("${app.monday.api.updates-per-item:10}") int updatesPerItem,
+            @Value("${app.monday.api.max-pages-per-group:500}") int maxPages) {
         this.client = client;
         this.objectMapper = objectMapper;
         this.pageSize = pageSize;
         this.updatesPerItem = updatesPerItem;
+        this.maxPages = maxPages;
     }
 
     /**
@@ -163,12 +173,12 @@ public class MondayBoardReader {
             // hung. A full first sync of an archive group is dozens of pages.
             log.info("monday board {} group {}: page {} read, {} items so far{}",
                     boardId, groupId, page, allItems.size(), cursor == null ? " (last page)" : "");
-        } while (cursor != null && page < MAX_PAGES);
+        } while (cursor != null && page < maxPages);
 
         boolean complete = cursor == null;
         if (!complete) {
             log.warn("Stopped reading monday board {} group {} after {} pages with a cursor still open; "
-                    + "results are incomplete", boardId, groupId, MAX_PAGES);
+                    + "results are incomplete - raise app.monday.api.max-pages-per-group", boardId, groupId, maxPages);
         }
         log.info("Read {} items from monday board {} group {} in {} page(s)", allItems.size(), boardId, groupId, page);
         return new MondayGroupRead(allItems, complete);
