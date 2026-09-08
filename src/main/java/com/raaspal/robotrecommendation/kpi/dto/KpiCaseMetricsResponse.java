@@ -22,6 +22,10 @@ import java.util.Map;
  *                      which kind of robot they concern. When this is above zero the
  *                      split does not add up to the total, and that is the honest
  *                      reading rather than a rounding fault
+ * @param excludedByCategory rows in the range whose category the board config does
+ *                      not count (a survey job on the installation board, a parts
+ *                      shipment on a CM board). Stated so the denominator never
+ *                      shrinks silently
  * @param lastSyncedAt  when the mirror was last refreshed; null when it never was
  * @param provisional   true while the definitions await RE-team sign-off
  * @param definitions   each formula in words, so a board number traces to its rule
@@ -33,6 +37,7 @@ public record KpiCaseMetricsResponse(
         Totals totals,
         long ticketCount,
         long unclassifiedTickets,
+        long excludedByCategory,
         LocalDateTime lastSyncedAt,
         int repeatWindowDays,
         int installFollowUpDays,

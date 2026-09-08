@@ -44,6 +44,7 @@ class CaseTicketMapperTest {
         KpiMondayProperties.Columns columns = board.getColumns();
         columns.setOpenDate("date8");
         columns.setActionDate("date_1");
+        columns.setCategory("color_mkyj4ncq");
         columns.setCloseDate("date_done");
         columns.setStatus("status");
         columns.setIssueLevel("status_1");
@@ -102,6 +103,7 @@ class CaseTicketMapperTest {
         assertThat(ticket.getProvinceRaw()).isNull();
         assertThat(ticket.getSupStatus()).isNull();
         assertThat(ticket.getTicketType()).isEqualTo(TicketType.CM);
+        assertThat(ticket.getCategory()).isNull();   // column absent on this item
         assertThat(ticket.isClosed()).isFalse();
         assertThat(ticket.isPresent()).isTrue();
         assertThat(ticket.getFirstSeenAt()).isEqualTo(NOW);
@@ -267,5 +269,22 @@ class CaseTicketMapperTest {
         assertThat(cleaning.getTicketType()).isEqualTo(TicketType.INSTALLATION);
         assertThat(cleaning.getInstallDate()).isEqualTo(LocalDate.of(2026, 8, 5));
         assertThat(delivery.getServiceLine()).isEqualTo(ServiceLine.DELIVERY);
+    }
+
+    @Test
+    void categoryIsMappedAndBlankIsMatchedOnlyWhenListed() {
+        KpiMondayProperties.Board board = cleaningBoard();
+        MondayItem item = item("1", null, cells("color_mkyj4ncq", "Service case"));
+        assertThat(mapper.newTicket(item, board, NOW).getCategory()).isEqualTo("Service case");
+
+        board.setIncludeCategories(List.of("Incident case", "service CASE"));
+        assertThat(board.countsCategory("Service case")).isTrue();       // case-insensitive
+        assertThat(board.countsCategory("ส่งอะไหล่")).isFalse();
+        assertThat(board.countsCategory(null)).isFalse();                // blank not listed
+        board.setIncludeCategories(List.of("Incident case", "(blank)"));
+        assertThat(board.countsCategory(null)).isTrue();
+        assertThat(board.countsCategory("  ")).isTrue();
+        board.setIncludeCategories(List.of());
+        assertThat(board.countsCategory("anything")).isTrue();           // no list = everything counts
     }
 }

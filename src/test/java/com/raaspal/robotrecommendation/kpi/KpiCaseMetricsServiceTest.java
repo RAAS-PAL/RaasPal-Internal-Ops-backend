@@ -54,6 +54,10 @@ class KpiCaseMetricsServiceTest {
 
     /** A CM case: reported on {@code open}, first acted on {@code action} (nullable). */
     private CaseTicket cm(ServiceLine line, String id, LocalDate open, LocalDate action, String serial) {
+        return cm(line, id, open, action, serial, "Incident case");
+    }
+
+    private CaseTicket cm(ServiceLine line, String id, LocalDate open, LocalDate action, String serial, String category) {
         return save(CaseTicket.builder()
                 .sourceBoardId(line == ServiceLine.CLEANING ? CLEANING_BOARD : DELIVERY_BOARD)
                 .sourceItemId(id)
@@ -61,7 +65,8 @@ class KpiCaseMetricsServiceTest {
                 .ticketType(TicketType.CM)
                 .openDate(open)
                 .actionDate(action)
-                .serialsNormalised(serial));
+                .serialsNormalised(serial)
+                .category(category));
     }
 
     /**
@@ -69,12 +74,17 @@ class KpiCaseMetricsServiceTest {
      * null, like the real board, so it can only be classified by serial.
      */
     private CaseTicket install(String id, LocalDate installDate, String serial) {
+        return install(id, installDate, serial, "Installation");
+    }
+
+    private CaseTicket install(String id, LocalDate installDate, String serial, String jobType) {
         return save(CaseTicket.builder()
                 .sourceBoardId(INSTALL_BOARD)
                 .sourceItemId(id)
                 .ticketType(TicketType.INSTALLATION)
                 .installDate(installDate)
-                .serialsNormalised(serial));
+                .serialsNormalised(serial)
+                .category(jobType));
     }
 
     private CaseTicket save(CaseTicket.CaseTicketBuilder builder) {
@@ -328,5 +338,49 @@ class KpiCaseMetricsServiceTest {
 
         assertThat(r.unclassifiedTickets()).isEqualTo(1);
         assertThat(month(r, "2026-01").all().installation().total()).isEqualTo(1);
+    }
+
+    // ── category filter: not every row on a KPI board is a KPI case ─────────
+
+    /** A survey job on the installation board is the team's work, not an installation. */
+    @Test
+    void jobTypesOutsideTheIncludeListAreNotInstallations() {
+        install("I1", d(1, 5), "S1", "Installation");
+        install("I2", d(1, 6), "S2", "Survey Site");
+        install("I3", d(1, 7), "S3", "Transport");
+
+        KpiCaseMetricsResponse r = service.monthly(JAN, JAN);
+
+        assertThat(month(r, "2026-01").all().installation().total()).isEqualTo(1);
+        assertThat(r.excludedByCategory()).isEqualTo(2);
+        assertThat(r.ticketCount()).isEqualTo(1);
+        assertThat(r.definitions()).containsKey("category");
+    }
+
+    /** Parts-shipping rows are excluded on the cleaning board; a blank type is included, as the deck does. */
+    @Test
+    void cmCategoriesAreFilteredAndBlankCountsWhenListed() {
+        cm(ServiceLine.CLEANING, "C1", d(1, 1), null, "S1", "Incident case");
+        cm(ServiceLine.CLEANING, "C2", d(1, 2), null, "S2", null);            // blank type
+        cm(ServiceLine.CLEANING, "C3", d(1, 3), null, "S3", "ส่งอะไหล่");     // parts shipment
+        cm(ServiceLine.DELIVERY, "C4", d(1, 4), null, "S4", "Low");           // delivery counts everything
+
+        KpiCaseMetricsResponse r = service.monthly(JAN, JAN);
+
+        assertThat(month(r, "2026-01").cleaning().cm().total()).isEqualTo(2);
+        assertThat(month(r, "2026-01").delivery().cm().total()).isEqualTo(1);
+        assertThat(r.excludedByCategory()).isEqualTo(1);
+    }
+
+    /** A parts-shipping row for the same serial is still evidence the robot came back. */
+    @Test
+    void anExcludedCategoryStillCountsAsAFollowUp() {
+        cm(ServiceLine.CLEANING, "C1", d(1, 1), null, "S1", "Incident case");
+        cm(ServiceLine.CLEANING, "C2", d(1, 5), null, "S1", "ส่งอะไหล่");
+
+        CmCounts jan = month(service.monthly(JAN, JAN), "2026-01").cleaning().cm();
+
+        assertThat(jan.total()).isEqualTo(1);
+        assertThat(jan.repeat()).isEqualTo(1);
     }
 }

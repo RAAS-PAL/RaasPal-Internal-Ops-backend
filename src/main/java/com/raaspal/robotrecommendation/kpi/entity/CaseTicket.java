@@ -119,6 +119,14 @@ public class CaseTicket {
     @Column(name = "main_issue", columnDefinition = "TEXT")
     private String mainIssue;
 
+    /**
+     * The board's category column, verbatim ("Job Type" on the installation board,
+     * "Type of case" on the CM boards). Which values count toward the KPI is board
+     * config; rows outside it are archived but not counted, and reported.
+     */
+    @Column(name = "category", columnDefinition = "TEXT")
+    private String category;
+
     @Column(name = "open_date")
     private LocalDate openDate;
 

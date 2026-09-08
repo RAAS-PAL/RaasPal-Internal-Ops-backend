@@ -111,10 +111,15 @@ public class KpiCaseMetricsService {
 
         long counted = 0;
         long unclassified = 0;
+        long excludedByCategory = 0;
         for (CaseTicket ticket : tickets) {
             LocalDate keyDate = keyDate(ticket);
             if (keyDate == null || keyDate.isBefore(start) || keyDate.isAfter(end)) {
                 continue; // outside the range, or unusable — look-ahead rows land here
+            }
+            if (!countsCategory(ticket)) {
+                excludedByCategory++;
+                continue; // the team's work, but not this KPI's case
             }
             counted++;
             ServiceLine line = resolveLine(ticket, lineBySerial);
@@ -144,6 +149,7 @@ public class KpiCaseMetricsService {
                 totals.toSegments(),
                 counted,
                 unclassified,
+                excludedByCategory,
                 ticketRepository.findLastSyncedAt().orElse(null),
                 repeatWindow,
                 installWindow,
@@ -195,6 +201,18 @@ public class KpiCaseMetricsService {
                     + "they cannot classify an installation and are ignored", conflicting.size());
         }
         return bySerial;
+    }
+
+    /**
+     * Whether the row is a case this KPI counts. A board that maps no category, or
+     * lists no included values, counts every row. Note the follow-up search in
+     * {@link #hasFollowUpCm} deliberately does NOT apply this: a parts-shipping
+     * row for the same serial is still evidence that the robot came back.
+     */
+    private boolean countsCategory(CaseTicket ticket) {
+        return properties.board(ticket.getSourceBoardId())
+                .map(board -> board.countsCategory(ticket.getCategory()))
+                .orElse(true);
     }
 
     /** The date a ticket's KPI is keyed on: install finished, or case reported. */
@@ -260,6 +278,9 @@ public class KpiCaseMetricsService {
         d.put("bucketing", "Installations are counted in the month their TimeLine ends; CMs in the month they were reported.");
         d.put("matching", "Both windows join on serial number alone, across boards. Tickets naming no serial "
                 + "cannot be matched and are counted as successes; see withoutSerial.");
+        d.put("category", "Each board may name a category column (Job Type, Type of case) and the values that count "
+                + "as a KPI case. Rows outside that list are synced and archived but not counted here; see "
+                + "excludedByCategory. A follow-up CM is still a follow-up whatever its category.");
         d.put("split", "An installation board does not say which kind of robot a ticket concerns, so the serial is "
                 + "looked up among CM tickets: the cleaning and delivery boards are single-line, so a serial seen on "
                 + "one of them identifies the robot. A ticket that still cannot be placed counts in the fleet total "

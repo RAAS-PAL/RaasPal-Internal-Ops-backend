@@ -134,6 +134,35 @@ public class KpiMondayProperties {
         private List<String> closedStatuses = new ArrayList<>();
 
         /**
+         * Values of {@code columns.category} that count toward the KPI, matched
+         * case-insensitively after trimming. Empty means every row counts. The
+         * installation board is really a job board with 25 job types of which
+         * "Installation" is one, so without this its 1st Time Install denominator
+         * is every survey, demo and transport job the team ever logged.
+         */
+        private List<String> includeCategories = new ArrayList<>();
+
+        /** Entry in {@link #includeCategories} that stands for an empty category cell. */
+        public static final String BLANK_CATEGORY = "(blank)";
+
+        /**
+         * True when the row's category is one the KPI counts (or the board counts
+         * everything). An empty cell matches only if the list names {@code (blank)}:
+         * on the cleaning board 65 of the Jan-Jun 2026 cases have no type at all,
+         * and the deck's total includes them, so blank has to be sayable.
+         */
+        public boolean countsCategory(String category) {
+            if (includeCategories.isEmpty()) {
+                return true;
+            }
+            String needle = category == null ? "" : category.strip();
+            if (needle.isEmpty()) {
+                return includeCategories.stream().anyMatch(c -> c.strip().equalsIgnoreCase(BLANK_CATEGORY));
+            }
+            return includeCategories.stream().anyMatch(c -> c.strip().equalsIgnoreCase(needle));
+        }
+
+        /**
          * SLA in calendar days: the case must be <em>checked</em> (the board's RE
          * Action date) within this many days of being reported. 7 for both ticket
          * boards — RE team, 2026-09-08. Exactly the limit is still within SLA.
@@ -207,6 +236,8 @@ public class KpiMondayProperties {
         private String supStatus;
         private String issueLevel;
         private String mainIssue;
+        /** The board's "what kind of job/case is this" column; see includeCategories. */
+        private String category;
         private String openDate;
         private String closeDate;
         /** The board's "RE Action" date — the SLA clock's second hand. */

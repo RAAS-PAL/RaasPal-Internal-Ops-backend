@@ -90,6 +90,7 @@ public class CaseTicketMapper {
         ticket.setSupStatus(text(item, columns.getSupStatus()));
         ticket.setIssueLevel(text(item, columns.getIssueLevel()));
         ticket.setMainIssue(text(item, columns.getMainIssue()));
+        ticket.setCategory(text(item, columns.getCategory()));
 
         String serials = text(item, columns.getSerial());
         ticket.setSerialNumbers(serials);
