@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.kpi.dto;
 
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicketSyncRun;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
+import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -11,6 +12,7 @@ public record MondaySyncRunResponse(
         UUID id,
         String boardId,
         ServiceLine serviceLine,
+        TicketType ticketType,
         CaseTicketSyncRun.Status status,
         CaseTicketSyncRun.Trigger triggeredBy,
         LocalDateTime startedAt,
@@ -29,6 +31,7 @@ public record MondaySyncRunResponse(
                 run.getId(),
                 run.getSourceBoardId(),
                 run.getServiceLine(),
+                run.getTicketType(),
                 run.getStatus(),
                 run.getTriggeredBy(),
                 run.getStartedAt(),

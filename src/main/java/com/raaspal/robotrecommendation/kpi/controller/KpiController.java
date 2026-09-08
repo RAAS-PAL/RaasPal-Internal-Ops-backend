@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.kpi.controller;
 
 import com.raaspal.robotrecommendation.casereport.adapters.monday.MondayApiClient;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.MondayBoardReader;
+import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayBoardRef;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayBoardSchema;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
@@ -97,6 +98,15 @@ public class KpiController {
                 properties.getSyncZone(),
                 properties.getRepeatWindowDays(),
                 properties.getBoards()));
+    }
+
+    /**
+     * Every board the token can see — id and name only, no rows — so a board id
+     * can be found without reading it out of a monday URL.
+     */
+    @GetMapping("/monday/boards")
+    public ApiResponse<List<MondayBoardRef>> listBoards(@RequestParam(defaultValue = "100") int limit) {
+        return ApiResponse.success(boardReader.listBoards(Math.max(1, Math.min(limit, 200))));
     }
 
     /**

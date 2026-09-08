@@ -13,6 +13,7 @@ import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicketSyncRun;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
+import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketRepository;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketSyncRunRepository;
 import com.raaspal.robotrecommendation.kpi.service.MondayCaseSyncService;
@@ -48,6 +49,7 @@ class MondayCaseSyncServiceTest {
 
     private static final String CLEANING_BOARD = "3451717331";
     private static final String DELIVERY_BOARD = "1647612496";
+    private static final String INSTALL_BOARD = "9900001111";
     private static final OffsetDateTime T1 = OffsetDateTime.parse("2026-09-01T10:00:00+07:00");
     private static final OffsetDateTime T2 = OffsetDateTime.parse("2026-09-07T10:00:00+07:00");
 
@@ -66,6 +68,8 @@ class MondayCaseSyncServiceTest {
         // Group ids are not configured for either board, so the sync discovers them.
         when(boardReader.describeBoard(CLEANING_BOARD)).thenReturn(schema(CLEANING_BOARD, "Cleaning Tickets", "g1"));
         when(boardReader.describeBoard(DELIVERY_BOARD)).thenReturn(schema(DELIVERY_BOARD, "Delivery Tickets", "g2"));
+        when(boardReader.describeBoard(INSTALL_BOARD)).thenReturn(schema(INSTALL_BOARD, "Installation Tickets", "g3"));
+        installReturns();
     }
 
     private static MondayBoardSchema schema(String id, String name, String groupId) {
@@ -92,6 +96,24 @@ class MondayCaseSyncServiceTest {
                 .thenReturn(new MondayGroupRead(List.of(items), complete));
     }
 
+    /**
+     * An installation row. This board carries both robot types and names the
+     * column that says which, which is exactly the case that used to break the
+     * run row: it has no single service line to record.
+     */
+    private static MondayItem installItem(String id, String robotType, String timeline) {
+        return new MondayItem(id, "Install " + id, T1, new MondayGroup("g3", "All"), List.of(
+                new MondayColumnValue("robot_type", "status", robotType, new MondayColumnRef("robot_type", "Type of Robot")),
+                new MondayColumnValue("timeline", "timeline", timeline, new MondayColumnRef("timeline", "TimeLine")),
+                new MondayColumnValue("text0", "text", "GS-" + id, new MondayColumnRef("text0", "Serial"))),
+                List.of());
+    }
+
+    private void installReturns(MondayItem... items) {
+        when(boardReader.readGroup(eq(INSTALL_BOARD), eq("g3"), anyList(), eq(false)))
+                .thenReturn(new MondayGroupRead(List.of(items), true));
+    }
+
     private void deliveryReturns(MondayItem... items) {
         when(boardReader.readGroup(eq(DELIVERY_BOARD), eq("g2"), anyList(), eq(false)))
                 .thenReturn(new MondayGroupRead(List.of(items), true));
@@ -108,25 +130,39 @@ class MondayCaseSyncServiceTest {
     void firstSyncInsertsEveryRowAndRecordsARunPerBoard() {
         cleaningReturns(true, cleaningItem("X", T1, "Working on it", "2026-08-20"), cleaningItem("Y", T1, "Done", "2026-08-21"));
         deliveryReturns(deliveryItem("Z", T1));
+        installReturns(installItem("I", "Cleaning Robot", "2026-08-01 - 2026-08-05"));
 
         MondayCaseSyncService.SyncSummary summary = service.syncAll(CaseTicketSyncRun.Trigger.MANUAL);
 
         assertThat(summary.allSucceeded()).isTrue();
-        assertThat(summary.boards()).hasSize(2);
+        assertThat(summary.boards()).hasSize(3);
         assertThat(summary.boards().get(0).inserted()).isEqualTo(2);
         assertThat(summary.boards().get(1).inserted()).isEqualTo(1);
-        assertThat(ticketRepository.count()).isEqualTo(3);
+        assertThat(summary.boards().get(2).inserted()).isEqualTo(1);
+        assertThat(ticketRepository.count()).isEqualTo(4);
 
         CaseTicket x = find("X");
         assertThat(x.getServiceLine()).isEqualTo(ServiceLine.CLEANING);
         assertThat(x.getOpenDate()).isEqualTo(LocalDate.of(2026, 8, 20));
         assertThat(x.getSerialsNormalised()).isEqualTo("GS-X");
+        assertThat(x.getTicketType()).isEqualTo(TicketType.CM);
         assertThat(x.isClosed()).isFalse();
         assertThat(find("Y").isClosed()).isTrue();   // "Done" is a closed status on the cleaning board
         assertThat(find("Z").getServiceLine()).isEqualTo(ServiceLine.DELIVERY);
 
+        // The mixed-line board: line comes from the column, install date from the
+        // LATER end of the TimeLine, and the run row records no service line at all.
+        CaseTicket install = find("I");
+        assertThat(install.getTicketType()).isEqualTo(TicketType.INSTALLATION);
+        assertThat(install.getServiceLine()).isEqualTo(ServiceLine.CLEANING);
+        assertThat(install.getInstallDate()).isEqualTo(LocalDate.of(2026, 8, 5));
+
         List<CaseTicketSyncRun> runs = runRepository.findAll();
-        assertThat(runs).hasSize(2);
+        assertThat(runs).hasSize(3);
+        CaseTicketSyncRun installRun = runs.stream()
+                .filter(r -> r.getSourceBoardId().equals(INSTALL_BOARD)).findFirst().orElseThrow();
+        assertThat(installRun.getServiceLine()).isNull();
+        assertThat(installRun.getTicketType()).isEqualTo(TicketType.INSTALLATION);
         assertThat(runs).allMatch(run -> run.getStatus() == CaseTicketSyncRun.Status.SUCCEEDED);
         assertThat(runs).allMatch(run -> run.getTriggeredBy() == CaseTicketSyncRun.Trigger.MANUAL);
         assertThat(runs).allMatch(run -> run.getGroupsRead() == 1 && run.getFinishedAt() != null);
@@ -155,7 +191,7 @@ class MondayCaseSyncServiceTest {
         assertThat(ticketRepository.countByPresentTrue()).isEqualTo(2);
         assertThat(find("Y").isClosed()).isTrue();
         assertThat(find("Z").isPresent()).isFalse();
-        assertThat(runRepository.count()).isEqualTo(4);
+        assertThat(runRepository.count()).isEqualTo(6);              // 3 boards x 2 syncs
     }
 
     /** A read cut short by the page guard must not "delete" the tail of a big group. */
@@ -184,6 +220,7 @@ class MondayCaseSyncServiceTest {
         assertThat(summary.boards().get(0).status()).isEqualTo(CaseTicketSyncRun.Status.FAILED);
         assertThat(summary.boards().get(0).error()).contains("not visible");
         assertThat(summary.boards().get(1).status()).isEqualTo(CaseTicketSyncRun.Status.SUCCEEDED);
+        assertThat(summary.boards().get(2).status()).isEqualTo(CaseTicketSyncRun.Status.SUCCEEDED);
         assertThat(ticketRepository.count()).isEqualTo(1);
 
         CaseTicketSyncRun failed = runRepository.findAll().stream()

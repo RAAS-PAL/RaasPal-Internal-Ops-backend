@@ -20,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -50,6 +51,7 @@ public class CaseTicketMapper {
     public static final String SERIAL_JOIN = "|";
 
     private static final Pattern SERIAL_SPLIT = Pattern.compile("\\s*(?:/|,|;|&|\\R|และ)\\s*");
+    private static final Pattern ISO_DATE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
 
     private final ObjectMapper objectMapper;
 
@@ -72,7 +74,10 @@ public class CaseTicketMapper {
 
         ticket.setSourceGroupId(item.group() == null ? null : item.group().id());
         ticket.setSourceGroupTitle(item.groupTitle());
-        ticket.setServiceLine(board.getServiceLine());
+        ticket.setTicketType(board.getTicketType());
+        // A board either states its line or names the column that does; the
+        // installation board carries both robot types on one board.
+        ticket.setServiceLine(board.resolveServiceLine(text(item, board.getServiceLineColumn())));
         ticket.setItemName(item.name());
 
         ticket.setTicketNo(text(item, columns.getTicketNo()));
@@ -92,6 +97,8 @@ public class CaseTicketMapper {
 
         ticket.setOpenDate(parseDate(text(item, columns.getOpenDate()), item.id(), columns.getOpenDate()));
         ticket.setCloseDate(parseDate(text(item, columns.getCloseDate()), item.id(), columns.getCloseDate()));
+        ticket.setActionDate(parseDate(text(item, columns.getActionDate()), item.id(), columns.getActionDate()));
+        ticket.setInstallDate(parseTimelineEnd(text(item, columns.getInstallDate())));
         ticket.setClosed(ticket.getCloseDate() != null || board.isClosedStatus(ticket.getStatus()));
 
         ticket.setRawColumns(rawColumnsJson(item));
@@ -120,6 +127,36 @@ public class CaseTicketMapper {
             log.debug("Ignoring unparseable date '{}' in column {} of monday item {}", text, columnId, itemId);
             return null;
         }
+    }
+
+    /**
+     * The LATER date in a TimeLine cell — when the work finished, which is what
+     * the 30-day first-time-install window is measured from.
+     *
+     * <p>monday renders a timeline as {@code "2026-08-01 - 2026-08-05"}, but the
+     * same column can hold a single date, and some boards use an en dash. Rather
+     * than parse the separator, every {@code YYYY-MM-DD} in the text is collected
+     * and the latest is taken, so all three shapes work and the order the board
+     * writes them in does not matter.
+     */
+    public static LocalDate parseTimelineEnd(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = ISO_DATE.matcher(text);
+        LocalDate latest = null;
+        while (matcher.find()) {
+            try {
+                LocalDate found = LocalDate.parse(matcher.group());
+                if (latest == null || found.isAfter(latest)) {
+                    latest = found;
+                }
+            } catch (DateTimeParseException e) {
+                // A number that looks like a date but is not one (2026-13-40).
+                log.debug("Ignoring unparseable timeline date '{}'", matcher.group());
+            }
+        }
+        return latest;
     }
 
     /** monday reports {@code updated_at} with an offset; stored in UTC so comparisons are stable. */

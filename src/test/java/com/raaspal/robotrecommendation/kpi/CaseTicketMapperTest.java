@@ -9,6 +9,7 @@ import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem
 import com.raaspal.robotrecommendation.kpi.config.KpiMondayProperties;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
+import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import com.raaspal.robotrecommendation.kpi.service.CaseTicketMapper;
 import org.junit.jupiter.api.Test;
 
@@ -38,9 +39,11 @@ class CaseTicketMapperTest {
         KpiMondayProperties.Board board = new KpiMondayProperties.Board();
         board.setId("3451717331");
         board.setServiceLine(ServiceLine.CLEANING);
+        board.setTicketType(TicketType.CM);
         board.setClosedStatuses(List.of("Done", "ปิดงาน"));
         KpiMondayProperties.Columns columns = board.getColumns();
         columns.setOpenDate("date8");
+        columns.setActionDate("date_1");
         columns.setCloseDate("date_done");
         columns.setStatus("status");
         columns.setIssueLevel("status_1");
@@ -98,6 +101,7 @@ class CaseTicketMapperTest {
         assertThat(ticket.getProjectRaw()).isNull();
         assertThat(ticket.getProvinceRaw()).isNull();
         assertThat(ticket.getSupStatus()).isNull();
+        assertThat(ticket.getTicketType()).isEqualTo(TicketType.CM);
         assertThat(ticket.isClosed()).isFalse();
         assertThat(ticket.isPresent()).isTrue();
         assertThat(ticket.getFirstSeenAt()).isEqualTo(NOW);
@@ -219,5 +223,49 @@ class CaseTicketMapperTest {
 
         assertThat(value.title()).isEqualTo("Open Date");
         assertThat(new MondayColumnValue("x", "text", "v", null).title()).isNull();
+    }
+
+    /** The TimeLine column holds a range; the 30-day window starts at its LATER date. */
+    @Test
+    void timelineEndIsTheLaterDate() {
+        assertThat(CaseTicketMapper.parseTimelineEnd("2026-08-01 - 2026-08-05")).isEqualTo(LocalDate.of(2026, 8, 5));
+        // en dash, and the dates the other way round
+        assertThat(CaseTicketMapper.parseTimelineEnd("2026-08-09 – 2026-08-02")).isEqualTo(LocalDate.of(2026, 8, 9));
+        // a single date is a valid timeline of one day
+        assertThat(CaseTicketMapper.parseTimelineEnd("2026-08-04")).isEqualTo(LocalDate.of(2026, 8, 4));
+        assertThat(CaseTicketMapper.parseTimelineEnd(null)).isNull();
+        assertThat(CaseTicketMapper.parseTimelineEnd("")).isNull();
+        assertThat(CaseTicketMapper.parseTimelineEnd("not a date")).isNull();
+    }
+
+    /** The RE Action date is what SLA is measured to, so it must survive mapping. */
+    @Test
+    void actionDateIsMapped() {
+        MondayItem item = item("1", null, cells("date8", "2026-08-20", "date_1", "2026-08-24"));
+
+        CaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
+
+        assertThat(ticket.getOpenDate()).isEqualTo(LocalDate.of(2026, 8, 20));
+        assertThat(ticket.getActionDate()).isEqualTo(LocalDate.of(2026, 8, 24));
+    }
+
+    /** An installation board carries both robot types; the column decides the line. */
+    @Test
+    void serviceLineCanComeFromAColumn() {
+        KpiMondayProperties.Board board = new KpiMondayProperties.Board();
+        board.setId("9900001111");
+        board.setTicketType(TicketType.INSTALLATION);
+        board.setServiceLineColumn("robot_type");
+        board.getColumns().setInstallDate("timeline");
+
+        CaseTicket cleaning = mapper.newTicket(
+                item("1", null, cells("robot_type", "Cleaning Robot", "timeline", "2026-08-01 - 2026-08-05")), board, NOW);
+        CaseTicket delivery = mapper.newTicket(
+                item("2", null, cells("robot_type", "Delivery", "timeline", "2026-08-01")), board, NOW);
+
+        assertThat(cleaning.getServiceLine()).isEqualTo(ServiceLine.CLEANING);
+        assertThat(cleaning.getTicketType()).isEqualTo(TicketType.INSTALLATION);
+        assertThat(cleaning.getInstallDate()).isEqualTo(LocalDate.of(2026, 8, 5));
+        assertThat(delivery.getServiceLine()).isEqualTo(ServiceLine.DELIVERY);
     }
 }

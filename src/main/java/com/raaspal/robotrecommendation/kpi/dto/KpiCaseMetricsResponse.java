@@ -5,19 +5,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The CM-case KPIs for a month range, computed from the synced tickets. Raw
- * counts throughout, with the two rates the deck headlines pre-computed; the
- * console formats and colours them.
+ * The RE KPIs for a month range. Raw counts throughout, with the three headline
+ * rates pre-computed; the console formats and colours them.
+ *
+ * <p>Every figure appears three times — {@code all}, {@code cleaning},
+ * {@code delivery} — because a robot is one type or the other and the deck
+ * splits every KPI that way. Installations and CMs are counted separately
+ * inside each, so the dashboard's three streams (installation, cleaning,
+ * delivery) all come from this one response.
  *
  * @param months        one entry per month in the range, in order, zero-filled
- *                      where nothing was opened
  * @param totals        the same counters over the whole range
  * @param ticketCount   tickets the range was computed from
  * @param lastSyncedAt  when the mirror was last refreshed; null when it never was
- * @param provisional   always true for now — the definitions below are this
- *                      module's, not yet signed off against the RE team's sheet
- * @param definitions   how each counter was derived, in words, so a number on a
- *                      board slide can be traced to its rule
+ * @param provisional   true while the definitions await RE-team sign-off
+ * @param definitions   each formula in words, so a board number traces to its rule
  */
 public record KpiCaseMetricsResponse(
         String from,
@@ -27,40 +29,62 @@ public record KpiCaseMetricsResponse(
         long ticketCount,
         LocalDateTime lastSyncedAt,
         int repeatWindowDays,
+        int installFollowUpDays,
         boolean provisional,
         Map<String, String> definitions
 ) {
 
-    /** One month, with the same counters for all tickets and for each service line. */
-    public record MonthMetrics(String month, Counts all, Counts cleaning, Counts delivery) {
+    public record MonthMetrics(String month, Segment all, Segment cleaning, Segment delivery) {
     }
 
-    public record Totals(Counts all, Counts cleaning, Counts delivery) {
+    public record Totals(Segment all, Segment cleaning, Segment delivery) {
+    }
+
+    /** One slice of the fleet: its installations and its corrective maintenance. */
+    public record Segment(InstallCounts installation, CmCounts cm) {
     }
 
     /**
-     * @param total            tickets opened in the bucket
-     * @param closed           of those, closed (close date set or status finished)
-     * @param slaWithin        closed within the board's SLA days
-     * @param slaOver          closed after it
-     * @param slaUnknown       open, or closed without a close date
-     * @param firstTimeFix     not followed by a repeat for the same serial within the window
-     * @param repeat           followed by one
-     * @param withoutSerial    tickets naming no serial — counted as first-time fix, since a repeat cannot be detected
-     * @param slaWithinRate    {@code slaWithin / (slaWithin + slaOver)} as a percentage, null when nothing was measurable
-     * @param firstTimeFixRate {@code firstTimeFix / total} as a percentage, null when the bucket is empty
+     * 1st Time Install.
+     *
+     * @param total          installations finishing in the bucket
+     * @param firstTime      no CM for the same serial within the follow-up window
+     * @param followedByCm   a CM did follow — these score zero
+     * @param withoutSerial  installations naming no serial, so unmatchable; counted in {@code firstTime}
+     * @param firstTimeRate  {@code firstTime / total} as a percentage, null when the bucket is empty
      */
-    public record Counts(
+    public record InstallCounts(
             int total,
-            int closed,
-            int slaWithin,
-            int slaOver,
-            int slaUnknown,
+            int firstTime,
+            int followedByCm,
+            int withoutSerial,
+            Double firstTimeRate
+    ) {
+    }
+
+    /**
+     * CM volume, First Time Fix and SLA.
+     *
+     * @param total            CM cases reported in the bucket
+     * @param firstTimeFix     no later CM for the same serial within the repeat window
+     * @param repeat           one followed — these score zero
+     * @param withoutSerial    CMs naming no serial, so unmatchable; counted in {@code firstTimeFix}
+     * @param slaWithin        checked within the SLA days of being reported
+     * @param slaOver          checked later than that
+     * @param slaUnknown       no RE Action date recorded, so it cannot be said either way
+     * @param firstTimeFixRate {@code firstTimeFix / total} as a percentage, null when empty
+     * @param slaWithinRate    {@code slaWithin / (slaWithin + slaOver)} as a percentage, null when nothing measurable
+     */
+    public record CmCounts(
+            int total,
             int firstTimeFix,
             int repeat,
             int withoutSerial,
-            Double slaWithinRate,
-            Double firstTimeFixRate
+            int slaWithin,
+            int slaOver,
+            int slaUnknown,
+            Double firstTimeFixRate,
+            Double slaWithinRate
     ) {
     }
 }

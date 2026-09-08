@@ -2,10 +2,12 @@ package com.raaspal.robotrecommendation.kpi;
 
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse;
-import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.Counts;
+import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.CmCounts;
+import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.InstallCounts;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.MonthMetrics;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
+import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketRepository;
 import com.raaspal.robotrecommendation.kpi.service.KpiCaseMetricsService;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,14 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The board-facing maths: Total CM Cases, SLA and First Time Fix per month and
- * per service line, computed from synced tickets. Every rule in
- * {@link KpiCaseMetricsService}'s class comment has a ticket here that lands
- * on each side of it.
- *
- * <p>Boards from {@code kpi-test.properties}: Cleaning {@code 3451717331} with
- * SLA 3/3, Delivery {@code 1647612496} with SLA 3 metro / 5 upcountry; metro
- * provinces Bangkok and Nonthaburi; repeat window 7 days.
+ * The board-facing maths, against the RE team's formulas (2026-09-08):
+ * 30-day first-time-install, 14-day first-time-fix, 7-day SLA measured from the
+ * report to the RE Action date. Every rule has a ticket on each side of it.
  */
 @SpringBootTest
 @TestPropertySource(locations = "classpath:kpi-test.properties")
@@ -39,6 +36,7 @@ class KpiCaseMetricsServiceTest {
 
     private static final String CLEANING_BOARD = "3451717331";
     private static final String DELIVERY_BOARD = "1647612496";
+    private static final String INSTALL_BOARD = "9900001111";
     private static final YearMonth JAN = YearMonth.of(2026, 1);
     private static final YearMonth MAR = YearMonth.of(2026, 3);
 
@@ -50,178 +48,231 @@ class KpiCaseMetricsServiceTest {
         repository.deleteAll();
     }
 
-    private CaseTicket ticket(ServiceLine line, String itemId, LocalDate open, LocalDate close,
-                              String serials, String province) {
-        String board = line == ServiceLine.CLEANING ? CLEANING_BOARD : DELIVERY_BOARD;
-        CaseTicket ticket = CaseTicket.builder()
-                .source(CaseTicket.SOURCE_MONDAY)
-                .sourceBoardId(board)
-                .sourceItemId(itemId)
+    private static LocalDate d(int month, int day) {
+        return LocalDate.of(2026, month, day);
+    }
+
+    /** A CM case: reported on {@code open}, first acted on {@code action} (nullable). */
+    private CaseTicket cm(ServiceLine line, String id, LocalDate open, LocalDate action, String serial) {
+        return save(CaseTicket.builder()
+                .sourceBoardId(line == ServiceLine.CLEANING ? CLEANING_BOARD : DELIVERY_BOARD)
+                .sourceItemId(id)
                 .serviceLine(line)
+                .ticketType(TicketType.CM)
                 .openDate(open)
-                .closeDate(close)
-                .closed(close != null)
-                .serialsNormalised(serials)
-                .provinceRaw(province)
+                .actionDate(action)
+                .serialsNormalised(serial));
+    }
+
+    /** An installation finishing on {@code installDate} (the TimeLine's later date). */
+    private CaseTicket install(ServiceLine line, String id, LocalDate installDate, String serial) {
+        return save(CaseTicket.builder()
+                .sourceBoardId(INSTALL_BOARD)
+                .sourceItemId(id)
+                .serviceLine(line)
+                .ticketType(TicketType.INSTALLATION)
+                .installDate(installDate)
+                .serialsNormalised(serial));
+    }
+
+    private CaseTicket save(CaseTicket.CaseTicketBuilder builder) {
+        return repository.save(builder
+                .source(CaseTicket.SOURCE_MONDAY)
                 .firstSeenAt(LocalDateTime.of(2026, 9, 1, 0, 0))
                 .lastSyncedAt(LocalDateTime.of(2026, 9, 8, 1, 30))
                 .present(true)
-                .build();
-        return repository.save(ticket);
+                .build());
     }
 
-    private static MonthMetrics month(KpiCaseMetricsResponse response, String month) {
-        return response.months().stream().filter(m -> m.month().equals(month)).findFirst().orElseThrow();
+    private static MonthMetrics month(KpiCaseMetricsResponse r, String m) {
+        return r.months().stream().filter(x -> x.month().equals(m)).findFirst().orElseThrow();
+    }
+
+    // ── 1st Time Install ────────────────────────────────────────────────────
+
+    /** A CM on the same serial inside 30 days of the install finishing scores it 0. */
+    @Test
+    void installFollowedByCmWithinThirtyDaysScoresZero() {
+        install(ServiceLine.CLEANING, "I1", d(1, 5), "S1");
+        cm(ServiceLine.CLEANING, "C1", d(2, 3), null, "S1");   // 29 days later
+
+        InstallCounts jan = month(service.monthly(JAN, MAR), "2026-01").cleaning().installation();
+
+        assertThat(jan.total()).isEqualTo(1);
+        assertThat(jan.followedByCm()).isEqualTo(1);
+        assertThat(jan.firstTime()).isZero();
+        assertThat(jan.firstTimeRate()).isEqualTo(0.0);
+    }
+
+    /** Exactly 30 days still counts against it; 31 does not. */
+    @Test
+    void thirtyDayBoundaryIsInclusive() {
+        install(ServiceLine.CLEANING, "I1", d(1, 1), "S1");
+        cm(ServiceLine.CLEANING, "C1", d(1, 31), null, "S1");      // exactly 30
+        install(ServiceLine.CLEANING, "I2", d(1, 1), "S2");
+        cm(ServiceLine.CLEANING, "C2", d(2, 1), null, "S2");       // 31
+
+        InstallCounts jan = month(service.monthly(JAN, MAR), "2026-01").cleaning().installation();
+
+        assertThat(jan.total()).isEqualTo(2);
+        assertThat(jan.followedByCm()).isEqualTo(1);
+        assertThat(jan.firstTime()).isEqualTo(1);
+        assertThat(jan.firstTimeRate()).isEqualTo(50.0);
+    }
+
+    /** A CM for a different robot is irrelevant, however close in time. */
+    @Test
+    void installIsOnlyJudgedByItsOwnSerial() {
+        install(ServiceLine.CLEANING, "I1", d(1, 5), "S1");
+        cm(ServiceLine.CLEANING, "C1", d(1, 6), null, "S-OTHER");
+
+        assertThat(month(service.monthly(JAN, JAN), "2026-01").cleaning().installation().firstTime()).isEqualTo(1);
+    }
+
+    /** Installations are counted in the month the TimeLine ends, not when it started. */
+    @Test
+    void installationsAreBucketedByTimelineEnd() {
+        install(ServiceLine.DELIVERY, "I1", d(2, 14), "S1");
+
+        KpiCaseMetricsResponse r = service.monthly(JAN, MAR);
+
+        assertThat(month(r, "2026-01").all().installation().total()).isZero();
+        assertThat(month(r, "2026-02").delivery().installation().total()).isEqualTo(1);
+        assertThat(month(r, "2026-02").cleaning().installation().total()).isZero();
+    }
+
+    // ── First Time Fix ──────────────────────────────────────────────────────
+
+    /** A second CM on the same serial inside 14 days scores the FIRST one 0. */
+    @Test
+    void cmFollowedWithinFourteenDaysScoresZero() {
+        cm(ServiceLine.CLEANING, "C1", d(1, 5), null, "S1");
+        cm(ServiceLine.CLEANING, "C2", d(1, 15), null, "S1");   // 10 days later
+
+        CmCounts jan = month(service.monthly(JAN, MAR), "2026-01").cleaning().cm();
+
+        assertThat(jan.total()).isEqualTo(2);
+        assertThat(jan.repeat()).isEqualTo(1);        // C1 failed
+        assertThat(jan.firstTimeFix()).isEqualTo(1);  // C2 has no follower
+        assertThat(jan.firstTimeFixRate()).isEqualTo(50.0);
     }
 
     @Test
-    void countsSlaAndRepeatsPerMonthAndServiceLine() {
-        // January — cleaning: A closed in 2 days (within 3), then B for the same
-        // serial 5 days after A closed: A is a repeat, B is not (nobody follows it).
-        ticket(ServiceLine.CLEANING, "A", d(1, 5), d(1, 7), "S1", null);
-        ticket(ServiceLine.CLEANING, "B", d(1, 12), null, "S1", null);
-        // January — delivery: C took 6 days in Bangkok (limit 3): over.
-        //                     D took 5 days, province blank (upcountry limit 5): within.
-        ticket(ServiceLine.DELIVERY, "C", d(1, 10), d(1, 16), "S3", "Bangkok");
-        ticket(ServiceLine.DELIVERY, "D", d(1, 10), d(1, 15), "S4", null);
-        // January — a ticket the board no longer returns must not count.
-        CaseTicket gone = ticket(ServiceLine.CLEANING, "H", d(1, 20), d(1, 21), "S8", null);
-        gone.setPresent(false);
-        repository.save(gone);
+    void fourteenDayBoundaryIsInclusive() {
+        cm(ServiceLine.CLEANING, "C1", d(1, 1), null, "S1");
+        cm(ServiceLine.CLEANING, "C2", d(1, 15), null, "S1");   // exactly 14
+        cm(ServiceLine.CLEANING, "C3", d(2, 1), null, "S2");
+        cm(ServiceLine.CLEANING, "C4", d(2, 16), null, "S2");   // 15
 
-        // February — E: open, no serial. J (delivery) and K (cleaning) share a
-        // serial two days apart, but on different lines: neither is a repeat.
-        ticket(ServiceLine.CLEANING, "E", d(2, 1), null, null, null);
-        ticket(ServiceLine.DELIVERY, "J", d(2, 10), d(2, 11), "S2", null);
-        ticket(ServiceLine.CLEANING, "K", d(2, 13), null, "S2", null);
+        KpiCaseMetricsResponse r = service.monthly(JAN, MAR);
 
-        // March — F closed on the 30th; G for the same serial opens 4 April,
-        // outside the range but inside the 7-day look-ahead: F is a repeat, G
-        // is not counted.
-        ticket(ServiceLine.CLEANING, "F", d(3, 28), d(3, 30), "S9", null);
-        ticket(ServiceLine.CLEANING, "G", LocalDate.of(2026, 4, 3), null, "S9", null);
-
-        KpiCaseMetricsResponse response = service.monthly(JAN, MAR);
-
-        assertThat(response.from()).isEqualTo("2026-01");
-        assertThat(response.to()).isEqualTo("2026-03");
-        assertThat(response.months()).extracting(MonthMetrics::month).containsExactly("2026-01", "2026-02", "2026-03");
-        assertThat(response.ticketCount()).isEqualTo(8);
-        assertThat(response.repeatWindowDays()).isEqualTo(7);
-        assertThat(response.provisional()).isTrue();
-        assertThat(response.lastSyncedAt()).isEqualTo(LocalDateTime.of(2026, 9, 8, 1, 30));
-        assertThat(response.definitions()).containsKeys("total", "closed", "sla", "repeat", "firstTimeFix");
-
-        MonthMetrics jan = month(response, "2026-01");
-        assertThat(jan.all().total()).isEqualTo(4);
-        Counts janCleaning = jan.cleaning();
-        assertThat(janCleaning.total()).isEqualTo(2);
-        assertThat(janCleaning.closed()).isEqualTo(1);
-        assertThat(janCleaning.slaWithin()).isEqualTo(1);
-        assertThat(janCleaning.slaOver()).isZero();
-        assertThat(janCleaning.slaUnknown()).isEqualTo(1);
-        assertThat(janCleaning.repeat()).isEqualTo(1);
-        assertThat(janCleaning.firstTimeFix()).isEqualTo(1);
-        assertThat(janCleaning.firstTimeFixRate()).isEqualTo(50.0);
-        assertThat(janCleaning.slaWithinRate()).isEqualTo(100.0);
-        Counts janDelivery = jan.delivery();
-        assertThat(janDelivery.total()).isEqualTo(2);
-        assertThat(janDelivery.slaWithin()).isEqualTo(1);
-        assertThat(janDelivery.slaOver()).isEqualTo(1);
-        assertThat(janDelivery.slaWithinRate()).isEqualTo(50.0);
-        assertThat(janDelivery.repeat()).isZero();
-
-        MonthMetrics feb = month(response, "2026-02");
-        assertThat(feb.all().total()).isEqualTo(3);
-        assertThat(feb.all().repeat()).isZero();
-        assertThat(feb.all().firstTimeFix()).isEqualTo(3);
-        assertThat(feb.all().withoutSerial()).isEqualTo(1);
-        assertThat(feb.cleaning().slaUnknown()).isEqualTo(2);
-        assertThat(feb.cleaning().slaWithinRate()).isNull();
-        assertThat(feb.delivery().slaWithin()).isEqualTo(1);
-
-        MonthMetrics mar = month(response, "2026-03");
-        assertThat(mar.all().total()).isEqualTo(1);
-        assertThat(mar.cleaning().repeat()).isEqualTo(1);
-        assertThat(mar.cleaning().firstTimeFix()).isZero();
-        assertThat(mar.cleaning().firstTimeFixRate()).isEqualTo(0.0);
-
-        assertThat(response.totals().all().total()).isEqualTo(8);
-        assertThat(response.totals().cleaning().total()).isEqualTo(5);
-        assertThat(response.totals().delivery().total()).isEqualTo(3);
-        assertThat(response.totals().all().repeat()).isEqualTo(2);
-        assertThat(response.totals().all().firstTimeFixRate()).isEqualTo(75.0);
+        assertThat(month(r, "2026-01").cleaning().cm().repeat()).isEqualTo(1);
+        assertThat(month(r, "2026-02").cleaning().cm().repeat()).isZero();
     }
 
-    /** At exactly the limit a case is still within SLA; lateness starts the day after. */
+    /** A repeat that lands in the next month still condemns the earlier ticket. */
     @Test
-    void exactlyTheSlaLimitIsWithin() {
-        ticket(ServiceLine.DELIVERY, "M", d(1, 1), d(1, 4), "S1", "bangkok");      // 3 days, metro limit 3
-        ticket(ServiceLine.DELIVERY, "N", d(1, 1), d(1, 5), "S2", "Nonthaburi");   // 4 days, metro limit 3
-        ticket(ServiceLine.DELIVERY, "O", d(1, 1), d(1, 6), "S3", "Rayong");       // 5 days, upcountry limit 5
+    void followerOutsideTheRangeStillCounts() {
+        cm(ServiceLine.CLEANING, "C1", d(3, 28), null, "S1");
+        cm(ServiceLine.CLEANING, "C2", d(4, 5), null, "S1");    // April, outside Jan-Mar
 
-        Counts delivery = service.monthly(JAN, JAN).totals().delivery();
+        KpiCaseMetricsResponse r = service.monthly(JAN, MAR);
 
-        assertThat(delivery.slaWithin()).isEqualTo(2);
-        assertThat(delivery.slaOver()).isEqualTo(1);
+        assertThat(month(r, "2026-03").cleaning().cm().repeat()).isEqualTo(1);
+        assertThat(r.ticketCount()).isEqualTo(1);   // C2 itself is not counted
     }
 
-    /** A follower more than the window after the close is a new case, not a repeat. */
+    /** Serial is the join, so a robot's history counts wherever it was recorded. */
     @Test
-    void followerOutsideTheWindowIsNotARepeat() {
-        ticket(ServiceLine.CLEANING, "P", d(1, 1), d(1, 2), "S1", null);
-        ticket(ServiceLine.CLEANING, "Q", d(1, 10), null, "S1", null);   // 8 days after P closed
+    void repeatsMatchAcrossBoards() {
+        cm(ServiceLine.CLEANING, "C1", d(1, 1), null, "S1");
+        cm(ServiceLine.DELIVERY, "C2", d(1, 5), null, "S1");
 
-        Counts cleaning = service.monthly(JAN, JAN).totals().cleaning();
-
-        assertThat(cleaning.repeat()).isZero();
-        assertThat(cleaning.firstTimeFix()).isEqualTo(2);
+        assertThat(month(service.monthly(JAN, JAN), "2026-01").all().cm().repeat()).isEqualTo(1);
     }
 
-    /** A ticket that never closed is anchored on its open date instead. */
+    /** Nothing to match on, so it cannot be shown to have failed — but it is reported. */
     @Test
-    void openTicketAnchorsTheWindowOnItsOpenDate() {
-        ticket(ServiceLine.CLEANING, "R", d(1, 1), null, "S1", null);
-        ticket(ServiceLine.CLEANING, "S", d(1, 6), null, "S1", null);
+    void cmWithoutSerialCountsAsFixedAndIsFlagged() {
+        cm(ServiceLine.CLEANING, "C1", d(1, 5), null, null);
 
-        Counts cleaning = service.monthly(JAN, JAN).totals().cleaning();
+        CmCounts jan = month(service.monthly(JAN, JAN), "2026-01").cleaning().cm();
 
-        assertThat(cleaning.repeat()).isEqualTo(1);
+        assertThat(jan.firstTimeFix()).isEqualTo(1);
+        assertThat(jan.withoutSerial()).isEqualTo(1);
     }
 
-    /** A ticket naming several robots is followed if any one of them comes back. */
-    @Test
-    void anySharedSerialCountsAsAFollower() {
-        ticket(ServiceLine.CLEANING, "T", d(1, 1), d(1, 2), "S1|S2", null);
-        ticket(ServiceLine.CLEANING, "U", d(1, 5), null, "S2", null);
+    // ── SLA ─────────────────────────────────────────────────────────────────
 
-        assertThat(service.monthly(JAN, JAN).totals().cleaning().repeat()).isEqualTo(1);
+    /** Checked within 7 days of the report is within; the 7th day still counts. */
+    @Test
+    void slaIsOpenToActionWithinSevenDays() {
+        cm(ServiceLine.CLEANING, "C1", d(1, 1), d(1, 8), "S1");    // exactly 7
+        cm(ServiceLine.CLEANING, "C2", d(1, 1), d(1, 9), "S2");    // 8
+        cm(ServiceLine.CLEANING, "C3", d(1, 1), d(1, 1), "S3");    // same day
+
+        CmCounts jan = month(service.monthly(JAN, JAN), "2026-01").cleaning().cm();
+
+        assertThat(jan.slaWithin()).isEqualTo(2);
+        assertThat(jan.slaOver()).isEqualTo(1);
+        assertThat(jan.slaUnknown()).isZero();
+        assertThat(jan.slaWithinRate()).isEqualTo(66.7);
     }
 
+    /** No action recorded is not the same claim as a breach. */
     @Test
-    void monthsWithNothingOpenedAreZeroFilledWithNullRates() {
-        KpiCaseMetricsResponse response = service.monthly(YearMonth.of(2026, 5), YearMonth.of(2026, 6));
+    void missingActionDateIsUnknownNotABreach() {
+        cm(ServiceLine.CLEANING, "C1", d(1, 1), null, "S1");
 
-        assertThat(response.months()).hasSize(2);
-        assertThat(response.ticketCount()).isZero();
-        assertThat(response.lastSyncedAt()).isNull();
-        Counts may = month(response, "2026-05").all();
-        assertThat(may.total()).isZero();
-        assertThat(may.slaWithinRate()).isNull();
-        assertThat(may.firstTimeFixRate()).isNull();
+        CmCounts jan = month(service.monthly(JAN, JAN), "2026-01").cleaning().cm();
+
+        assertThat(jan.slaUnknown()).isEqualTo(1);
+        assertThat(jan.slaOver()).isZero();
+        assertThat(jan.slaWithinRate()).isNull();
+    }
+
+    /** Installations carry no SLA of their own; the CM counters stay empty. */
+    @Test
+    void installationsDoNotEnterTheCmCounters() {
+        install(ServiceLine.CLEANING, "I1", d(1, 5), "S1");
+
+        MonthMetrics jan = month(service.monthly(JAN, JAN), "2026-01");
+
+        assertThat(jan.cleaning().installation().total()).isEqualTo(1);
+        assertThat(jan.cleaning().cm().total()).isZero();
+    }
+
+    // ── shape and guards ────────────────────────────────────────────────────
+
+    @Test
+    void emptyMonthsAreZeroFilledWithNullRatesAndDefinitionsAreReturned() {
+        KpiCaseMetricsResponse r = service.monthly(YearMonth.of(2026, 5), YearMonth.of(2026, 6));
+
+        assertThat(r.months()).hasSize(2);
+        assertThat(r.ticketCount()).isZero();
+        assertThat(r.repeatWindowDays()).isEqualTo(14);
+        assertThat(r.installFollowUpDays()).isEqualTo(30);
+        assertThat(r.provisional()).isTrue();
+        assertThat(r.definitions()).containsKeys("firstTimeInstall", "firstTimeFix", "sla", "bucketing", "matching");
+        assertThat(month(r, "2026-05").all().cm().firstTimeFixRate()).isNull();
+        assertThat(month(r, "2026-05").all().installation().firstTimeRate()).isNull();
     }
 
     @Test
     void rejectsAnInvertedOrOversizedRange() {
         assertThatThrownBy(() -> service.monthly(MAR, JAN))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("'to'");
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("'to'");
         assertThatThrownBy(() -> service.monthly(JAN, JAN.plusMonths(KpiCaseMetricsService.MAX_MONTHS)))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("24 months");
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("24 months");
     }
 
-    private static LocalDate d(int month, int day) {
-        return LocalDate.of(2026, month, day);
+    /** A ticket the board no longer returns must not move a past month's number. */
+    @Test
+    void absentTicketsAreExcluded() {
+        CaseTicket gone = cm(ServiceLine.CLEANING, "C1", d(1, 5), d(1, 6), "S1");
+        gone.setPresent(false);
+        repository.save(gone);
+
+        assertThat(service.monthly(JAN, JAN).ticketCount()).isZero();
     }
 }

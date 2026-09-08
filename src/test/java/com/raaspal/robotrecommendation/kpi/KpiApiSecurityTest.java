@@ -65,7 +65,11 @@ class KpiApiSecurityTest {
                 .andExpect(jsonPath("$.data.months.length()").value(6))
                 .andExpect(jsonPath("$.data.months[0].month").value("2026-01"))
                 .andExpect(jsonPath("$.data.months[5].month").value("2026-06"))
-                .andExpect(jsonPath("$.data.provisional").value(true));
+                .andExpect(jsonPath("$.data.provisional").value(true))
+                .andExpect(jsonPath("$.data.repeatWindowDays").value(14))
+                .andExpect(jsonPath("$.data.installFollowUpDays").value(30))
+                .andExpect(jsonPath("$.data.months[0].cleaning.installation").exists())
+                .andExpect(jsonPath("$.data.months[0].delivery.cm").exists());
     }
 
     @Test
@@ -101,10 +105,12 @@ class KpiApiSecurityTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.tokenConfigured").value(false))
                 .andExpect(jsonPath("$.data.schedulerEnabled").value(false))
-                .andExpect(jsonPath("$.data.repeatWindowDays").value(7))
-                .andExpect(jsonPath("$.data.boards.length()").value(2))
+                .andExpect(jsonPath("$.data.repeatWindowDays").value(14))
+                .andExpect(jsonPath("$.data.boards.length()").value(3))
                 .andExpect(jsonPath("$.data.boards[0].serviceLine").value("CLEANING"))
                 .andExpect(jsonPath("$.data.boards[1].columns.openDate").value("date5"))
+                .andExpect(jsonPath("$.data.boards[1].columns.serial").value("tags42"))
+                .andExpect(jsonPath("$.data.boards[2].ticketType").value("INSTALLATION"))
                 .andExpect(jsonPath("$.data.token").doesNotExist());
     }
 

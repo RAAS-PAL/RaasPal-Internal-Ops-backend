@@ -3,6 +3,7 @@ package com.raaspal.robotrecommendation.kpi.repository;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -17,8 +18,14 @@ public interface CaseTicketRepository extends JpaRepository<CaseTicket, UUID> {
     /** Every row ever synced from one board, present or not — the sync merges against this. */
     List<CaseTicket> findAllBySourceAndSourceBoardId(String source, String sourceBoardId);
 
-    /** Tickets opened in a window, excluding ones the board no longer returns. */
-    List<CaseTicket> findAllByPresentTrueAndOpenDateBetween(LocalDate from, LocalDate to);
+    /**
+     * Every live ticket whose KPI date falls in the window — CMs by open date,
+     * installations by the TimeLine end. One query rather than two so the
+     * follow-up matching sees both families in the same list.
+     */
+    @Query("select t from CaseTicket t where t.present = true and ("
+            + "(t.openDate between :from and :to) or (t.installDate between :from and :to))")
+    List<CaseTicket> findAllPresentInWindow(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
     long countByPresentTrue();
 

@@ -3,13 +3,14 @@ package com.raaspal.robotrecommendation.kpi.service;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.kpi.config.KpiMondayProperties;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse;
-import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.Counts;
+import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.CmCounts;
+import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.InstallCounts;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.MonthMetrics;
-import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.Totals;
+import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.Segment;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
+import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketRepository;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,41 +21,35 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
- * Computes the CM-case third of the RE KPI deck — Total CM Cases, SLA and
- * First Time Fix — from the synced {@link CaseTicket} rows, per month and per
- * service line.
+ * The RE KPI numbers, computed from the synced tickets. The formulas are the RE
+ * team's, given 2026-09-08, and are implemented literally:
  *
- * <p>The rules, stated once here and echoed in the response's
- * {@code definitions} so a board number can be traced back to them:
  * <ul>
- *   <li><b>Bucket</b> — a ticket belongs to the month it was opened in.
- *       Tickets with no open date cannot be placed and are not counted.</li>
- *   <li><b>SLA</b> — calendar days from open to close, compared with the
- *       board's limit: 3 days in greater Bangkok, 5 upcountry for Delivery,
- *       3 everywhere for Cleaning. Exactly the limit is still within. A
- *       ticket whose province is blank gets the upcountry (longer) limit — the
- *       lenient reading, because an internal KPI should not punish a missing
- *       field. Open tickets, and closed ones without a close date, are
- *       "unknown", never silently "within".</li>
- *   <li><b>Repeat / First Time Fix</b> — ticket T is a repeat when another
- *       ticket on the same service line names one of T's serials and opens
- *       within {@code repeat-window-days} after T's close date (or open date if
- *       T never closed). T then counts as not first-time-fixed. Two tickets for
- *       one serial on the same day count each other as repeats. A ticket naming
- *       no serial cannot be matched and counts as first-time-fixed, with the
- *       number of such tickets reported so the reader knows how soft the rate is.</li>
+ *   <li><b>1st Time Install</b> — from the installation ticket's TimeLine (the
+ *       <em>later</em> date, i.e. when the work finished), look forward
+ *       {@code install-follow-up-days} (30). If any CM names the same serial in
+ *       that window, that installation scores 0. Otherwise 1.</li>
+ *   <li><b>First Time Fix</b> — after a CM, another CM naming the same serial
+ *       within {@code repeat-window-days} (14) scores 0. The <em>later</em>
+ *       ticket is not penalised for existing; the earlier one is.</li>
+ *   <li><b>SLA</b> — the case was checked within {@code sla-days} (7) of being
+ *       reported: the board's RE Action date minus its Open Date. Exactly the
+ *       limit is still within. Neither ticket board has a close-date column, so
+ *       this deliberately measures time-to-first-action, not time-to-close.</li>
  * </ul>
  *
- * <p>These are this module's definitions. They are deliberately simple and
- * fully visible, and the response flags them {@code provisional} until the RE
- * team confirms them against the sheet the deck was built from
- * ("Case_FTFR_SLA Jan–Jun 2026").
+ * <p>A ticket is bucketed into the month of the date its own KPI is keyed on:
+ * installations by install date, CMs by open date.
+ *
+ * <p>Both windows join on <b>serial number</b> alone, not on service line. A
+ * serial identifies one physical robot, so a CM for it is a CM for it whichever
+ * board recorded it — and that keeps the figures right even if a board's line
+ * mapping is wrong. A ticket naming no serial cannot be matched at all; those
+ * are counted as successes and reported separately as {@code withoutSerial}, so
+ * the reader can see how much of the rate rests on unmatched rows.
  */
 @Service
 public class KpiCaseMetricsService {
@@ -64,18 +59,10 @@ public class KpiCaseMetricsService {
 
     private final CaseTicketRepository ticketRepository;
     private final KpiMondayProperties properties;
-    private final Set<String> metroProvinces;
 
-    public KpiCaseMetricsService(
-            CaseTicketRepository ticketRepository,
-            KpiMondayProperties properties,
-            @Value("${app.casereport.metro-provinces:}") List<String> metroProvinces) {
+    public KpiCaseMetricsService(CaseTicketRepository ticketRepository, KpiMondayProperties properties) {
         this.ticketRepository = ticketRepository;
         this.properties = properties;
-        this.metroProvinces = metroProvinces.stream()
-                .map(KpiCaseMetricsService::normaliseProvince)
-                .filter(p -> !p.isEmpty())
-                .collect(Collectors.toSet());
     }
 
     @Transactional(readOnly = true)
@@ -83,19 +70,29 @@ public class KpiCaseMetricsService {
         if (to.isBefore(from)) {
             throw new BadRequestException("'to' must not be before 'from'");
         }
-        long span = ChronoUnit.MONTHS.between(from, to) + 1;
-        if (span > MAX_MONTHS) {
+        if (ChronoUnit.MONTHS.between(from, to) + 1 > MAX_MONTHS) {
             throw new BadRequestException("The range must not exceed " + MAX_MONTHS + " months");
         }
 
-        int window = properties.getRepeatWindowDays();
+        int repeatWindow = properties.getRepeatWindowDays();
+        int installWindow = properties.getInstallFollowUpDays();
         LocalDate start = from.atDay(1);
         LocalDate end = to.atEndOfMonth();
-        // Read past the end by one window so a ticket opened in the last month can
-        // still see the repeat that followed it.
-        List<CaseTicket> tickets = ticketRepository.findAllByPresentTrueAndOpenDateBetween(start, end.plusDays(window));
 
-        Map<ServiceLine, Map<String, List<CaseTicket>>> bySerial = indexBySerial(tickets);
+        // Read past the end by the longer window, so a ticket in the final month
+        // can still see the follow-up that disqualifies it.
+        LocalDate lookAheadTo = end.plusDays(Math.max(repeatWindow, installWindow));
+        List<CaseTicket> tickets = ticketRepository.findAllPresentInWindow(start, lookAheadTo);
+
+        // Every CM in the window, indexed by serial: the follow-up both formulas hunt for.
+        Map<String, List<CaseTicket>> cmBySerial = new HashMap<>();
+        for (CaseTicket ticket : tickets) {
+            if (ticket.getTicketType() == TicketType.CM && ticket.getOpenDate() != null) {
+                for (String serial : CaseTicketMapper.splitSerials(ticket.getSerialsNormalised())) {
+                    cmBySerial.computeIfAbsent(serial, k -> new ArrayList<>()).add(ticket);
+                }
+            }
+        }
 
         Map<YearMonth, Bucket> buckets = new LinkedHashMap<>();
         for (YearMonth month = from; !month.isAfter(to); month = month.plusMonths(1)) {
@@ -105,158 +102,191 @@ public class KpiCaseMetricsService {
 
         long counted = 0;
         for (CaseTicket ticket : tickets) {
-            if (ticket.getOpenDate().isAfter(end)) {
-                continue; // look-ahead only
+            LocalDate keyDate = keyDate(ticket);
+            if (keyDate == null || keyDate.isBefore(start) || keyDate.isAfter(end)) {
+                continue; // outside the range, or unusable — look-ahead rows land here
             }
             counted++;
-            Bucket bucket = buckets.get(YearMonth.from(ticket.getOpenDate()));
-            Classification c = classify(ticket, bySerial, window);
-            bucket.add(ticket.getServiceLine(), c);
-            totals.add(ticket.getServiceLine(), c);
+            Bucket bucket = buckets.get(YearMonth.from(keyDate));
+            if (ticket.getTicketType() == TicketType.INSTALLATION) {
+                boolean success = !hasFollowUpCm(ticket, keyDate, installWindow, cmBySerial);
+                bucket.addInstall(ticket, success);
+                totals.addInstall(ticket, success);
+            } else {
+                boolean fixedFirstTime = !hasFollowUpCm(ticket, keyDate, repeatWindow, cmBySerial);
+                SlaOutcome sla = slaOutcome(ticket);
+                bucket.addCm(ticket, fixedFirstTime, sla);
+                totals.addCm(ticket, fixedFirstTime, sla);
+            }
         }
 
         List<MonthMetrics> months = new ArrayList<>();
-        buckets.forEach((month, bucket) -> months.add(new MonthMetrics(
-                month.toString(), bucket.all.toCounts(), bucket.cleaning.toCounts(), bucket.delivery.toCounts())));
+        buckets.forEach((month, bucket) -> months.add(bucket.toMonth(month.toString())));
 
         return new KpiCaseMetricsResponse(
                 from.toString(),
                 to.toString(),
                 months,
-                new Totals(totals.all.toCounts(), totals.cleaning.toCounts(), totals.delivery.toCounts()),
+                totals.toSegments(),
                 counted,
                 ticketRepository.findLastSyncedAt().orElse(null),
-                window,
+                repeatWindow,
+                installWindow,
                 true,
-                definitions(window));
+                definitions(repeatWindow, installWindow));
     }
 
-    /** Which side of each rule a ticket falls on. */
-    private record Classification(boolean closed, SlaOutcome sla, boolean hasSerial, boolean repeated) {
+    /** The date a ticket's KPI is keyed on: install finished, or case reported. */
+    private static LocalDate keyDate(CaseTicket ticket) {
+        return ticket.getTicketType() == TicketType.INSTALLATION ? ticket.getInstallDate() : ticket.getOpenDate();
+    }
+
+    /**
+     * Whether a CM for one of this ticket's serials opens in
+     * {@code (anchor, anchor + windowDays]}.
+     *
+     * <p>The window is open at the start: a CM opening on the anchor date itself
+     * is this ticket, or the same visit recorded twice, not evidence that the fix
+     * failed. It is closed at the end, so a follow-up exactly on the limit still
+     * counts against it.
+     */
+    private static boolean hasFollowUpCm(CaseTicket ticket, LocalDate anchor, int windowDays,
+                                         Map<String, List<CaseTicket>> cmBySerial) {
+        LocalDate limit = anchor.plusDays(windowDays);
+        for (String serial : CaseTicketMapper.splitSerials(ticket.getSerialsNormalised())) {
+            for (CaseTicket other : cmBySerial.getOrDefault(serial, List.of())) {
+                if (other == ticket) {
+                    continue;
+                }
+                LocalDate opened = other.getOpenDate();
+                if (opened.isAfter(anchor) && !opened.isAfter(limit)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private enum SlaOutcome { WITHIN, OVER, UNKNOWN }
 
-    private Classification classify(CaseTicket ticket, Map<ServiceLine, Map<String, List<CaseTicket>>> bySerial,
-                                    int window) {
-        SlaOutcome sla = SlaOutcome.UNKNOWN;
-        if (ticket.getCloseDate() != null) {
-            long days = ChronoUnit.DAYS.between(ticket.getOpenDate(), ticket.getCloseDate());
-            sla = days <= slaDaysFor(ticket) ? SlaOutcome.WITHIN : SlaOutcome.OVER;
-        }
-
-        List<String> serials = CaseTicketMapper.splitSerials(ticket.getSerialsNormalised());
-        boolean repeated = false;
-        if (!serials.isEmpty()) {
-            LocalDate anchor = ticket.getCloseDate() != null ? ticket.getCloseDate() : ticket.getOpenDate();
-            LocalDate windowEnd = anchor.plusDays(window);
-            Map<String, List<CaseTicket>> lineIndex = bySerial.getOrDefault(ticket.getServiceLine(), Map.of());
-            repeated = serials.stream()
-                    .flatMap(serial -> lineIndex.getOrDefault(serial, List.of()).stream())
-                    .anyMatch(other -> other != ticket
-                            && !other.getOpenDate().isBefore(ticket.getOpenDate())
-                            && !other.getOpenDate().isBefore(anchor)
-                            && !other.getOpenDate().isAfter(windowEnd));
-        }
-        return new Classification(ticket.isClosed(), sla, !serials.isEmpty(), repeated);
-    }
-
     /**
-     * The SLA limit for a ticket: from its board's config, metro or upcountry by
-     * province. A board not in the config (a spreadsheet import, say) gets the
-     * Delivery defaults, which are the more lenient of the two.
+     * Checked within the board's SLA days of being reported. No action date means
+     * unknown, never a breach: an unrecorded action and a late action are
+     * different claims and only one of them is evidence.
      */
-    private int slaDaysFor(CaseTicket ticket) {
-        KpiMondayProperties.Board board = properties.board(ticket.getSourceBoardId()).orElse(null);
-        int metro = board == null ? 3 : board.getSlaDaysMetro();
-        int upcountry = board == null ? 5 : board.getSlaDaysUpcountry();
-        return isMetro(ticket.getProvinceRaw()) ? metro : upcountry;
-    }
-
-    private boolean isMetro(String province) {
-        return province != null && metroProvinces.contains(normaliseProvince(province));
-    }
-
-    private static String normaliseProvince(String value) {
-        return value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
-    }
-
-    private static Map<ServiceLine, Map<String, List<CaseTicket>>> indexBySerial(List<CaseTicket> tickets) {
-        Map<ServiceLine, Map<String, List<CaseTicket>>> index = new HashMap<>();
-        for (CaseTicket ticket : tickets) {
-            Map<String, List<CaseTicket>> lineIndex = index.computeIfAbsent(ticket.getServiceLine(), k -> new HashMap<>());
-            for (String serial : CaseTicketMapper.splitSerials(ticket.getSerialsNormalised())) {
-                lineIndex.computeIfAbsent(serial, k -> new ArrayList<>()).add(ticket);
-            }
+    private SlaOutcome slaOutcome(CaseTicket ticket) {
+        if (ticket.getOpenDate() == null || ticket.getActionDate() == null) {
+            return SlaOutcome.UNKNOWN;
         }
-        return index;
+        int slaDays = properties.board(ticket.getSourceBoardId())
+                .map(KpiMondayProperties.Board::getSlaDays)
+                .orElse(7);
+        return ChronoUnit.DAYS.between(ticket.getOpenDate(), ticket.getActionDate()) <= slaDays
+                ? SlaOutcome.WITHIN
+                : SlaOutcome.OVER;
     }
 
-    private static Map<String, String> definitions(int window) {
+    private static Map<String, String> definitions(int repeatWindow, int installWindow) {
         Map<String, String> d = new LinkedHashMap<>();
-        d.put("total", "Tickets opened in the month (by the board's open-date column); tickets with no open date are not counted.");
-        d.put("closed", "Close date set, or status listed as finished in the board config.");
-        d.put("sla", "Calendar days from open to close vs the board's limit (Cleaning 3; Delivery 3 metro / 5 upcountry). "
-                + "Exactly the limit is within. Blank province = upcountry limit. Open tickets and closed tickets without a close date are unknown.");
-        d.put("repeat", "Another ticket on the same service line names one of this ticket's serials and opens within "
-                + window + " days after this ticket's close date (open date if never closed). Same-day pairs count each other.");
-        d.put("firstTimeFix", "Not a repeat. Tickets naming no serial cannot be matched and are counted here; see withoutSerial.");
+        d.put("firstTimeInstall", "An installation scores 1 when NO corrective-maintenance ticket names the same serial "
+                + "within " + installWindow + " days after the installation's TimeLine end date; 0 when one does.");
+        d.put("firstTimeFix", "A CM scores 1 when NO later CM names the same serial within " + repeatWindow
+                + " days of it being reported; 0 when one does.");
+        d.put("sla", "The case was checked within the board's SLA days (7) of being reported: "
+                + "RE Action date minus Open Date. Exactly the limit is within. "
+                + "No action date recorded = unknown, not a breach. Neither board has a close date, "
+                + "so this is time-to-first-action, not time-to-close.");
+        d.put("bucketing", "Installations are counted in the month their TimeLine ends; CMs in the month they were reported.");
+        d.put("matching", "Both windows join on serial number alone, across boards. Tickets naming no serial "
+                + "cannot be matched and are counted as successes; see withoutSerial.");
         return d;
     }
 
-    /** Mutable counters for one bucket, split three ways. */
+    /** Mutable counters for one bucket, split by ticket type and service line. */
     private static final class Bucket {
         final Counter all = new Counter();
         final Counter cleaning = new Counter();
         final Counter delivery = new Counter();
 
-        void add(ServiceLine line, Classification c) {
-            all.add(c);
-            (line == ServiceLine.CLEANING ? cleaning : delivery).add(c);
+        void addInstall(CaseTicket ticket, boolean success) {
+            for (Counter c : forLine(ticket.getServiceLine())) {
+                c.addInstall(success, ticket.getSerialsNormalised() == null);
+            }
+        }
+
+        void addCm(CaseTicket ticket, boolean fixedFirstTime, SlaOutcome sla) {
+            for (Counter c : forLine(ticket.getServiceLine())) {
+                c.addCm(fixedFirstTime, sla, ticket.getSerialsNormalised() == null);
+            }
+        }
+
+        private Counter[] forLine(ServiceLine line) {
+            return new Counter[]{all, line == ServiceLine.CLEANING ? cleaning : delivery};
+        }
+
+        MonthMetrics toMonth(String month) {
+            return new MonthMetrics(month, all.toSegment(), cleaning.toSegment(), delivery.toSegment());
+        }
+
+        KpiCaseMetricsResponse.Totals toSegments() {
+            return new KpiCaseMetricsResponse.Totals(all.toSegment(), cleaning.toSegment(), delivery.toSegment());
         }
     }
 
     private static final class Counter {
-        int total;
-        int closed;
+        int installTotal;
+        int installFirstTime;
+        int installFollowedByCm;
+        int installWithoutSerial;
+
+        int cmTotal;
+        int cmFirstTimeFix;
+        int cmRepeat;
+        int cmWithoutSerial;
         int slaWithin;
         int slaOver;
         int slaUnknown;
-        int firstTimeFix;
-        int repeat;
-        int withoutSerial;
 
-        void add(Classification c) {
-            total++;
-            if (c.closed()) {
-                closed++;
+        void addInstall(boolean success, boolean noSerial) {
+            installTotal++;
+            if (success) {
+                installFirstTime++;
+            } else {
+                installFollowedByCm++;
             }
-            switch (c.sla()) {
+            if (noSerial) {
+                installWithoutSerial++;
+            }
+        }
+
+        void addCm(boolean fixedFirstTime, SlaOutcome sla, boolean noSerial) {
+            cmTotal++;
+            if (fixedFirstTime) {
+                cmFirstTimeFix++;
+            } else {
+                cmRepeat++;
+            }
+            switch (sla) {
                 case WITHIN -> slaWithin++;
                 case OVER -> slaOver++;
                 case UNKNOWN -> slaUnknown++;
             }
-            if (c.repeated()) {
-                repeat++;
-            } else {
-                firstTimeFix++;
-            }
-            if (!c.hasSerial()) {
-                withoutSerial++;
+            if (noSerial) {
+                cmWithoutSerial++;
             }
         }
 
-        Counts toCounts() {
-            return new Counts(total, closed, slaWithin, slaOver, slaUnknown, firstTimeFix, repeat, withoutSerial,
-                    rate(slaWithin, slaWithin + slaOver), rate(firstTimeFix, total));
+        Segment toSegment() {
+            return new Segment(
+                    new InstallCounts(installTotal, installFirstTime, installFollowedByCm, installWithoutSerial,
+                            rate(installFirstTime, installTotal)),
+                    new CmCounts(cmTotal, cmFirstTimeFix, cmRepeat, cmWithoutSerial, slaWithin, slaOver, slaUnknown,
+                            rate(cmFirstTimeFix, cmTotal), rate(slaWithin, slaWithin + slaOver)));
         }
 
         /** Percentage to one decimal, or null when there is nothing to divide by. */
         private static Double rate(int numerator, int denominator) {
-            if (denominator == 0) {
-                return null;
-            }
-            return Math.round(numerator * 1000.0 / denominator) / 10.0;
+            return denominator == 0 ? null : Math.round(numerator * 1000.0 / denominator) / 10.0;
         }
     }
 }

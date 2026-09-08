@@ -67,6 +67,11 @@ public class CaseTicket {
     @Column(name = "service_line", nullable = false, length = 16)
     private ServiceLine serviceLine;
 
+    /** Which board family this came from: an installation job, or a corrective-maintenance case. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ticket_type", nullable = false, length = 16)
+    private TicketType ticketType;
+
     @Column(name = "item_name", columnDefinition = "TEXT")
     private String itemName;
 
@@ -114,6 +119,18 @@ public class CaseTicket {
 
     @Column(name = "close_date")
     private LocalDate closeDate;
+
+    /**
+     * The board's "RE Action" date — when the team first acted. This is what SLA
+     * is measured against ({@code action_date - open_date}), not the close date,
+     * because neither ticket board carries a close date at all.
+     */
+    @Column(name = "action_date")
+    private LocalDate actionDate;
+
+    /** Installation tickets only: the later end of the TimeLine column. */
+    @Column(name = "install_date")
+    private LocalDate installDate;
 
     /** Close date set, or status listed as finished in the board config. */
     @Column(name = "is_closed", nullable = false)

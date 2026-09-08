@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.casereport.adapters.monday;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayBoardRef;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayBoardSchema;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayGroupRead;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
@@ -84,6 +85,16 @@ public class MondayBoardReader {
             }
             """;
 
+    private static final String BOARD_LIST_QUERY = """
+            query BoardList($limit: Int!, $page: Int!) {
+              boards(limit: $limit, page: $page, order_by: created_at) {
+                id
+                name
+                state
+              }
+            }
+            """;
+
     /** Guards against a cursor that never returns null; 50 pages is far more than any group here. */
     private static final int MAX_PAGES = 50;
 
@@ -157,6 +168,31 @@ public class MondayBoardReader {
         }
         log.info("Read {} items from monday board {} group {} in {} page(s)", allItems.size(), boardId, groupId, page);
         return new MondayGroupRead(allItems, complete);
+    }
+
+    /**
+     * Every board the token can see: id, name and state only, never a row. Used
+     * to find a board's id without asking someone to read it out of a URL.
+     */
+    public List<MondayBoardRef> listBoards(int limit) {
+        List<MondayBoardRef> boards = new ArrayList<>();
+        for (int page = 1; page <= 20; page++) {
+            JsonNode data = client.execute(BOARD_LIST_QUERY, Map.of("limit", limit, "page", page));
+            JsonNode node = data.path("boards");
+            if (!node.isArray() || node.isEmpty()) {
+                break;
+            }
+            for (JsonNode board : node) {
+                boards.add(new MondayBoardRef(
+                        board.path("id").asText(null),
+                        board.path("name").asText(null),
+                        board.path("state").asText(null)));
+            }
+            if (node.size() < limit) {
+                break;
+            }
+        }
+        return boards;
     }
 
     /**

@@ -9,6 +9,7 @@ import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.kpi.config.KpiMondayProperties;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicketSyncRun;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
+import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketSyncRunRepository;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +60,7 @@ public class MondayCaseSyncService {
     public record BoardResult(
             String boardId,
             ServiceLine serviceLine,
+            TicketType ticketType,
             CaseTicketSyncRun.Status status,
             int groupsRead,
             int itemsRead,
@@ -162,6 +164,7 @@ public class MondayCaseSyncService {
         CaseTicketSyncRun run = runRepository.save(CaseTicketSyncRun.builder()
                 .sourceBoardId(board.getId())
                 .serviceLine(board.getServiceLine())
+                .ticketType(board.getTicketType())
                 .status(CaseTicketSyncRun.Status.RUNNING)
                 .triggeredBy(trigger)
                 .startedAt(LocalDateTime.now())
@@ -193,8 +196,8 @@ public class MondayCaseSyncService {
             run.setFinishedAt(LocalDateTime.now());
             runRepository.save(run);
 
-            return new BoardResult(board.getId(), board.getServiceLine(), run.getStatus(), groupIds.size(),
-                    items.size(), written.inserted(), written.updated(), written.unchanged(),
+            return new BoardResult(board.getId(), board.getServiceLine(), board.getTicketType(), run.getStatus(),
+                    groupIds.size(), items.size(), written.inserted(), written.updated(), written.unchanged(),
                     written.markedAbsent(), null);
         } catch (Exception e) {
             log.error("monday case sync failed for board {} ({}): {}", board.getId(), board.getServiceLine(),
@@ -203,8 +206,8 @@ public class MondayCaseSyncService {
             run.setErrorMessage(e.getMessage());
             run.setFinishedAt(LocalDateTime.now());
             runRepository.save(run);
-            return new BoardResult(board.getId(), board.getServiceLine(), run.getStatus(), 0, 0, 0, 0, 0, 0,
-                    e.getMessage());
+            return new BoardResult(board.getId(), board.getServiceLine(), board.getTicketType(), run.getStatus(),
+                    0, 0, 0, 0, 0, 0, e.getMessage());
         }
     }
 

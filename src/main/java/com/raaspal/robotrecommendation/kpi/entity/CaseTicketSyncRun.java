@@ -42,9 +42,15 @@ public class CaseTicketSyncRun {
     @Column(name = "source_board_id", nullable = false, columnDefinition = "TEXT")
     private String sourceBoardId;
 
+    /** Null when the board carries both lines and names the deciding column instead. */
     @Enumerated(EnumType.STRING)
-    @Column(name = "service_line", nullable = false, length = 16)
+    @Column(name = "service_line", length = 16)
     private ServiceLine serviceLine;
+
+    /** Always known: it is a property of the board, not of its rows. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ticket_type", nullable = false, length = 16)
+    private TicketType ticketType;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)

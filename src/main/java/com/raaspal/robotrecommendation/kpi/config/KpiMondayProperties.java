@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.kpi.config;
 
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
+import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
@@ -34,8 +35,18 @@ public class KpiMondayProperties {
     private String syncCron;
     private String syncZone = "Asia/Bangkok";
 
-    /** Days after a ticket closes within which a new ticket for the same serial counts as a repeat. */
-    private int repeatWindowDays = 7;
+    /**
+     * First Time Fix: a CM followed by another CM naming the same serial within
+     * this many days scores zero. RE team's figure, 2026-09-08.
+     */
+    private int repeatWindowDays = 14;
+
+    /**
+     * 1st Time Install: an installation followed by a CM naming the same serial
+     * within this many days of the install finishing scores zero. RE team's
+     * figure, 2026-09-08.
+     */
+    private int installFollowUpDays = 30;
 
     private List<Board> boards = new ArrayList<>();
 
@@ -56,19 +67,28 @@ public class KpiMondayProperties {
             if (board.getId() == null || board.getId().isBlank()) {
                 throw new IllegalStateException("app.kpi.monday.boards[" + i + "].id is required");
             }
-            if (board.getServiceLine() == null) {
+            // A board states its service line, or names the column that does
+            // (the installation board carries both robot types).
+            if (board.getServiceLine() == null && isBlank(board.getServiceLineColumn())) {
+                throw new IllegalStateException("app.kpi.monday.boards[" + i
+                        + "] needs service-line (CLEANING or DELIVERY) or service-line-column");
+            }
+            if (board.getTicketType() == null) {
                 throw new IllegalStateException(
-                        "app.kpi.monday.boards[" + i + "].service-line is required (CLEANING or DELIVERY)");
+                        "app.kpi.monday.boards[" + i + "].ticket-type is required (CM or INSTALLATION)");
             }
             if (!seen.add(board.getId())) {
                 throw new IllegalStateException("app.kpi.monday.boards lists board " + board.getId() + " twice");
             }
-            if (board.getSlaDaysMetro() <= 0 || board.getSlaDaysUpcountry() <= 0) {
-                throw new IllegalStateException("app.kpi.monday.boards[" + i + "] SLA days must be positive");
+            if (board.getSlaDays() <= 0) {
+                throw new IllegalStateException("app.kpi.monday.boards[" + i + "].sla-days must be positive");
             }
         }
         if (repeatWindowDays < 0) {
             throw new IllegalStateException("app.kpi.monday.repeat-window-days must not be negative");
+        }
+        if (installFollowUpDays < 0) {
+            throw new IllegalStateException("app.kpi.monday.install-follow-up-days must not be negative");
         }
     }
 
@@ -77,7 +97,18 @@ public class KpiMondayProperties {
     public static class Board {
 
         private String id;
+
+        /** Stated when every ticket on the board is one line; else set serviceLineColumn. */
         private ServiceLine serviceLine;
+
+        /**
+         * Column whose text says which robot type the ticket is about, for a board
+         * carrying both. Matched loosely — anything containing "clean" is CLEANING,
+         * "deliver" DELIVERY — because the boards spell it several ways.
+         */
+        private String serviceLineColumn;
+
+        private TicketType ticketType = TicketType.CM;
 
         /** Empty means every group on the board. */
         private List<String> groupIds = new ArrayList<>();
@@ -86,14 +117,31 @@ public class KpiMondayProperties {
         private List<String> closedStatuses = new ArrayList<>();
 
         /**
-         * SLA in calendar days. Cleaning is 3 everywhere; Delivery is 3 in greater
-         * Bangkok and 5 elsewhere (confirmed with the RE team, 2026-08-27/28). A
-         * case at exactly the limit is still within SLA.
+         * SLA in calendar days: the case must be <em>checked</em> (the board's RE
+         * Action date) within this many days of being reported. 7 for both ticket
+         * boards — RE team, 2026-09-08. Exactly the limit is still within SLA.
+         *
+         * <p>This replaces an earlier 3-metro/5-upcountry reading taken from the
+         * daily-report feature; that threshold measured something else (time to
+         * close a pending case) and does not apply here.
          */
-        private int slaDaysMetro = 3;
-        private int slaDaysUpcountry = 5;
+        private int slaDays = 7;
 
         private Columns columns = new Columns();
+
+        /** The line this board's tickets belong to when the board states one. */
+        public ServiceLine resolveServiceLine(String columnText) {
+            if (columnText != null) {
+                String text = columnText.toLowerCase(java.util.Locale.ROOT);
+                if (text.contains("clean")) {
+                    return ServiceLine.CLEANING;
+                }
+                if (text.contains("deliver")) {
+                    return ServiceLine.DELIVERY;
+                }
+            }
+            return serviceLine;
+        }
 
         /** True when {@code status} is one of the configured finished statuses (case-insensitive). */
         public boolean isClosedStatus(String status) {
@@ -103,6 +151,10 @@ public class KpiMondayProperties {
             String needle = status.strip();
             return closedStatuses.stream().anyMatch(s -> s.strip().equalsIgnoreCase(needle));
         }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     /** monday column ids per field. Null = not mapped on this board; the field stays null. */
@@ -122,5 +174,9 @@ public class KpiMondayProperties {
         private String mainIssue;
         private String openDate;
         private String closeDate;
+        /** The board's "RE Action" date — the SLA clock's second hand. */
+        private String actionDate;
+        /** Installation boards: a TimeLine (or date) column; the LATER date is used. */
+        private String installDate;
     }
 }
