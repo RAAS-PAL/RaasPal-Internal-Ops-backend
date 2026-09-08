@@ -89,6 +89,20 @@ installation → fleet total only, reported as `unclassifiedTickets`. No RE Acti
 date → `slaUnknown`, never a breach. Neither ticket board has a close-date column;
 SLA is time-to-first-action by design.
 
+**Not every board row is a KPI case.** Each board may name a category column and
+the values that count (`columns.category` + `include-categories`; the token
+`(blank)` means an empty cell counts). Rows outside the list are synced and
+archived but left out, and reported as `excludedByCategory`. Current lists:
+
+| Board | Category column | Counted |
+|---|---|---|
+| Cleaning | `color_mkyj4ncq` Type of case | Incident case, Service case, Request case, (blank) — reproduces the deck's 643 (live 639); parts shipments are out |
+| Delivery | `color_mkyh88bs` Type of Case | everything — the deck's 815 equals the whole board |
+| Installation | `status` Job Type | Installation, Install mapping, Mapping & Training, Mapping, Plans, DONE — **provisional**, see below |
+
+A follow-up CM is still a follow-up whatever its category: a parts shipment for
+the same serial is evidence the robot came back.
+
 ## Sync and read
 
 ```bash
@@ -109,15 +123,18 @@ docker exec raaspal-kpi-pg psql -U postgres -d robot_recommendation_db -c \
 ```
 
 Expected against the Jan–Jun 2026 deck: delivery CM 815 (live 816), cleaning CM
-643 (live 756 — Apr/May differ, under review), FTF 72.3% (live 75.7%).
+643 (live 639 with the category filter), FTF 72.3% (live ≈75%).
 
 ## Known limits
 
 - Only ~177 of 833 installation tickets record a serial, so 1st Time Install is
   truly measured for about a fifth of installs. That is how the board is filled,
   not a code fault.
-- The installation board's "Job Type" is not filtered; if it includes robot
-  transport jobs the install denominator is inflated. Labels not yet confirmed.
+- "Installation Tickets" is really the RE team's job board (25 job types). The
+  include list above keeps the install-shaped ones, but for Jan–Jun 2026 that is
+  still 59 rows (Plans 26, Mapping & Training 24, Installation 6, DONE 2, Install
+  mapping 1) against the deck's 23, and no subset of labels gives 23. Which job
+  types the RE team counts as an installation is an open question.
 - PM Complete and CSAT are not shown. PM is sourceable (`PM Yip-upload` 2957857962
   for visits; `PM Cleaning` 2048972900 / `PM Delivery` 4129404143 for contracts)
   once the visits-due-per-robot rule is known.
