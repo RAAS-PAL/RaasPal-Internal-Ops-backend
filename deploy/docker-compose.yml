@@ -1,0 +1,49 @@
+# Runs the RaasPal API on the Lightsail instance.
+#
+# Two things here are load-bearing and easy to get wrong:
+#
+#   1. The port is bound to 127.0.0.1, so the JVM is reachable only from the
+#      machine itself. Nginx proxies to it; the internet cannot. This is why the
+#      Lightsail firewall opens 22, 80 and 443 and never 8080.
+#
+#   2. Uploads live in a named volume. Survey files are written to disk, and on
+#      Render's ephemeral filesystem they were quietly lost on every deploy. A
+#      volume makes them durable for the first time — so this is a fix, not a
+#      like-for-like move.
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: raaspal-api:latest
+    container_name: raaspal-api
+    restart: unless-stopped
+    env_file: ./api.env
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - uploads:/app/uploads
+    environment:
+      # 70% of the container's memory, leaving room for the OS and Nginx on an
+      # 8 GB box. Without this the JVM sizes its heap from the host's total RAM
+      # and can be killed by the kernel under load.
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70"
+    healthcheck:
+      # /actuator/health answers 401 until it is permitted in SecurityConfig,
+      # and a 401 still proves the app is up and routing. Accept both.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health >/dev/null 2>&1 || wget -S -qO- http://localhost:8080/actuator/health 2>&1 | grep -q '401'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    logging:
+      # Without this the JSON log file grows until it fills the disk. It is the
+      # commonest way a small Docker host dies months after a clean setup.
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  uploads:

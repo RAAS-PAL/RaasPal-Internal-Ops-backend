@@ -1,0 +1,128 @@
+# Deploying the RaasPal API on AWS Lightsail
+
+Every command here runs **on the Lightsail instance over SSH**, unless it says
+otherwise. Render keeps serving users until step 7 — nothing before that is
+visible to anyone.
+
+## 1 · Prepare the box
+
+```bash
+sudo apt update && sudo apt upgrade -y
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker ubuntu          # log out and back in for this to apply
+sudo apt install -y nginx certbot python3-certbot-nginx git
+
+# 2 GB swap — cheap insurance while Maven builds the image
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+sudo apt install -y unattended-upgrades
+```
+
+## 2 · Clone and configure
+
+```bash
+cd ~
+git clone <repo-url> robot-recommendation-api
+cd robot-recommendation-api/deploy
+
+cp api.env.example api.env
+nano api.env          # paste the values copied out of Render
+chmod 600 api.env     # only ubuntu may read it — www-data must not
+```
+
+Three values differ from Render and are easy to miss:
+
+| Variable | Value during the migration |
+|---|---|
+| `DB_POOL_MAX` | `6` while both hosts are live, `10` after |
+| `TELEMETRY_SYNC_ENABLED` | `false` until Render is off |
+| `REPORT_EMAIL_SCHEDULER_ENABLED` | `false` until Render is off |
+
+The schedulers are the only setting with effects outside the company: two live
+deployments means customers receive the monthly report twice.
+
+## 3 · Start it
+
+```bash
+docker compose up -d --build     # first build pulls the whole Maven tree, several minutes
+docker compose logs -f           # Ctrl+C to stop watching
+curl localhost:8080/v3/api-docs  # JSON means the app is up
+```
+
+## 4 · Put nginx in front
+
+```bash
+sudo cp nginx/raaspal-api.conf /etc/nginx/sites-available/raaspal-api
+sudo ln -s /etc/nginx/sites-available/raaspal-api /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+
+curl -H "Host: api.raaspal.com" http://localhost/v3/api-docs
+```
+
+That last command proves the whole chain works before DNS exists.
+
+## 5 · DNS and TLS
+
+Ask whoever manages `raaspal.com` for an **A record**: host `api`, value the
+static IP, TTL 300. It is a new subdomain and touches neither the website nor
+email — saying so usually gets it approved the same day.
+
+```bash
+dig api.raaspal.com +short              # wait until this returns your IP
+sudo certbot --nginx -d api.raaspal.com
+sudo certbot renew --dry-run            # prove renewal works
+```
+
+## 6 · Verify end to end
+
+Still zero user impact. Sign in with a real account against
+`https://api.raaspal.com` and exercise what touches the outside world: upload a
+survey, generate a proposal, open a report, load the RIMS inventory endpoints.
+
+```bash
+# The endpoint lists should match between old and new
+curl -s https://api.raaspal.com/v3/api-docs | head -c 400
+```
+
+## 7 · Cut the frontends over
+
+The only user-visible moment.
+
+- Console (Vercel): `NEXT_PUBLIC_API_URL=https://api.raaspal.com`, redeploy
+- RIMS (Vercel): `RAASPAL_API_URL=https://api.raaspal.com`, redeploy
+
+Rolling back means putting the two Vercel variables back to the `onrender.com`
+URL. No DNS change, no wait — the frontends address the backend directly.
+
+## 8 · After 48 quiet hours
+
+```bash
+nano deploy/api.env     # schedulers true, DB_POOL_MAX=10
+bash deploy/deploy.sh
+```
+
+Take a Lightsail snapshot, then suspend the Render service.
+
+---
+
+## Redeploying afterwards
+
+```bash
+ssh ubuntu@<ip> 'bash ~/robot-recommendation-api/deploy/deploy.sh'
+```
+
+Pulls, rebuilds, restarts, and waits for the app to answer before reporting
+success.
+
+## When something is wrong
+
+```bash
+docker compose logs --tail 100      # the application
+docker compose ps                   # is the container up
+sudo journalctl -u nginx -n 50      # the proxy
+sudo nginx -t                       # config syntax
+df -h && free -h                    # disk and memory
+```
