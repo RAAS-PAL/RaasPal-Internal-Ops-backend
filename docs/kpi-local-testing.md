@@ -96,7 +96,7 @@ archived but left out, and reported as `excludedByCategory`. Current lists:
 
 | Board | Category column | Counted |
 |---|---|---|
-| Cleaning | `color_mkyj4ncq` Type of case | Incident case, Service case, Request case, (blank) — reproduces the deck's 643 (live 639); parts shipments are out |
+| Cleaning | `color_mkyj4ncq` Type of case | everything — a parts-shipping filter reproduces the deck's total (639 vs 643) only by coincidence; the deck's monthly labels match the *unfiltered* rows for Jan/Feb/Mar/Jun |
 | Delivery | `color_mkyh88bs` Type of Case | everything — the deck's 815 equals the whole board |
 | Installation | `status` Job Type | Installation, Install mapping, Mapping & Training, Mapping, Plans, DONE — **provisional**, see below |
 
@@ -122,8 +122,9 @@ docker exec raaspal-kpi-pg psql -U postgres -d robot_recommendation_db -c \
   "select source_board_id, ticket_type, count(*), count(serials_normalised), count(action_date), count(install_date) from case_ticket group by 1,2 order by 1;"
 ```
 
-Expected against the Jan–Jun 2026 deck: delivery CM 815 (live 816), cleaning CM
-643 (live 639 with the category filter), FTF 72.3% (live ≈75%).
+Expected against the Jan–Jun 2026 deck: delivery CM 815 (live 816, every month
+within one); cleaning CM 643 (live 756 — Jan/Feb/Mar/Jun match within two, May is
+deck 38 vs live 133 and is an open question for the RE team); FTF 72.3% (live ≈75%).
 
 ## Known limits
 
