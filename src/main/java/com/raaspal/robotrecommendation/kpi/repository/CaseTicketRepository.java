@@ -29,6 +29,23 @@ public interface CaseTicketRepository extends JpaRepository<CaseTicket, UUID> {
 
     long countByPresentTrue();
 
+    /**
+     * Serial-to-service-line evidence, drawn from every CM ticket that has both.
+     *
+     * <p>The CM boards are single-line — Cleaning Tickets holds cleaning robots,
+     * Delivery Tickets delivery ones — so a serial appearing on one of them is
+     * proof of what that robot is. That is what lets an installation ticket be
+     * classified even though its own board never says.
+     *
+     * <p>Deliberately not limited to the reporting window: a robot installed in
+     * January may not be serviced until November, and the January figure should
+     * still know what kind of robot it was.
+     */
+    @Query("select t.serialsNormalised, t.serviceLine from CaseTicket t "
+            + "where t.present = true and t.ticketType = com.raaspal.robotrecommendation.kpi.entity.TicketType.CM "
+            + "and t.serialsNormalised is not null and t.serviceLine is not null")
+    List<Object[]> findSerialServiceLines();
+
     /** When any ticket was last refreshed — the "data as of" stamp on the dashboard. */
     @Query("select max(t.lastSyncedAt) from CaseTicket t")
     Optional<LocalDateTime> findLastSyncedAt();

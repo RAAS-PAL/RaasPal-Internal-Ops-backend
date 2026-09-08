@@ -67,11 +67,17 @@ public class KpiMondayProperties {
             if (board.getId() == null || board.getId().isBlank()) {
                 throw new IllegalStateException("app.kpi.monday.boards[" + i + "].id is required");
             }
-            // A board states its service line, or names the column that does
-            // (the installation board carries both robot types).
-            if (board.getServiceLine() == null && isBlank(board.getServiceLineColumn())) {
+            // A CM board must state its line: those boards are single-line, and a
+            // CM ticket is the evidence that classifies everything else, so an
+            // unstated line there would leave the whole split empty.
+            //
+            // An INSTALLATION board may state neither. Its tickets are classified by
+            // serial instead — the same robot's serial appears on a CM board, which
+            // does know — so requiring a column it does not have would be wrong.
+            if (board.getTicketType() == TicketType.CM
+                    && board.getServiceLine() == null && isBlank(board.getServiceLineColumn())) {
                 throw new IllegalStateException("app.kpi.monday.boards[" + i
-                        + "] needs service-line (CLEANING or DELIVERY) or service-line-column");
+                        + "] is a CM board and needs service-line (CLEANING or DELIVERY) or service-line-column");
             }
             if (board.getTicketType() == null) {
                 throw new IllegalStateException(
@@ -103,10 +109,21 @@ public class KpiMondayProperties {
 
         /**
          * Column whose text says which robot type the ticket is about, for a board
-         * carrying both. Matched loosely — anything containing "clean" is CLEANING,
-         * "deliver" DELIVERY — because the boards spell it several ways.
+         * carrying both. The Installation board has no such column outright — its
+         * "Robot  Models" column names models — so the match is by keyword rather
+         * than by the words "cleaning" and "delivery" appearing literally.
          */
         private String serviceLineColumn;
+
+        /**
+         * Case-insensitive substrings of {@link #serviceLineColumn}'s text that mean
+         * a cleaning robot. Model names belong here for a board that only names
+         * models. Checked before {@link #deliveryKeywords}.
+         */
+        private List<String> cleaningKeywords = new ArrayList<>(List.of("clean"));
+
+        /** As above, for delivery robots. */
+        private List<String> deliveryKeywords = new ArrayList<>(List.of("deliver"));
 
         private TicketType ticketType = TicketType.CM;
 
@@ -129,18 +146,36 @@ public class KpiMondayProperties {
 
         private Columns columns = new Columns();
 
-        /** The line this board's tickets belong to when the board states one. */
+        /**
+         * Which kind of robot a ticket is about: the board's own line when it has
+         * one, else read out of {@link #serviceLineColumn} by keyword.
+         *
+         * <p>Returns null when nothing matches. That is deliberate — see
+         * {@code V40__allow_unclassified_service_line.sql}. Guessing would inflate
+         * one side of every split with an error that looks exactly like data.
+         */
         public ServiceLine resolveServiceLine(String columnText) {
-            if (columnText != null) {
-                String text = columnText.toLowerCase(java.util.Locale.ROOT);
-                if (text.contains("clean")) {
-                    return ServiceLine.CLEANING;
-                }
-                if (text.contains("deliver")) {
-                    return ServiceLine.DELIVERY;
-                }
+            if (serviceLine != null) {
+                return serviceLine;
             }
-            return serviceLine;
+            if (columnText == null || columnText.isBlank()) {
+                return null;
+            }
+            String text = columnText.toLowerCase(java.util.Locale.ROOT);
+            if (matchesAny(text, cleaningKeywords)) {
+                return ServiceLine.CLEANING;
+            }
+            if (matchesAny(text, deliveryKeywords)) {
+                return ServiceLine.DELIVERY;
+            }
+            return null;
+        }
+
+        private static boolean matchesAny(String text, List<String> keywords) {
+            return keywords.stream()
+                    .map(k -> k.strip().toLowerCase(java.util.Locale.ROOT))
+                    .filter(k -> !k.isEmpty())
+                    .anyMatch(text::contains);
         }
 
         /** True when {@code status} is one of the configured finished statuses (case-insensitive). */

@@ -17,6 +17,11 @@ import java.util.Map;
  * @param months        one entry per month in the range, in order, zero-filled
  * @param totals        the same counters over the whole range
  * @param ticketCount   tickets the range was computed from
+ * @param unclassifiedTickets  of those, ones counted in {@code all} but in neither
+ *                      {@code cleaning} nor {@code delivery}, because nothing said
+ *                      which kind of robot they concern. When this is above zero the
+ *                      split does not add up to the total, and that is the honest
+ *                      reading rather than a rounding fault
  * @param lastSyncedAt  when the mirror was last refreshed; null when it never was
  * @param provisional   true while the definitions await RE-team sign-off
  * @param definitions   each formula in words, so a board number traces to its rule
@@ -27,6 +32,7 @@ public record KpiCaseMetricsResponse(
         List<MonthMetrics> months,
         Totals totals,
         long ticketCount,
+        long unclassifiedTickets,
         LocalDateTime lastSyncedAt,
         int repeatWindowDays,
         int installFollowUpDays,

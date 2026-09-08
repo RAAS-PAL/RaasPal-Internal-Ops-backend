@@ -64,12 +64,14 @@ class KpiCaseMetricsServiceTest {
                 .serialsNormalised(serial));
     }
 
-    /** An installation finishing on {@code installDate} (the TimeLine's later date). */
-    private CaseTicket install(ServiceLine line, String id, LocalDate installDate, String serial) {
+    /**
+     * An installation finishing on {@code installDate}. Its service line is left
+     * null, like the real board, so it can only be classified by serial.
+     */
+    private CaseTicket install(String id, LocalDate installDate, String serial) {
         return save(CaseTicket.builder()
                 .sourceBoardId(INSTALL_BOARD)
                 .sourceItemId(id)
-                .serviceLine(line)
                 .ticketType(TicketType.INSTALLATION)
                 .installDate(installDate)
                 .serialsNormalised(serial));
@@ -93,7 +95,7 @@ class KpiCaseMetricsServiceTest {
     /** A CM on the same serial inside 30 days of the install finishing scores it 0. */
     @Test
     void installFollowedByCmWithinThirtyDaysScoresZero() {
-        install(ServiceLine.CLEANING, "I1", d(1, 5), "S1");
+        install("I1", d(1, 5), "S1");
         cm(ServiceLine.CLEANING, "C1", d(2, 3), null, "S1");   // 29 days later
 
         InstallCounts jan = month(service.monthly(JAN, MAR), "2026-01").cleaning().installation();
@@ -107,9 +109,9 @@ class KpiCaseMetricsServiceTest {
     /** Exactly 30 days still counts against it; 31 does not. */
     @Test
     void thirtyDayBoundaryIsInclusive() {
-        install(ServiceLine.CLEANING, "I1", d(1, 1), "S1");
+        install("I1", d(1, 1), "S1");
         cm(ServiceLine.CLEANING, "C1", d(1, 31), null, "S1");      // exactly 30
-        install(ServiceLine.CLEANING, "I2", d(1, 1), "S2");
+        install("I2", d(1, 1), "S2");
         cm(ServiceLine.CLEANING, "C2", d(2, 1), null, "S2");       // 31
 
         InstallCounts jan = month(service.monthly(JAN, MAR), "2026-01").cleaning().installation();
@@ -123,22 +125,24 @@ class KpiCaseMetricsServiceTest {
     /** A CM for a different robot is irrelevant, however close in time. */
     @Test
     void installIsOnlyJudgedByItsOwnSerial() {
-        install(ServiceLine.CLEANING, "I1", d(1, 5), "S1");
+        install("I1", d(1, 5), "S1");
         cm(ServiceLine.CLEANING, "C1", d(1, 6), null, "S-OTHER");
 
-        assertThat(month(service.monthly(JAN, JAN), "2026-01").cleaning().installation().firstTime()).isEqualTo(1);
+        assertThat(month(service.monthly(JAN, JAN), "2026-01").all().installation().firstTime()).isEqualTo(1);
     }
 
     /** Installations are counted in the month the TimeLine ends, not when it started. */
     @Test
     void installationsAreBucketedByTimelineEnd() {
-        install(ServiceLine.DELIVERY, "I1", d(2, 14), "S1");
+        install("I1", d(2, 14), "S1");
+        cm(ServiceLine.DELIVERY, "C-known", d(2, 20), null, "S1");   // identifies the robot
 
         KpiCaseMetricsResponse r = service.monthly(JAN, MAR);
 
         assertThat(month(r, "2026-01").all().installation().total()).isZero();
         assertThat(month(r, "2026-02").delivery().installation().total()).isEqualTo(1);
         assertThat(month(r, "2026-02").cleaning().installation().total()).isZero();
+        assertThat(r.unclassifiedTickets()).isZero();
     }
 
     // ── First Time Fix ──────────────────────────────────────────────────────
@@ -234,12 +238,12 @@ class KpiCaseMetricsServiceTest {
     /** Installations carry no SLA of their own; the CM counters stay empty. */
     @Test
     void installationsDoNotEnterTheCmCounters() {
-        install(ServiceLine.CLEANING, "I1", d(1, 5), "S1");
+        install("I1", d(1, 5), "S1");
 
         MonthMetrics jan = month(service.monthly(JAN, JAN), "2026-01");
 
-        assertThat(jan.cleaning().installation().total()).isEqualTo(1);
-        assertThat(jan.cleaning().cm().total()).isZero();
+        assertThat(jan.all().installation().total()).isEqualTo(1);
+        assertThat(jan.all().cm().total()).isZero();
     }
 
     // ── shape and guards ────────────────────────────────────────────────────
@@ -274,5 +278,55 @@ class KpiCaseMetricsServiceTest {
         repository.save(gone);
 
         assertThat(service.monthly(JAN, JAN).ticketCount()).isZero();
+    }
+
+    // ── classification by serial (the boards' foreign key) ──────────────────
+
+    /**
+     * The installation board never says whether a robot is cleaning or delivery.
+     * The CM boards do, and the serial is the same robot, so the installation
+     * inherits the line from wherever that serial was serviced.
+     */
+    @Test
+    void installationIsClassifiedByItsSerialAgainstTheCmBoards() {
+        install("I1", d(1, 5), "S-CLEAN");
+        install("I2", d(1, 6), "S-DELIV");
+        cm(ServiceLine.CLEANING, "C1", d(6, 1), null, "S-CLEAN");    // months later, still identifies it
+        cm(ServiceLine.DELIVERY, "C2", d(6, 2), null, "S-DELIV");
+
+        KpiCaseMetricsResponse r = service.monthly(JAN, JAN);
+
+        assertThat(month(r, "2026-01").cleaning().installation().total()).isEqualTo(1);
+        assertThat(month(r, "2026-01").delivery().installation().total()).isEqualTo(1);
+        assertThat(month(r, "2026-01").all().installation().total()).isEqualTo(2);
+        assertThat(r.unclassifiedTickets()).isZero();
+        // Both CMs are far outside the 30-day window, so neither install failed.
+        assertThat(month(r, "2026-01").all().installation().firstTime()).isEqualTo(2);
+    }
+
+    /** A robot never serviced cannot be classified; it counts in the total only. */
+    @Test
+    void unclassifiableInstallationCountsInTheTotalButNeitherColumn() {
+        install("I1", d(1, 5), "S-NEVER-SERVICED");
+
+        KpiCaseMetricsResponse r = service.monthly(JAN, JAN);
+
+        assertThat(r.unclassifiedTickets()).isEqualTo(1);
+        assertThat(month(r, "2026-01").all().installation().total()).isEqualTo(1);
+        assertThat(month(r, "2026-01").cleaning().installation().total()).isZero();
+        assertThat(month(r, "2026-01").delivery().installation().total()).isZero();
+    }
+
+    /** One robot cannot be both, so a contested serial classifies nothing. */
+    @Test
+    void aSerialClaimedByBothBoardsIsNotUsedToClassify() {
+        install("I1", d(1, 5), "S-BOTH");
+        cm(ServiceLine.CLEANING, "C1", d(6, 1), null, "S-BOTH");
+        cm(ServiceLine.DELIVERY, "C2", d(6, 2), null, "S-BOTH");
+
+        KpiCaseMetricsResponse r = service.monthly(JAN, JAN);
+
+        assertThat(r.unclassifiedTickets()).isEqualTo(1);
+        assertThat(month(r, "2026-01").all().installation().total()).isEqualTo(1);
     }
 }

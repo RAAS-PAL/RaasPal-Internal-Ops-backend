@@ -150,12 +150,15 @@ class MondayCaseSyncServiceTest {
         assertThat(find("Y").isClosed()).isTrue();   // "Done" is a closed status on the cleaning board
         assertThat(find("Z").getServiceLine()).isEqualTo(ServiceLine.DELIVERY);
 
-        // The mixed-line board: line comes from the column, install date from the
-        // LATER end of the TimeLine, and the run row records no service line at all.
+        // The installation board states no service line, so the sync deliberately
+        // leaves it null: classification happens later, by matching the serial
+        // against the single-line CM boards. The install date is the LATER end of
+        // the TimeLine, and the run row carries no service line either.
         CaseTicket install = find("I");
         assertThat(install.getTicketType()).isEqualTo(TicketType.INSTALLATION);
-        assertThat(install.getServiceLine()).isEqualTo(ServiceLine.CLEANING);
+        assertThat(install.getServiceLine()).isNull();
         assertThat(install.getInstallDate()).isEqualTo(LocalDate.of(2026, 8, 5));
+        assertThat(install.getSerialsNormalised()).isEqualTo("GS-I");
 
         List<CaseTicketSyncRun> runs = runRepository.findAll();
         assertThat(runs).hasSize(3);

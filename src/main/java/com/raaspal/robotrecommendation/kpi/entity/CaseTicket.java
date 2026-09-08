@@ -63,8 +63,13 @@ public class CaseTicket {
     @Column(name = "source_group_title", columnDefinition = "TEXT")
     private String sourceGroupTitle;
 
+    /**
+     * Null when the source board does not say which kind of robot the ticket is
+     * about and the model did not resolve it. Such rows count in fleet totals but
+     * are left out of the cleaning/delivery split rather than guessed into one.
+     */
     @Enumerated(EnumType.STRING)
-    @Column(name = "service_line", nullable = false, length = 16)
+    @Column(name = "service_line", length = 16)
     private ServiceLine serviceLine;
 
     /** Which board family this came from: an installation job, or a corrective-maintenance case. */

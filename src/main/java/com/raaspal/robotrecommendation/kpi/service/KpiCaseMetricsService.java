@@ -11,6 +11,7 @@ import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
 import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
  * The RE KPI numbers, computed from the synced tickets. The formulas are the RE
@@ -51,6 +54,7 @@ import java.util.Map;
  * are counted as successes and reported separately as {@code withoutSerial}, so
  * the reader can see how much of the rate rests on unmatched rows.
  */
+@Slf4j
 @Service
 public class KpiCaseMetricsService {
 
@@ -94,6 +98,11 @@ public class KpiCaseMetricsService {
             }
         }
 
+        // A serial seen on a single-line CM board says what kind of robot it is,
+        // which is how an installation gets classified when its own board does not
+        // say. Built from every CM ticket, not just this window's.
+        Map<String, ServiceLine> lineBySerial = serialServiceLines();
+
         Map<YearMonth, Bucket> buckets = new LinkedHashMap<>();
         for (YearMonth month = from; !month.isAfter(to); month = month.plusMonths(1)) {
             buckets.put(month, new Bucket());
@@ -101,22 +110,27 @@ public class KpiCaseMetricsService {
         Bucket totals = new Bucket();
 
         long counted = 0;
+        long unclassified = 0;
         for (CaseTicket ticket : tickets) {
             LocalDate keyDate = keyDate(ticket);
             if (keyDate == null || keyDate.isBefore(start) || keyDate.isAfter(end)) {
                 continue; // outside the range, or unusable — look-ahead rows land here
             }
             counted++;
+            ServiceLine line = resolveLine(ticket, lineBySerial);
+            if (line == null) {
+                unclassified++;
+            }
             Bucket bucket = buckets.get(YearMonth.from(keyDate));
             if (ticket.getTicketType() == TicketType.INSTALLATION) {
                 boolean success = !hasFollowUpCm(ticket, keyDate, installWindow, cmBySerial);
-                bucket.addInstall(ticket, success);
-                totals.addInstall(ticket, success);
+                bucket.addInstall(ticket, line, success);
+                totals.addInstall(ticket, line, success);
             } else {
                 boolean fixedFirstTime = !hasFollowUpCm(ticket, keyDate, repeatWindow, cmBySerial);
                 SlaOutcome sla = slaOutcome(ticket);
-                bucket.addCm(ticket, fixedFirstTime, sla);
-                totals.addCm(ticket, fixedFirstTime, sla);
+                bucket.addCm(ticket, line, fixedFirstTime, sla);
+                totals.addCm(ticket, line, fixedFirstTime, sla);
             }
         }
 
@@ -129,11 +143,58 @@ public class KpiCaseMetricsService {
                 months,
                 totals.toSegments(),
                 counted,
+                unclassified,
                 ticketRepository.findLastSyncedAt().orElse(null),
                 repeatWindow,
                 installWindow,
                 true,
                 definitions(repeatWindow, installWindow));
+    }
+
+    /**
+     * What kind of robot a ticket concerns: the line the sync already resolved,
+     * or — for an installation board that does not say — the line of a CM ticket
+     * naming the same serial. Null when neither answers, which is reported rather
+     * than guessed.
+     */
+    private static ServiceLine resolveLine(CaseTicket ticket, Map<String, ServiceLine> lineBySerial) {
+        if (ticket.getServiceLine() != null) {
+            return ticket.getServiceLine();
+        }
+        for (String serial : CaseTicketMapper.splitSerials(ticket.getSerialsNormalised())) {
+            ServiceLine known = lineBySerial.get(serial);
+            if (known != null) {
+                return known;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Serial to service line, from every CM ticket that carries both.
+     *
+     * <p>A serial claimed by both boards is dropped rather than resolved to
+     * whichever row was read first: one robot cannot be both, so a collision means
+     * the data is wrong, and an arbitrary winner would hide that in a board figure.
+     */
+    private Map<String, ServiceLine> serialServiceLines() {
+        Map<String, ServiceLine> bySerial = new HashMap<>();
+        Set<String> conflicting = new HashSet<>();
+        for (Object[] row : ticketRepository.findSerialServiceLines()) {
+            ServiceLine line = (ServiceLine) row[1];
+            for (String serial : CaseTicketMapper.splitSerials((String) row[0])) {
+                ServiceLine seen = bySerial.putIfAbsent(serial, line);
+                if (seen != null && seen != line) {
+                    conflicting.add(serial);
+                }
+            }
+        }
+        conflicting.forEach(bySerial::remove);
+        if (!conflicting.isEmpty()) {
+            log.warn("{} serial(s) appear on both the cleaning and delivery boards; "
+                    + "they cannot classify an installation and are ignored", conflicting.size());
+        }
+        return bySerial;
     }
 
     /** The date a ticket's KPI is keyed on: install finished, or case reported. */
@@ -199,6 +260,10 @@ public class KpiCaseMetricsService {
         d.put("bucketing", "Installations are counted in the month their TimeLine ends; CMs in the month they were reported.");
         d.put("matching", "Both windows join on serial number alone, across boards. Tickets naming no serial "
                 + "cannot be matched and are counted as successes; see withoutSerial.");
+        d.put("split", "An installation board does not say which kind of robot a ticket concerns, so the serial is "
+                + "looked up among CM tickets: the cleaning and delivery boards are single-line, so a serial seen on "
+                + "one of them identifies the robot. A ticket that still cannot be placed counts in the fleet total "
+                + "but in neither column; see unclassifiedTickets.");
         return d;
     }
 
@@ -208,19 +273,27 @@ public class KpiCaseMetricsService {
         final Counter cleaning = new Counter();
         final Counter delivery = new Counter();
 
-        void addInstall(CaseTicket ticket, boolean success) {
-            for (Counter c : forLine(ticket.getServiceLine())) {
+        void addInstall(CaseTicket ticket, ServiceLine line, boolean success) {
+            for (Counter c : forLine(line)) {
                 c.addInstall(success, ticket.getSerialsNormalised() == null);
             }
         }
 
-        void addCm(CaseTicket ticket, boolean fixedFirstTime, SlaOutcome sla) {
-            for (Counter c : forLine(ticket.getServiceLine())) {
+        void addCm(CaseTicket ticket, ServiceLine line, boolean fixedFirstTime, SlaOutcome sla) {
+            for (Counter c : forLine(line)) {
                 c.addCm(fixedFirstTime, sla, ticket.getSerialsNormalised() == null);
             }
         }
 
+        /**
+         * The counters a ticket belongs to. A ticket with no service line counts in
+         * the fleet total only — it is not forced into one side of the split, which
+         * would put an invisible error on a board slide.
+         */
         private Counter[] forLine(ServiceLine line) {
+            if (line == null) {
+                return new Counter[]{all};
+            }
             return new Counter[]{all, line == ServiceLine.CLEANING ? cleaning : delivery};
         }
 

@@ -79,7 +79,7 @@ public class MondayBoardReader {
                 id
                 name
                 items_count
-                columns { id title type }
+                columns { id title type settings_str }
                 groups { id title }
               }
             }
