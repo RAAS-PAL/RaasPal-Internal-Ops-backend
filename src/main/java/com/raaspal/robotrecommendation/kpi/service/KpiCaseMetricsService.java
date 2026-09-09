@@ -153,8 +153,9 @@ public class KpiCaseMetricsService {
                 ticketRepository.findLastSyncedAt().orElse(null),
                 repeatWindow,
                 installWindow,
+                uniformSlaDays(),
                 true,
-                definitions(repeatWindow, installWindow));
+                definitions(repeatWindow, installWindow, uniformSlaDays()));
     }
 
     /**
@@ -265,16 +266,30 @@ public class KpiCaseMetricsService {
                 : SlaOutcome.OVER;
     }
 
-    private static Map<String, String> definitions(int repeatWindow, int installWindow) {
+    /**
+     * The SLA threshold, when every CM board agrees on one. Null when they differ,
+     * because a fleet-wide figure would then be a fiction — the caller says
+     * "the board's SLA days" instead of naming a number that is only sometimes true.
+     */
+    private Integer uniformSlaDays() {
+        Set<Integer> distinct = properties.getBoards().stream()
+                .filter(board -> board.getTicketType() == TicketType.CM)
+                .map(KpiMondayProperties.Board::getSlaDays)
+                .collect(java.util.stream.Collectors.toSet());
+        return distinct.size() == 1 ? distinct.iterator().next() : null;
+    }
+
+    private static Map<String, String> definitions(int repeatWindow, int installWindow, Integer slaDays) {
         Map<String, String> d = new LinkedHashMap<>();
         d.put("firstTimeInstall", "An installation scores 1 when NO corrective-maintenance ticket names the same serial "
                 + "within " + installWindow + " days after the installation's TimeLine end date; 0 when one does.");
         d.put("firstTimeFix", "A CM scores 1 when NO later CM names the same serial within " + repeatWindow
                 + " days of it being reported; 0 when one does.");
-        d.put("sla", "The case was checked within the board's SLA days (7) of being reported: "
-                + "RE Action date minus Open Date. Exactly the limit is within. "
+        d.put("sla", "A CM case was checked within "
+                + (slaDays == null ? "the board's SLA days" : slaDays + " days")
+                + " of being reported: RE Action date minus Open Date. Exactly the limit is within. "
                 + "No action date recorded = unknown, not a breach. Neither board has a close date, "
-                + "so this is time-to-first-action, not time-to-close.");
+                + "so this is time-to-first-action, not time-to-close. SLA is measured on CM only.");
         d.put("bucketing", "Installations are counted in the month their TimeLine ends; CMs in the month they were reported.");
         d.put("matching", "Both windows join on serial number alone, across boards. Tickets naming no serial "
                 + "cannot be matched and are counted as successes; see withoutSerial.");

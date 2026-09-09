@@ -26,6 +26,8 @@ import java.util.Map;
  *                      not count (a survey job on the installation board, a parts
  *                      shipment on a CM board). Stated so the denominator never
  *                      shrinks silently
+ * @param slaDays       the SLA threshold in days when every CM board agrees on one,
+ *                      else null — SLA is measured on CM cases only
  * @param lastSyncedAt  when the mirror was last refreshed; null when it never was
  * @param provisional   true while the definitions await RE-team sign-off
  * @param definitions   each formula in words, so a board number traces to its rule
@@ -41,6 +43,7 @@ public record KpiCaseMetricsResponse(
         LocalDateTime lastSyncedAt,
         int repeatWindowDays,
         int installFollowUpDays,
+        Integer slaDays,
         boolean provisional,
         Map<String, String> definitions
 ) {
