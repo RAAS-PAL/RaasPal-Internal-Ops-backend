@@ -24,8 +24,8 @@ sudo apt install -y unattended-upgrades
 
 ```bash
 cd ~
-git clone <repo-url> robot-recommendation-api
-cd robot-recommendation-api/deploy
+git clone <repo-url> RaasPal-Internal-Ops-backend
+cd RaasPal-Internal-Ops-backend/deploy
 
 cp api.env.example api.env
 nano api.env          # paste the values copied out of Render
@@ -111,7 +111,7 @@ Take a Lightsail snapshot, then suspend the Render service.
 ## Redeploying afterwards
 
 ```bash
-ssh ubuntu@<ip> 'bash ~/robot-recommendation-api/deploy/deploy.sh'
+ssh ubuntu@<ip> 'bash ~/RaasPal-Internal-Ops-backend/deploy/deploy.sh'
 ```
 
 Pulls, rebuilds, restarts, and waits for the app to answer before reporting
