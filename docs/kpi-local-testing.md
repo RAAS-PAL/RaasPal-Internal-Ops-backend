@@ -187,3 +187,29 @@ no workbook.
 
 When the workbooks move to a bucket, implement `kpi.csat.CsatWorkbookSource` for it
 and nothing else changes.
+
+## Excel export — for the deck
+
+Both live areas download as an .xlsx, one sheet per chart, so a figure can be
+charted in Excel and pasted into PowerPoint as a real chart object: the numbers
+stay editable and the colours are a click. A picture of an HTML chart is neither.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -OJ \
+  "localhost:8081/api/v1/kpi/cm-cases/export?from=2026-01&to=2026-06"   # re-kpi-report_2026-01_2026-06.xlsx
+curl -s -H "Authorization: Bearer $TOKEN" -OJ \
+  "localhost:8081/api/v1/kpi/csat/export?from=2026-01&to=2026-06"       # re-kpi-csat_2026-01_2026-06.xlsx
+```
+
+The layout is what makes Insert Chart work without a range fight: **header on row
+1, data from row 2, nothing above it, nothing merged**, months down the rows and
+series across the columns. Rates are real percentage cells (0.792 shown as
+79.2%), so the chart axis is a percentage axis. A month a survey did not run is
+**blank, not zero** — a gap in a chart reads as "not surveyed"; a zero bar reads
+as "nobody was happy".
+
+Provenance lives on the `About` sheet rather than above the tables: source
+workbooks, how far they run, the window lengths, each definition in words, and
+for CSAT whether a figure is a `sheet cell` or was `pooled`. Anything written
+above a data block is what breaks Excel's series detection, which is why it is
+not there.

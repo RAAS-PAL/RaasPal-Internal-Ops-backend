@@ -12,12 +12,16 @@ import com.raaspal.robotrecommendation.kpi.dto.KpiCsatResponse;
 import com.raaspal.robotrecommendation.kpi.dto.MondaySyncConfigResponse;
 import com.raaspal.robotrecommendation.kpi.dto.MondaySyncRunResponse;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicketSyncRun;
+import com.raaspal.robotrecommendation.kpi.export.KpiCaseXlsxExporter;
+import com.raaspal.robotrecommendation.kpi.export.KpiCsatXlsxExporter;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketSyncRunRepository;
 import com.raaspal.robotrecommendation.kpi.service.KpiCaseMetricsService;
 import com.raaspal.robotrecommendation.kpi.service.KpiCsatService;
 import com.raaspal.robotrecommendation.kpi.service.MondayCaseSyncService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
@@ -47,9 +52,13 @@ import java.util.List;
 public class KpiController {
 
     private static final int MAX_RUNS = 100;
+    private static final MediaType XLSX =
+            MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
     private final KpiCaseMetricsService metricsService;
     private final KpiCsatService csatService;
+    private final KpiCaseXlsxExporter caseExporter;
+    private final KpiCsatXlsxExporter csatExporter;
     private final MondayCaseSyncService syncService;
     private final CaseTicketSyncRunRepository runRepository;
     private final MondayBoardReader boardReader;
@@ -65,9 +74,25 @@ public class KpiController {
     public ApiResponse<KpiCaseMetricsResponse> cmCases(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to) {
-        YearMonth toMonth = to == null ? YearMonth.now(ZoneId.of(properties.getSyncZone())).minusMonths(1) : parseMonth(to, "to");
-        YearMonth fromMonth = from == null ? toMonth.minusMonths(5) : parseMonth(from, "from");
-        return ApiResponse.success(metricsService.monthly(fromMonth, toMonth));
+        Period period = period(from, to);
+        return ApiResponse.success(metricsService.monthly(period.from(), period.to()));
+    }
+
+    /**
+     * The same KPIs as a spreadsheet, one sheet per panel of the deck.
+     *
+     * <p>The console's charts are HTML, so they paste into a slide only as a
+     * picture — no use to anyone who then has to correct a figure or recolour a
+     * series. This hands over the numbers instead, shaped so Insert Chart in
+     * Excel reproduces the panel and the result stays editable on the slide.
+     */
+    @GetMapping("/cm-cases/export")
+    public ResponseEntity<byte[]> exportCmCases(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) throws IOException {
+        Period period = period(from, to);
+        return xlsx("re-kpi-report", period,
+                caseExporter.export(metricsService.monthly(period.from(), period.to())));
     }
 
     /**
@@ -79,9 +104,17 @@ public class KpiController {
     public ApiResponse<KpiCsatResponse> csat(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to) {
-        YearMonth toMonth = to == null ? YearMonth.now(ZoneId.of(properties.getSyncZone())).minusMonths(1) : parseMonth(to, "to");
-        YearMonth fromMonth = from == null ? toMonth.minusMonths(5) : parseMonth(from, "from");
-        return ApiResponse.success(csatService.monthly(fromMonth, toMonth));
+        Period period = period(from, to);
+        return ApiResponse.success(csatService.monthly(period.from(), period.to()));
+    }
+
+    /** CSAT as a spreadsheet: Top Box by month and survey, and the counts behind it. */
+    @GetMapping("/csat/export")
+    public ResponseEntity<byte[]> exportCsat(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) throws IOException {
+        Period period = period(from, to);
+        return xlsx("re-kpi-csat", period, csatExporter.export(csatService.monthly(period.from(), period.to())));
     }
 
     /** What the workbook source holds right now: files, surveys, how far they run. */
@@ -150,6 +183,31 @@ public class KpiController {
     @GetMapping("/monday/boards/{boardId}")
     public ApiResponse<MondayBoardSchema> describeBoard(@PathVariable String boardId) {
         return ApiResponse.success(boardReader.describeBoard(boardId));
+    }
+
+    /**
+     * The month range a request asks for, defaulted the same way for every
+     * endpoint: the six complete months before the current one, in the sync
+     * zone. A half-finished month would drag every rate down.
+     */
+    private record Period(YearMonth from, YearMonth to) {
+    }
+
+    private Period period(String from, String to) {
+        YearMonth toMonth = to == null
+                ? YearMonth.now(ZoneId.of(properties.getSyncZone())).minusMonths(1)
+                : parseMonth(to, "to");
+        YearMonth fromMonth = from == null ? toMonth.minusMonths(5) : parseMonth(from, "from");
+        return new Period(fromMonth, toMonth);
+    }
+
+    /** A download named for what it holds, so a folder of them stays legible. */
+    private static ResponseEntity<byte[]> xlsx(String prefix, Period period, byte[] body) {
+        String filename = prefix + "_" + period.from() + "_" + period.to() + ".xlsx";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(XLSX)
+                .body(body);
     }
 
     private static YearMonth parseMonth(String value, String name) {

@@ -39,6 +39,9 @@ class KpiApiSecurityTest {
     void anonymousIsUnauthorised() throws Exception {
         mockMvc.perform(get(BASE + "/cm-cases")).andExpect(status().isUnauthorized());
         mockMvc.perform(get(BASE + "/csat")).andExpect(status().isUnauthorized());
+        // The exports carry the same figures in a file; same door.
+        mockMvc.perform(get(BASE + "/cm-cases/export")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(BASE + "/csat/export")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -49,6 +52,8 @@ class KpiApiSecurityTest {
         mockMvc.perform(post(BASE + "/monday/sync")).andExpect(status().isForbidden());
         mockMvc.perform(get(BASE + "/csat")).andExpect(status().isForbidden());
         mockMvc.perform(post(BASE + "/csat/reload")).andExpect(status().isForbidden());
+        mockMvc.perform(get(BASE + "/cm-cases/export")).andExpect(status().isForbidden());
+        mockMvc.perform(get(BASE + "/csat/export")).andExpect(status().isForbidden());
     }
 
     @Test
