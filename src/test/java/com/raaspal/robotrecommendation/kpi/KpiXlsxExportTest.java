@@ -19,7 +19,13 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.poi.xssf.usermodel.XSSFChart;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.xmlbeans.XmlError;
+import org.apache.xmlbeans.XmlOptions;
 import org.junit.jupiter.api.Test;
+import org.openxmlformats.schemas.drawingml.x2006.chart.CTBarChart;
+import org.openxmlformats.schemas.drawingml.x2006.chart.STBarGrouping;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -98,8 +104,8 @@ class KpiXlsxExportTest {
     @Test
     void csatTopBoxIsMonthsDownAndSurveysAcross() throws IOException {
         try (Workbook book = read(new KpiCsatXlsxExporter().export(csat()))) {
-            assertThat(headers(book, "Top Box"))
-                    .containsExactly("Month", "Overall", "Installation", "PM", "CM Delivery", "CM Cleaning");
+            assertThat(headers(book, "Top Box")).containsExactly(
+                    "Month", "Overall", "Installation", "PM", "CM Delivery", "CM Cleaning", "Period average");
             assertThat(cell(book, "Top Box", 1, 0).getStringCellValue()).isEqualTo("Jan 2026");
             assertThat(cell(book, "Top Box", 1, 1).getNumericCellValue()).isEqualTo(0.892);  // 91 of 102
             assertThat(cell(book, "Top Box", 1, 3).getNumericCellValue()).isEqualTo(0.90);
@@ -163,6 +169,79 @@ class KpiXlsxExportTest {
         }
     }
 
+    private static List<XSSFChart> charts(Workbook book, String sheet) {
+        return ((XSSFSheet) book.getSheet(sheet)).getDrawingPatriarch().getCharts();
+    }
+
+    /**
+     * Every chart's XML must satisfy the schema. This is the assertion that
+     * matters most: the one failure mode here is a file Excel opens with "we
+     * found a problem with some content", which says nothing about where.
+     */
+    private static void assertValid(List<XSSFChart> charts) {
+        for (XSSFChart chart : charts) {
+            String title = chart.getTitleText() == null ? "untitled" : chart.getTitleText().getString();
+            List<XmlError> errors = new ArrayList<>();
+            boolean valid = chart.getCTChart().validate(new XmlOptions().setErrorListener(errors));
+            assertThat(valid).as("chart '%s' is schema-valid, but: %s", title, errors).isTrue();
+        }
+    }
+
+    @Test
+    void theCsatSheetCarriesThePagesFiveCharts() throws IOException {
+        try (Workbook book = read(new KpiCsatXlsxExporter().export(csat()))) {
+            List<XSSFChart> charts = charts(book, "Top Box");
+            assertThat(charts.stream().map(c -> c.getTitleText().getString()).toList())
+                    .containsExactly("CSAT Top Box", "Installation", "PM", "CM Delivery", "CM Cleaning");
+            assertValid(charts);
+
+            // The overall panel: one series of bars, its values printed, and the
+            // period average drawn across them as the page draws it.
+            CTBarChart bars = charts.get(0).getCTChart().getPlotArea().getBarChartArray(0);
+            assertThat(bars.getSerArray()).hasSize(1);
+            assertThat(bars.getSerArray(0).getDLbls().getShowVal().getVal()).isTrue();
+            assertThat(charts.get(0).getCTChart().getPlotArea().getLineChartArray()).hasSize(1);
+
+            // Whole percentages on the bars and on the axis, as the page prints
+            // them. Left source-linked, a fraction renders as 0.682 and an axis
+            // of rates runs 0 to 1.
+            assertThat(bars.getSerArray(0).getDLbls().getNumFmt().getFormatCode()).isEqualTo("0%");
+            assertThat(bars.getSerArray(0).getDLbls().getNumFmt().getSourceLinked()).isFalse();
+            var axis = charts.get(0).getCTChart().getPlotArea().getValAxArray(0);
+            assertThat(axis.getNumFmt().getFormatCode()).isEqualTo("0%");
+            assertThat(axis.getNumFmt().getSourceLinked()).isFalse();
+            assertThat(axis.getScaling().getMax().getVal()).isEqualTo(1.0);
+
+            // A survey's own chart has no rule; its total is the headline instead.
+            assertThat(charts.get(1).getCTChart().getPlotArea().getLineChartArray()).isEmpty();
+        }
+    }
+
+    @Test
+    void eachReportPanelIsChartedTheWayThePageChartsIt() throws IOException {
+        try (Workbook book = read(new KpiCaseXlsxExporter().export(metrics()))) {
+            for (String sheet : List.of("1st Time Install", "CM Cases", "First Time Fix", "SLA")) {
+                assertThat(charts(book, sheet)).as(sheet).hasSize(1);
+                assertValid(charts(book, sheet));
+            }
+            // Data sheets carry no chart of their own.
+            assertThat(((XSSFSheet) book.getSheet("Period Totals")).getDrawingPatriarch()).isNull();
+
+            // CM volume and SLA stack their two series; first time fix compares
+            // them side by side. Stacked columns also need a full overlap, or
+            // Excel draws them as separated slivers.
+            for (String stacked : List.of("CM Cases", "SLA")) {
+                CTBarChart bars = charts(book, stacked).get(0).getCTChart().getPlotArea().getBarChartArray(0);
+                assertThat(bars.getGrouping().getVal()).as(stacked).isEqualTo(STBarGrouping.STACKED);
+                assertThat(bars.getOverlap().getVal()).as(stacked).isEqualTo((byte) 100);
+                assertThat(bars.getSerArray()).hasSize(2);
+            }
+            CTBarChart ftf = charts(book, "First Time Fix").get(0).getCTChart().getPlotArea().getBarChartArray(0);
+            assertThat(ftf.getGrouping().getVal()).isEqualTo(STBarGrouping.CLUSTERED);
+            assertThat(ftf.getSerArray()).hasSize(2);
+        }
+    }
+
     private static Segment segment(int installs, int installFirstTime, int cases, int within, int over) {
         Double installRate = installs == 0 ? null : Math.round(installFirstTime * 1000.0 / installs) / 10.0;
         Double slaRate = within + over == 0 ? null : Math.round(within * 1000.0 / (within + over)) / 10.0;
@@ -193,7 +272,7 @@ class KpiXlsxExportTest {
                     "By Service Line", "Period Totals", "About");
 
             assertThat(cell(book, "1st Time Install", 1, 1).getNumericCellValue()).isEqualTo(0.80);
-            assertThat(cell(book, "CM Cases", 1, 3).getNumericCellValue()).isEqualTo(100);
+            assertThat(cell(book, "CM Cases", 1, 4).getNumericCellValue()).isEqualTo(100);
             assertThat(cell(book, "SLA", 1, 1).getNumericCellValue()).isEqualTo(0.70);
 
             // An empty month has no rate to show, and must not claim 0%.

@@ -5,7 +5,9 @@ import com.raaspal.robotrecommendation.kpi.dto.KpiCsatResponse.Bucket;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCsatResponse.MonthCsat;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCsatResponse.SourceFile;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCsatResponse.Totals;
+import com.raaspal.robotrecommendation.kpi.export.XlsxBook.ChartSpec;
 import com.raaspal.robotrecommendation.kpi.export.XlsxBook.Column;
+import com.raaspal.robotrecommendation.kpi.export.XlsxBook.Stacking;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -17,34 +19,45 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * CSAT as a workbook, so the figures can be charted in a deck.
+ * CSAT as a workbook, carrying the CSAT page's own charts.
  *
- * <p>The console's charts are HTML and cannot be pasted into PowerPoint as
- * anything but a picture, and a picture is no use to someone who has to correct
- * a number or recolour a series on the slide. This exports the numbers instead:
- * one sheet per chart the deck draws, months down and surveys across, so
- * Insert Chart produces the panel in two clicks and the result stays editable.
+ * <p>The console's charts are HTML and reach a slide only as a picture, which is
+ * no use to anyone who then has to correct a figure or recolour a series. So the
+ * export hands over the numbers <em>and</em> draws the page's panels as real
+ * Excel charts over them: the Top Box chart with its average rule, then the four
+ * surveys one at a time, same colours, same order. Each is a chart object, so it
+ * pastes into PowerPoint editable — click it and change the data or the fill.
  *
- * <p>The first three sheets are chart fodder and hold nothing else. Everything a
- * reader needs to trust them — which workbook each figure came from, how far the
- * files run, what was combined rather than read — is on the About sheet, because
- * a note above a table is what stops Excel from finding the series names.
+ * <p>The chart sheets hold nothing but their data block, because a title row or a
+ * merged banner above it is what makes Excel's own Insert Chart pick the wrong
+ * range. Provenance goes on the About sheet instead.
  */
 @Component
 public class KpiCsatXlsxExporter {
 
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH);
 
+    /** The console's colours, so a survey looks the same in the deck as on screen. */
+    private static final String OVERALL_BAR = "#E8A33D";
+
     /** The four surveys and their pool, in the deck's order. */
-    private record Survey(String label, Function<MonthCsat, Bucket> inMonth, Function<Totals, Bucket> inTotals) {
+    private record Survey(String label, String color, Function<MonthCsat, Bucket> inMonth,
+                          Function<Totals, Bucket> inTotals) {
     }
 
     private static final List<Survey> SURVEYS = List.of(
-            new Survey("Overall", MonthCsat::overall, Totals::overall),
-            new Survey("Installation", MonthCsat::installation, Totals::installation),
-            new Survey("PM", MonthCsat::pm, Totals::pm),
-            new Survey("CM Delivery", MonthCsat::delivery, Totals::delivery),
-            new Survey("CM Cleaning", MonthCsat::cleaning, Totals::cleaning));
+            new Survey("Installation", "#E0912F", MonthCsat::installation, Totals::installation),
+            new Survey("PM", "#7C3AED", MonthCsat::pm, Totals::pm),
+            new Survey("CM Delivery", "#6BA6F7", MonthCsat::delivery, Totals::delivery),
+            new Survey("CM Cleaning", "#2563EB", MonthCsat::cleaning, Totals::cleaning));
+
+    /** Overall first, then the four — the order of the page's table and side stats. */
+    private static final Survey OVERALL =
+            new Survey("Overall", OVERALL_BAR, MonthCsat::overall, Totals::overall);
+
+    private static List<Survey> all() {
+        return List.of(OVERALL, SURVEYS.get(0), SURVEYS.get(1), SURVEYS.get(2), SURVEYS.get(3));
+    }
 
     public byte[] export(KpiCsatResponse csat) throws IOException {
         XlsxBook book = new XlsxBook();
@@ -59,9 +72,43 @@ public class KpiCsatXlsxExporter {
         return book.bytes();
     }
 
-    /** The page's headline chart: Top Box by month, one column per survey. */
+    /**
+     * The page, as one sheet: Top Box by month for every survey, then its five
+     * charts drawn over the block — the overall panel first, at the width the
+     * page gives it, and the four surveys in a row beneath as the page has them.
+     */
     private static void topBox(XlsxBook book, KpiCsatResponse csat) {
-        perSurvey(book, csat, "Top Box", Column::percent, Bucket::topBoxRate);
+        List<Survey> surveys = all();
+        Column[] columns = new Column[surveys.size() + 2];
+        columns[0] = Column.text("Month", 14);
+        for (int i = 0; i < surveys.size(); i++) {
+            columns[i + 1] = Column.percent(surveys.get(i).label());
+        }
+        int averageColumn = surveys.size() + 1;
+        columns[averageColumn] = Column.percent("Period average");
+
+        XlsxBook.Tab tab = book.tab("Top Box", columns);
+        Double average = csat.totals().overall().topBoxRate();
+        for (MonthCsat month : csat.months()) {
+            Object[] row = new Object[columns.length];
+            row[0] = monthLabel(month.month());
+            for (int i = 0; i < surveys.size(); i++) {
+                row[i + 1] = surveys.get(i).inMonth().apply(month).topBoxRate();
+            }
+            row[averageColumn] = average;
+            tab.row(row);
+        }
+
+        // Panel 6, with the average rule the page draws across it.
+        tab.chart(new ChartSpec("CSAT Top Box", Stacking.CLUSTERED, List.of(1), List.of(OVERALL_BAR),
+                average == null ? null : averageColumn, true, true, 8, 0, 10, 18));
+
+        // The four surveys on their own, in a row, as the page shows them.
+        for (int i = 0; i < SURVEYS.size(); i++) {
+            Survey survey = SURVEYS.get(i);
+            tab.chart(new ChartSpec(survey.label(), Stacking.CLUSTERED, List.of(i + 2),
+                    List.of(survey.color()), null, true, true, 27, i * 5, 5, 16));
+        }
     }
 
     /** Months down, surveys across — the shape a column chart wants. */
@@ -72,17 +119,18 @@ public class KpiCsatXlsxExporter {
             Function<String, Column> column,
             Function<Bucket, Number> value
     ) {
-        Column[] columns = new Column[SURVEYS.size() + 1];
+        List<Survey> surveys = all();
+        Column[] columns = new Column[surveys.size() + 1];
         columns[0] = Column.text("Month", 14);
-        for (int i = 0; i < SURVEYS.size(); i++) {
-            columns[i + 1] = column.apply(SURVEYS.get(i).label());
+        for (int i = 0; i < surveys.size(); i++) {
+            columns[i + 1] = column.apply(surveys.get(i).label());
         }
         XlsxBook.Tab tab = book.tab(name, columns);
         for (MonthCsat month : csat.months()) {
             Object[] row = new Object[columns.length];
             row[0] = monthLabel(month.month());
-            for (int i = 0; i < SURVEYS.size(); i++) {
-                row[i + 1] = value.apply(SURVEYS.get(i).inMonth().apply(month));
+            for (int i = 0; i < surveys.size(); i++) {
+                row[i + 1] = value.apply(surveys.get(i).inMonth().apply(month));
             }
             tab.row(row);
         }
@@ -102,7 +150,7 @@ public class KpiCsatXlsxExporter {
                 Column.count("Did not respond"),
                 Column.percent("Response rate"));
         for (MonthCsat month : csat.months()) {
-            for (Survey survey : SURVEYS) {
+            for (Survey survey : all()) {
                 Bucket b = survey.inMonth().apply(month);
                 tab.row(monthLabel(month.month()), survey.label(), b.topBoxRate(), readFrom(b),
                         counted(b, b.fives()), counted(b, b.ratings()), counted(b, b.responses()),
@@ -123,7 +171,7 @@ public class KpiCsatXlsxExporter {
                 Column.count("Contacted"),
                 Column.count("Did not respond"),
                 Column.percent("Response rate"));
-        for (Survey survey : SURVEYS) {
+        for (Survey survey : all()) {
             Bucket b = survey.inTotals().apply(csat.totals());
             tab.row(survey.label(), b.topBoxRate(), readFrom(b),
                     counted(b, b.fives()), counted(b, b.ratings()), counted(b, b.responses()),
@@ -141,6 +189,11 @@ public class KpiCsatXlsxExporter {
         if (csat.provisional()) {
             tab.row("Status", "Provisional — the definitions await RE-team sign-off.");
         }
+        tab.row("Charts", "On the Top Box sheet, drawn as the console's CSAT page draws them: the overall "
+                + "panel, then each survey on its own. They read the cells above, so correcting a figure "
+                + "redraws the chart; copy one into a slide and it stays editable there. The 'Period average' "
+                + "column repeats one figure on every row because that is what a chart needs to draw the rule "
+                + "the panel carries.");
         tab.blank();
 
         tab.row("Source workbooks", csat.sourceFiles().isEmpty() ? "none could be read" : null);

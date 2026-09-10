@@ -190,9 +190,15 @@ and nothing else changes.
 
 ## Excel export — for the deck
 
-Both live areas download as an .xlsx, one sheet per chart, so a figure can be
-charted in Excel and pasted into PowerPoint as a real chart object: the numbers
-stay editable and the colours are a click. A picture of an HTML chart is neither.
+Both live areas download as an .xlsx **carrying the page's own charts** as real
+Excel chart objects, so one can be copied straight into PowerPoint and stay
+editable there: the numbers can be corrected and the colours are a click. A
+picture of an HTML chart is neither.
+
+The charts mirror the panels — same type, colours and average rule. CSAT's Top
+Box sheet holds five (the overall panel, then each survey); the report holds one
+per panel sheet: 1st Time Install, Total CM Cases (stacked), First Time Fix
+(cleaning against delivery) and SLA (within/over stacked).
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" -OJ \
@@ -213,3 +219,25 @@ workbooks, how far they run, the window lengths, each definition in words, and
 for CSAT whether a figure is a `sheet cell` or was `pooled`. Anything written
 above a data block is what breaks Excel's series detection, which is why it is
 not there.
+
+### Writing charts with POI — the three traps
+
+All three fail silently or as "Excel found a problem with some content", so
+`KpiXlsxExportTest` validates every chart's XML against the schema
+(`CTChart.validate()`), which names the offending element instead.
+
+1. **`poi-ooxml-lite` cannot write a stacked chart.** It ships the generated
+   classes but not every compiled schema resource, and `<c:overlap>` — which a
+   stacked column chart needs, or Excel draws the series side by side — dies
+   with *Could not locate compiled schema resource … stoverlappercent….xsb*.
+   The pom therefore excludes lite and depends on `poi-ooxml-full` (~14 MB).
+2. **A `<c:lineChart>` must declare `<c:grouping>`; POI writes none.** The
+   average rule is a flat line series, so every panel with a rule was invalid
+   until `setGrouping(Grouping.STANDARD)`.
+3. **POI marks a number format source-linked**, which tells the reader to ignore
+   the format code — a rate axis then renders 0 to 1, and data labels print
+   `0.682`. Both `numFmt`s are written with `sourceLinked="false"`, and the
+   labels get their own (the schema wants it as `dLbls`' first child).
+
+`XDDFLineProperties.setWidth` is in **points**, not EMU: 20000 there is 254
+million EMU and outside `ST_LineWidth`.
