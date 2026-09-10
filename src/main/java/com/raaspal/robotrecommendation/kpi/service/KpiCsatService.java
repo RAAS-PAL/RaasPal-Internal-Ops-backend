@@ -259,13 +259,17 @@ public class KpiCsatService {
         }
 
         Bucket bucket() {
+            boolean fromSheet = sheets == 1;
+            // if/else, not a ternary: mixing the primitive branch with rate()'s
+            // Double unboxes it, and an unsurveyed bucket's null then throws.
             Double topBox;
-            if (sheets == 1) {
+            if (fromSheet) {
                 topBox = Math.round(onlyTopBox * 1000.0) / 10.0;
             } else {
                 topBox = rate(fives, ratings);
             }
-            return new Bucket(surveyed, customers, responses, notEvaluated, topBox, rate(responses, customers));
+            return new Bucket(surveyed, customers, responses, notEvaluated, topBox, fromSheet,
+                    fives, ratings, rate(responses, customers));
         }
 
         private static Double rate(int numerator, int denominator) {

@@ -109,6 +109,29 @@ class KpiCsatServiceTest {
         assertThat(r.totals().installation().topBoxRate()).isEqualTo(69.7);          // (27+10+9) / (45+10+11)
     }
 
+    /**
+     * The console shows a reader where a figure came from, so the bucket says
+     * which of the two it is and carries the counts behind a combined one.
+     */
+    @Test
+    void aBucketSaysWhetherItsTopBoxIsACellOrWasCombined() {
+        KpiCsatResponse r = service(pmAndInstall()).monthly(JAN, JAN);
+
+        KpiCsatResponse.Bucket pm = r.months().get(0).pm();
+        assertThat(pm.topBoxFromSheet()).isTrue();       // one survey, one month: the sheet's own cell
+        assertThat(pm.fives()).isEqualTo(90);
+        assertThat(pm.ratings()).isEqualTo(100);
+
+        KpiCsatResponse.Bucket overall = r.months().get(0).overall();
+        assertThat(overall.topBoxFromSheet()).isFalse(); // two surveys pooled; no sheet holds it
+        assertThat(overall.fives()).isEqualTo(91);
+        assertThat(overall.ratings()).isEqualTo(102);
+
+        KpiCsatResponse.Bucket unsurveyed = r.months().get(0).cleaning();
+        assertThat(unsurveyed.topBoxFromSheet()).isFalse();
+        assertThat(unsurveyed.ratings()).isZero();
+    }
+
     @Test
     void responseRateIsResponsesOverCustomersContacted() {
         KpiCsatResponse r = service(pmAndInstall()).monthly(JAN, JAN);

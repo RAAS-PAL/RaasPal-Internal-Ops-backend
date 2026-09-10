@@ -52,12 +52,22 @@ public record KpiCsatResponse(
      * @param customers    customers the team tried to reach
      * @param responses    of those, ones who answered
      * @param notEvaluated ones who did not
-     * @param topBoxRate   for one survey in one month, the sheet's own Top Box cell
-     *                     as a percentage. For a range or the pool — which no sheet
-     *                     holds — all ratings of 5 over all ratings given, as the
-     *                     deck does it; null when nobody answered
-     * @param responseRate {@code responses / customers} as a percentage; null
-     *                     when nobody was contacted
+     * @param topBoxRate      for one survey in one month, the sheet's own Top Box cell
+     *                        as a percentage. For a range or the pool — which no sheet
+     *                        holds — all ratings of 5 over all ratings given, as the
+     *                        deck does it; null when nobody answered
+     * @param topBoxFromSheet true when {@code topBoxRate} is one sheet's own cell,
+     *                        false when it had to be combined. The console says
+     *                        which, since "read from the sheet" and "pooled the way
+     *                        the deck pools" are different claims about a figure
+     * @param fives           ratings of 5 given, summed over whatever this bucket
+     *                        covers — the numerator of a combined Top Box
+     * @param ratings         ratings given at all, the matching denominator. Returned
+     *                        so the console can show the arithmetic rather than assert
+     *                        it: a reader who wonders why six months of 60/100/83/100/
+     *                        100/100 come to 79.2% can see the answer counts
+     * @param responseRate    {@code responses / customers} as a percentage; null
+     *                        when nobody was contacted
      */
     public record Bucket(
             boolean surveyed,
@@ -65,6 +75,9 @@ public record KpiCsatResponse(
             int responses,
             int notEvaluated,
             Double topBoxRate,
+            boolean topBoxFromSheet,
+            int fives,
+            int ratings,
             Double responseRate
     ) {
     }
