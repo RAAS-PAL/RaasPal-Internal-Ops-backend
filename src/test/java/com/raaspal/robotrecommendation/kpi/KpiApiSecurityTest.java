@@ -38,6 +38,7 @@ class KpiApiSecurityTest {
     @WithAnonymousUser
     void anonymousIsUnauthorised() throws Exception {
         mockMvc.perform(get(BASE + "/cm-cases")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(BASE + "/csat")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -46,6 +47,8 @@ class KpiApiSecurityTest {
         mockMvc.perform(get(BASE + "/cm-cases")).andExpect(status().isForbidden());
         mockMvc.perform(get(BASE + "/monday/config")).andExpect(status().isForbidden());
         mockMvc.perform(post(BASE + "/monday/sync")).andExpect(status().isForbidden());
+        mockMvc.perform(get(BASE + "/csat")).andExpect(status().isForbidden());
+        mockMvc.perform(post(BASE + "/csat/reload")).andExpect(status().isForbidden());
     }
 
     @Test
@@ -96,6 +99,18 @@ class KpiApiSecurityTest {
         mockMvc.perform(post(BASE + "/monday/sync"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(containsString("MONDAY_API_TOKEN")));
+    }
+
+    /** No folder in the test profile: CSAT says so, naming the variable, rather than 500. */
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void csatWithoutAFolderIsA400ThatNamesTheEnvVar() throws Exception {
+        mockMvc.perform(get(BASE + "/csat").param("from", "2026-01").param("to", "2026-06"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(containsString("KPI_CSAT_FOLDER")));
+        mockMvc.perform(post(BASE + "/csat/reload"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(containsString("KPI_CSAT_FOLDER")));
     }
 
     @Test

@@ -8,11 +8,13 @@ import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.kpi.config.KpiMondayProperties;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse;
+import com.raaspal.robotrecommendation.kpi.dto.KpiCsatResponse;
 import com.raaspal.robotrecommendation.kpi.dto.MondaySyncConfigResponse;
 import com.raaspal.robotrecommendation.kpi.dto.MondaySyncRunResponse;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicketSyncRun;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketSyncRunRepository;
 import com.raaspal.robotrecommendation.kpi.service.KpiCaseMetricsService;
+import com.raaspal.robotrecommendation.kpi.service.KpiCsatService;
 import com.raaspal.robotrecommendation.kpi.service.MondayCaseSyncService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -47,6 +49,7 @@ public class KpiController {
     private static final int MAX_RUNS = 100;
 
     private final KpiCaseMetricsService metricsService;
+    private final KpiCsatService csatService;
     private final MondayCaseSyncService syncService;
     private final CaseTicketSyncRunRepository runRepository;
     private final MondayBoardReader boardReader;
@@ -65,6 +68,36 @@ public class KpiController {
         YearMonth toMonth = to == null ? YearMonth.now(ZoneId.of(properties.getSyncZone())).minusMonths(1) : parseMonth(to, "to");
         YearMonth fromMonth = from == null ? toMonth.minusMonths(5) : parseMonth(from, "from");
         return ApiResponse.success(metricsService.monthly(fromMonth, toMonth));
+    }
+
+    /**
+     * CSAT per month, from the RE team's survey workbooks. Not live: the
+     * figures move when the team replaces the workbooks, roughly monthly, and
+     * {@code asOf} says how far they run. Same default period as the CM cases.
+     */
+    @GetMapping("/csat")
+    public ApiResponse<KpiCsatResponse> csat(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        YearMonth toMonth = to == null ? YearMonth.now(ZoneId.of(properties.getSyncZone())).minusMonths(1) : parseMonth(to, "to");
+        YearMonth fromMonth = from == null ? toMonth.minusMonths(5) : parseMonth(from, "from");
+        return ApiResponse.success(csatService.monthly(fromMonth, toMonth));
+    }
+
+    /** What the workbook source holds right now: files, surveys, how far they run. */
+    @GetMapping("/csat/source")
+    public ApiResponse<KpiCsatService.SourceStatus> csatSource() {
+        return ApiResponse.success(csatService.status());
+    }
+
+    /**
+     * Re-reads the workbooks now. Normally unnecessary — a replaced file is
+     * noticed on the next request — but it is the honest answer to "I just
+     * uploaded them, why hasn't it changed?".
+     */
+    @PostMapping("/csat/reload")
+    public ApiResponse<KpiCsatService.SourceStatus> reloadCsat() {
+        return ApiResponse.success("csat workbooks reloaded", csatService.reload());
     }
 
     /** Starts a full sync of every configured board in the background; poll {@code /monday/sync/status}. */

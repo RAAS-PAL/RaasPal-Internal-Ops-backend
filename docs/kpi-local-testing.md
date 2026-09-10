@@ -143,3 +143,47 @@ deck 38 vs live 133 and is an open question for the RE team); FTF 72.3% (live �
 - `/actuator/health` needs auth here; an unauthenticated probe returns 401.
 - Stop cleanly: `Ctrl-C`, then `docker stop raaspal-kpi-pg`. Never leave a local
   backend running against Supabase.
+
+## CSAT — the survey workbooks
+
+CSAT is the one RE KPI with no monday source. It comes from the post-job phone
+survey, which the RE team tallies by hand into **four workbooks** — installation,
+MA (= PM), CM cleaning, CM delivery — and replaces about once a month. Only the
+month sheets (`Jan 2026`, `June 2026`, …) are read, by label; the `Detail_` and
+summary sheets that name customers are never opened. Nothing is persisted and
+nothing is scheduled; a replaced file is noticed on the next request.
+
+**The rule: where a cell exists, show the cell; where the deck had to combine
+sheets, combine them the deck's way.**
+
+- One survey, one month → the sheet's own **Top Box** cell (`I17 = AVERAGE(Q10:Q14)`,
+  the RE team's formula), found by the "Top Box" label, read as it is. Never
+  recomputed.
+- A survey over a range, or all surveys in a month → no sheet holds it. Combined as
+  the deck combines them: all ratings of 5 over all ratings given, from the I and N
+  columns of the question rows. Every deck figure reproduces exactly.
+- Response rate → responses ÷ customers called (`ประเมินผล` ÷ `# ลูกค้า`).
+
+Point the backend at the folder (the `local` profile already does; blank = not
+configured, and `GET /kpi/csat` is a 400 naming the variable):
+
+```properties
+app.kpi.csat.folder=/Users/kusk/Downloads/csatscorefordashboard   # or KPI_CSAT_FOLDER=…
+```
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "localhost:8081/api/v1/kpi/csat?from=2026-01&to=2026-06" \
+  | jq '.data.totals | to_entries[] | {(.key): .value.topBoxRate}'
+# expect overall 86.2, installation 79.2, pm 91.9, cleaning 70.3, delivery 89.7 — the deck's CSAT slide
+
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8081/api/v1/kpi/csat/source | jq .data      # files, surveys, months
+curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:8081/api/v1/kpi/csat/reload | jq .data   # after dropping new files
+```
+
+`warnings` lists only what could not be read: a month sheet missing a tally, a Top
+Box cell or the rating header; a file whose survey could not be told; a survey with
+no workbook.
+
+When the workbooks move to a bucket, implement `kpi.csat.CsatWorkbookSource` for it
+and nothing else changes.
