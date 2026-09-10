@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.kpi.export;
 
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.util.CellRangeAddress;
@@ -10,6 +11,7 @@ import org.apache.poi.xddf.usermodel.XDDFColor;
 import org.apache.poi.xddf.usermodel.XDDFLineProperties;
 import org.apache.poi.xddf.usermodel.XDDFShapeProperties;
 import org.apache.poi.xddf.usermodel.XDDFSolidFillProperties;
+import org.apache.poi.xddf.usermodel.chart.AxisCrossBetween;
 import org.apache.poi.xddf.usermodel.chart.AxisCrosses;
 import org.apache.poi.xddf.usermodel.chart.AxisPosition;
 import org.apache.poi.xddf.usermodel.chart.AxisTickMark;
@@ -241,7 +243,11 @@ final class XlsxBook {
             XSSFChart chart = drawing.createChart(anchor);
             chart.setTitleText(spec.title());
             chart.setTitleOverlay(false);
-            if (spec.columns().size() > 1) {
+            // The page's chart carries a header row: the series on the left,
+            // the average with a line swatch on the right. The legend is that row
+            // — so a panel with a rule gets one even when it has a single series,
+            // and the rule itself then only has to print its figure.
+            if (spec.columns().size() > 1 || spec.averageColumn() != null) {
                 XDDFChartLegend legend = chart.getOrAddLegend();
                 legend.setPosition(LegendPosition.BOTTOM);
             }
@@ -249,6 +255,14 @@ final class XlsxBook {
             XDDFCategoryAxis months = chart.createCategoryAxis(AxisPosition.BOTTOM);
             XDDFValueAxis values = chart.createValueAxis(AxisPosition.LEFT);
             values.setCrosses(AxisCrosses.AUTO_ZERO);
+            // Each month owns a band, as it does on the page. POI's default —
+            // midCat — plots the first and last month on the plot area's own
+            // edges instead, so half of each of those two bars is drawn outside
+            // it and Excel clips it: the file opens with January and June looking
+            // shaved down their outer side. Between is Excel's own default for a
+            // column chart. The rule pays for it, reaching the outermost months'
+            // centres rather than the plot's edges.
+            values.setCrossBetween(AxisCrossBetween.BETWEEN);
             // Whole percentages and thousand-separated counts, the way the
             // panels print them. The cells keep their own finer format: a bar
             // labelled 87% still sits on a cell reading 86.6%, as on the page.
@@ -323,8 +337,8 @@ final class XlsxBook {
                 properties.setLineProperties(line);
                 series.setShapeProperties(properties);
                 chart.plot(rule);
-                labelRuleEnd(chart.getCTChart().getPlotArea().getLineChartArray(0).getSerArray(0),
-                        lastRow - 1, spec.percent() ? "0.0%" : "#,##0");
+                labelRule(chart.getCTChart().getPlotArea().getLineChartArray(0).getSerArray(0),
+                        ruleLabelPoint(spec, lastRow), spec.percent() ? "0.0%" : "#,##0");
             }
 
             var barChart = chart.getCTChart().getPlotArea().getBarChartArray(0);
@@ -343,6 +357,58 @@ final class XlsxBook {
                     labelValues(series, labelFormat);
                 }
             }
+        }
+
+        /**
+         * Which month carries the rule's figure: the last one whose bar is clear
+         * of it, or failing that the one furthest from it.
+         *
+         * <p>The figure has to sit at the rule's own height, which is where a bar
+         * that happens to match the average prints its value too — and two
+         * numbers in one place are neither readable. The page lifts the bar's
+         * label over the rule; a chart cannot be told to do that, so the rule's
+         * label moves along the line instead, to a month where there is room.
+         *
+         * <p>The heights come back out of the cells just written, so this reads
+         * exactly what the chart reads. A month with no bar at all counts as
+         * clear: an empty band is the best place a label can land.
+         */
+        private int ruleLabelPoint(ChartSpec spec, int lastRow) {
+            double rule = numeric(1, spec.averageColumn());
+            // Percent panels are pinned; a count panel's axis is as tall as its
+            // tallest column, near enough for measuring a label against.
+            double span = spec.percent() ? 1.1 : 0.0;
+            double[] tops = new double[lastRow];
+            for (int row = 1; row <= lastRow; row++) {
+                double top = 0;
+                for (int column : spec.columns()) {
+                    double value = numeric(row, column);
+                    top = spec.stacking() == Stacking.STACKED ? top + value : Math.max(top, value);
+                }
+                tops[row - 1] = top;
+                span = Math.max(span, top);
+            }
+            // A label stands about a tenth of the plot high, counting its air.
+            double clear = span * 0.1;
+            int furthest = 0;
+            for (int i = 0; i < tops.length; i++) {
+                if (Math.abs(tops[i] - rule) > Math.abs(tops[furthest] - rule)) {
+                    furthest = i;
+                }
+            }
+            for (int i = tops.length - 1; i >= 0; i--) {
+                if (Math.abs(tops[i] - rule) >= clear) {
+                    return i;
+                }
+            }
+            return furthest;
+        }
+
+        /** A written cell's number, or 0 for a month that has none. */
+        private double numeric(int row, int column) {
+            Row r = sheet.getRow(row);
+            Cell cell = r == null ? null : r.getCell(column);
+            return cell == null || cell.getCellType() != CellType.NUMERIC ? 0 : cell.getNumericCellValue();
         }
     }
 
@@ -369,15 +435,18 @@ final class XlsxBook {
     }
 
     /**
-     * Labels one point of the rule — the last — with the series name and its
-     * value, so the line reads "Avg 86.2%" at its end as the page's does.
+     * Prints the rule's figure once, above the line, at one month.
+     *
+     * <p>The figure alone: the legend names the line, and a label carrying
+     * "Avg CM Delivery 89.7%" as well wraps onto three lines in a panel five
+     * columns wide and covers the bars either side of it.
      *
      * <p>A single point's label is a {@code dLbl} inside the series' {@code dLbls},
      * and both carry the same run of show-flags in schema order: the point's
-     * turn the name and value on; the group's, which govern every other point,
-     * turn everything off.
+     * turns the value on; the group's, which govern every other point, turn
+     * everything off.
      */
-    private static void labelRuleEnd(CTLineSer series, int pointIndex, String format) {
+    private static void labelRule(CTLineSer series, int pointIndex, String format) {
         CTDLbls labels = series.isSetDLbls() ? series.getDLbls() : series.addNewDLbls();
         CTDLbl label = labels.addNewDLbl();
         label.addNewIdx().setVal(pointIndex);
@@ -388,10 +457,9 @@ final class XlsxBook {
         label.addNewShowLegendKey().setVal(false);
         label.addNewShowVal().setVal(true);
         label.addNewShowCatName().setVal(false);
-        label.addNewShowSerName().setVal(true);
+        label.addNewShowSerName().setVal(false);
         label.addNewShowPercent().setVal(false);
         label.addNewShowBubbleSize().setVal(false);
-        label.setSeparator(" ");
         labels.addNewShowLegendKey().setVal(false);
         labels.addNewShowVal().setVal(false);
         labels.addNewShowCatName().setVal(false);

@@ -220,9 +220,9 @@ for CSAT whether a figure is a `sheet cell` or was `pooled`. Anything written
 above a data block is what breaks Excel's series detection, which is why it is
 not there.
 
-### Writing charts with POI — the three traps
+### Writing charts with POI — the four traps
 
-All three fail silently or as "Excel found a problem with some content", so
+All of them fail silently or as "Excel found a problem with some content", so
 `KpiXlsxExportTest` validates every chart's XML against the schema
 (`CTChart.validate()`), which names the offending element instead.
 
@@ -238,6 +238,19 @@ All three fail silently or as "Excel found a problem with some content", so
    the format code — a rate axis then renders 0 to 1, and data labels print
    `0.682`. Both `numFmt`s are written with `sourceLinked="false"`, and the
    labels get their own (the schema wants it as `dLbls`' first child).
+4. **POI's value axis writes `<c:crossBetween val="midCat"/>`**, which plots the
+   first and last category on the plot area's own edges. Excel then draws half of
+   each of those two bars outside the plot and clips it: the file opens with the
+   first and last month shaved down their outer side, and nothing in the XML
+   looks wrong. `setCrossBetween(AxisCrossBetween.BETWEEN)` gives each month a
+   band, which is Excel's own default for a column chart. It shortens the average
+   rule to the outermost months' centres — the price of whole bars.
+
+The rule's own figure is printed on one point of the line, and which point is
+chosen by reading the bars back out of the cells: the last month whose bar is
+clear of the rule, or the furthest one if none is. Two numbers at the same height
+are unreadable, and a chart cannot be told to move a bar's label out of the way
+the way the page does.
 
 `XDDFLineProperties.setWidth` is in **points**, not EMU: 20000 there is 254
 million EMU and outside `ST_LineWidth`.

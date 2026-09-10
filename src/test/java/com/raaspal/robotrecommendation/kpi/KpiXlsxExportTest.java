@@ -24,8 +24,10 @@ import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.xmlbeans.XmlError;
 import org.apache.xmlbeans.XmlOptions;
 import org.junit.jupiter.api.Test;
+import org.apache.poi.xddf.usermodel.chart.LegendPosition;
 import org.openxmlformats.schemas.drawingml.x2006.chart.CTBarChart;
 import org.openxmlformats.schemas.drawingml.x2006.chart.STBarGrouping;
+import org.openxmlformats.schemas.drawingml.x2006.chart.STCrossBetween;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -214,15 +216,44 @@ class KpiXlsxExportTest {
             // Headroom above 100%, or a full-height bar's label leaves the plot.
             assertThat(axis.getScaling().getMax().getVal()).isEqualTo(1.1);
             assertThat(axis.getMajorUnit().getVal()).isEqualTo(0.25);
+            // Months in bands, not on the ticks. POI's default puts the first and
+            // last month on the plot's edges and Excel clips half of both bars.
+            assertThat(axis.getCrossBetween().getVal()).isEqualTo(STCrossBetween.BETWEEN);
 
             // Each survey's chart carries its own total as a rule, labelled at its end.
             assertThat(charts.get(1).getCTChart().getPlotArea().getLineChartArray()).hasSize(1);
             var rule = charts.get(1).getCTChart().getPlotArea().getLineChartArray(0).getSerArray(0);
             assertThat(rule.getTx().getStrRef().getF()).contains("Top Box");
-            assertThat(rule.getDLbls().getDLblArray(0).getShowSerName().getVal()).isTrue();
+            // The figure only — the legend names the line, and both together wrap
+            // over the bars either side in a panel five columns wide.
+            assertThat(rule.getDLbls().getDLblArray(0).getShowVal().getVal()).isTrue();
+            assertThat(rule.getDLbls().getDLblArray(0).getShowSerName().getVal()).isFalse();
             assertThat(rule.getDLbls().getDLblArray(0).getNumFmt().getFormatCode()).isEqualTo("0.0%");
+            assertThat(charts.get(1).getOrAddLegend().getPosition()).isEqualTo(LegendPosition.BOTTOM);
             // A survey nobody ran has no total, so no rule.
             assertThat(charts.get(4).getCTChart().getPlotArea().getLineChartArray()).isEmpty();
+        }
+    }
+
+    /**
+     * The rule's figure sits at the rule's height, so it must not land on a
+     * month whose bar prints its value there too. June is on the average here
+     * and May is nowhere near it, so the label belongs on May.
+     */
+    @Test
+    void theRulesFigureAvoidsAMonthWhoseBarLabelIsAtTheSameHeight() throws IOException {
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        files.put("install.xlsx", CsatWorkbookFixtures.workbook("Post-installation CSAT Survey",
+                MonthSpec.of("Apr 2026", 10, 10, new int[]{10, 0, 0, 0, 0}),      // 100%
+                MonthSpec.of("May 2026", 10, 10, new int[]{0, 10, 0, 0, 0}),      // 0%
+                MonthSpec.of("Jun 2026", 10, 10, new int[]{5, 5, 0, 0, 0})));     // 50%, the average
+        KpiCsatResponse csat = new KpiCsatService(source(files), new CsatWorkbookParser(), new KpiCsatProperties())
+                .monthly(YearMonth.of(2026, 4), YearMonth.of(2026, 6));
+
+        try (Workbook book = read(new KpiCsatXlsxExporter().export(csat))) {
+            var rule = charts(book, "Top Box").get(1).getCTChart().getPlotArea()
+                    .getLineChartArray(0).getSerArray(0);
+            assertThat(rule.getDLbls().getDLblArray(0).getIdx().getVal()).isEqualTo(1);
         }
     }
 
