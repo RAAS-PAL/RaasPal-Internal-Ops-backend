@@ -105,7 +105,8 @@ class KpiXlsxExportTest {
     void csatTopBoxIsMonthsDownAndSurveysAcross() throws IOException {
         try (Workbook book = read(new KpiCsatXlsxExporter().export(csat()))) {
             assertThat(headers(book, "Top Box")).containsExactly(
-                    "Month", "Overall", "Installation", "PM", "CM Delivery", "CM Cleaning", "Period average");
+                    "Month", "Overall", "Installation", "PM", "CM Delivery", "CM Cleaning",
+                    "Avg Overall", "Avg Installation", "Avg PM", "Avg CM Delivery", "Avg CM Cleaning");
             assertThat(cell(book, "Top Box", 1, 0).getStringCellValue()).isEqualTo("Jan 2026");
             assertThat(cell(book, "Top Box", 1, 1).getNumericCellValue()).isEqualTo(0.892);  // 91 of 102
             assertThat(cell(book, "Top Box", 1, 3).getNumericCellValue()).isEqualTo(0.90);
@@ -212,8 +213,14 @@ class KpiXlsxExportTest {
             assertThat(axis.getNumFmt().getSourceLinked()).isFalse();
             assertThat(axis.getScaling().getMax().getVal()).isEqualTo(1.0);
 
-            // A survey's own chart has no rule; its total is the headline instead.
-            assertThat(charts.get(1).getCTChart().getPlotArea().getLineChartArray()).isEmpty();
+            // Each survey's chart carries its own total as a rule, labelled at its end.
+            assertThat(charts.get(1).getCTChart().getPlotArea().getLineChartArray()).hasSize(1);
+            var rule = charts.get(1).getCTChart().getPlotArea().getLineChartArray(0).getSerArray(0);
+            assertThat(rule.getTx().getStrRef().getF()).contains("Top Box");
+            assertThat(rule.getDLbls().getDLblArray(0).getShowSerName().getVal()).isTrue();
+            assertThat(rule.getDLbls().getDLblArray(0).getNumFmt().getFormatCode()).isEqualTo("0.0%");
+            // A survey nobody ran has no total, so no rule.
+            assertThat(charts.get(4).getCTChart().getPlotArea().getLineChartArray()).isEmpty();
         }
     }
 

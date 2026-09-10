@@ -78,36 +78,36 @@ public class KpiCsatXlsxExporter {
      * page gives it, and the four surveys in a row beneath as the page has them.
      */
     private static void topBox(XlsxBook book, KpiCsatResponse csat) {
+        // One column per survey, then one average per survey: each chart's rule
+        // is its own survey's period total, as the page's cards head themselves.
         List<Survey> surveys = all();
-        Column[] columns = new Column[surveys.size() + 2];
+        int n = surveys.size();
+        Column[] columns = new Column[1 + 2 * n];
         columns[0] = Column.text("Month", 14);
-        for (int i = 0; i < surveys.size(); i++) {
-            columns[i + 1] = Column.percent(surveys.get(i).label());
+        for (int i = 0; i < n; i++) {
+            columns[1 + i] = Column.percent(surveys.get(i).label());
+            columns[1 + n + i] = Column.percent("Avg " + surveys.get(i).label());
         }
-        int averageColumn = surveys.size() + 1;
-        columns[averageColumn] = Column.percent("Period average");
 
         XlsxBook.Tab tab = book.tab("Top Box", columns);
-        Double average = csat.totals().overall().topBoxRate();
         for (MonthCsat month : csat.months()) {
             Object[] row = new Object[columns.length];
             row[0] = monthLabel(month.month());
-            for (int i = 0; i < surveys.size(); i++) {
-                row[i + 1] = surveys.get(i).inMonth().apply(month).topBoxRate();
+            for (int i = 0; i < n; i++) {
+                row[1 + i] = surveys.get(i).inMonth().apply(month).topBoxRate();
+                row[1 + n + i] = surveys.get(i).inTotals().apply(csat.totals()).topBoxRate();
             }
-            row[averageColumn] = average;
             tab.row(row);
         }
 
-        // Panel 6, with the average rule the page draws across it.
-        tab.chart(new ChartSpec("CSAT Top Box", Stacking.CLUSTERED, List.of(1), List.of(OVERALL_BAR),
-                average == null ? null : averageColumn, true, true, 8, 0, 10, 18));
-
-        // The four surveys on their own, in a row, as the page shows them.
-        for (int i = 0; i < SURVEYS.size(); i++) {
-            Survey survey = SURVEYS.get(i);
-            tab.chart(new ChartSpec(survey.label(), Stacking.CLUSTERED, List.of(i + 2),
-                    List.of(survey.color()), null, true, true, 27, i * 5, 5, 16));
+        // Panel 6 at the page's width, then the four surveys in a row beneath.
+        for (int i = 0; i < n; i++) {
+            Survey survey = surveys.get(i);
+            boolean overall = i == 0;
+            Integer rule = survey.inTotals().apply(csat.totals()).topBoxRate() == null ? null : 1 + n + i;
+            tab.chart(new ChartSpec(overall ? "CSAT Top Box" : survey.label(), Stacking.CLUSTERED,
+                    List.of(1 + i), List.of(survey.color()), rule, true, true,
+                    overall ? 8 : 27, overall ? 0 : (i - 1) * 5, overall ? 10 : 5, overall ? 18 : 16));
         }
     }
 
@@ -191,9 +191,9 @@ public class KpiCsatXlsxExporter {
         }
         tab.row("Charts", "On the Top Box sheet, drawn as the console's CSAT page draws them: the overall "
                 + "panel, then each survey on its own. They read the cells above, so correcting a figure "
-                + "redraws the chart; copy one into a slide and it stays editable there. The 'Period average' "
-                + "column repeats one figure on every row because that is what a chart needs to draw the rule "
-                + "the panel carries.");
+                + "redraws the chart; copy one into a slide and it stays editable there. The 'Avg …' "
+                + "columns repeat one figure on every row because that is what a chart needs to draw the rule "
+                + "each panel carries.");
         tab.blank();
 
         tab.row("Source workbooks", csat.sourceFiles().isEmpty() ? "none could be read" : null);

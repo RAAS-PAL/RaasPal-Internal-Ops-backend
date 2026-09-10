@@ -65,7 +65,7 @@ public class KpiCaseXlsxExporter {
         XlsxBook.Tab tab = book.tab("1st Time Install",
                 Column.text("Month", 14),
                 Column.percent("1st Time Install"),
-                Column.percent("Period average"),
+                Column.percent("Avg"),
                 Column.count("Installs"),
                 Column.count("First time"),
                 Column.count("A CM followed"));
@@ -85,7 +85,7 @@ public class KpiCaseXlsxExporter {
                 Column.text("Month", 14),
                 Column.count("Cleaning"),
                 Column.count("Delivery"),
-                Column.count("Average per month"),
+                Column.count("Avg"),
                 Column.count("Total"));
         int months = Math.max(metrics.months().size(), 1);
         double average = (double) metrics.totals().all().cm().total() / months;
@@ -103,7 +103,7 @@ public class KpiCaseXlsxExporter {
                 Column.text("Month", 14),
                 Column.percent("Cleaning"),
                 Column.percent("Delivery"),
-                Column.percent("Period average"),
+                Column.percent("Avg"),
                 Column.percent("Fleet"),
                 Column.count("CM cases"),
                 Column.count("Fixed first time"),
@@ -129,7 +129,7 @@ public class KpiCaseXlsxExporter {
                 Column.text("Month", 14),
                 Column.percent("Within SLA"),
                 Column.percent("Over SLA"),
-                Column.percent("Period average"),
+                Column.percent("Avg"),
                 Column.count("Within"),
                 Column.count("Over"),
                 Column.count("No RE Action date"));

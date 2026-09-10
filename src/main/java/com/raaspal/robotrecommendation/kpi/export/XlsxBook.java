@@ -12,6 +12,7 @@ import org.apache.poi.xddf.usermodel.XDDFShapeProperties;
 import org.apache.poi.xddf.usermodel.XDDFSolidFillProperties;
 import org.apache.poi.xddf.usermodel.chart.AxisCrosses;
 import org.apache.poi.xddf.usermodel.chart.AxisPosition;
+import org.apache.poi.xddf.usermodel.chart.AxisTickMark;
 import org.apache.poi.xddf.usermodel.chart.BarDirection;
 import org.apache.poi.xddf.usermodel.chart.BarGrouping;
 import org.apache.poi.xddf.usermodel.chart.ChartTypes;
@@ -32,8 +33,11 @@ import org.apache.poi.xssf.usermodel.XSSFDrawing;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.openxmlformats.schemas.drawingml.x2006.chart.CTBarSer;
+import org.openxmlformats.schemas.drawingml.x2006.chart.CTDLbl;
 import org.openxmlformats.schemas.drawingml.x2006.chart.CTDLbls;
+import org.openxmlformats.schemas.drawingml.x2006.chart.CTLineSer;
 import org.openxmlformats.schemas.drawingml.x2006.chart.CTNumFmt;
+import org.openxmlformats.schemas.drawingml.x2006.chart.STDLblPos;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -125,6 +129,8 @@ final class XlsxBook {
 
     /** The average rule's colour — the panels draw it in the text colour. */
     private static final String AVERAGE = "#1F2937";
+    /** The page's gridlines: the border token, faint. */
+    private static final String GRIDLINE = "#D1D5DB";
 
     private final XSSFWorkbook workbook = new XSSFWorkbook();
     private final CellStyle headerStyle;
@@ -248,19 +254,30 @@ final class XlsxBook {
             // labelled 87% still sits on a cell reading 86.6%, as on the page.
             String labelFormat = spec.percent() ? "0%" : "#,##0";
             if (spec.percent()) {
-                // The deck's rate charts all run 0–100, so a good month and a bad
-                // one are the same height in every panel.
+                // The deck's rate charts all run 0–100 in quarters, so a good
+                // month and a bad one are the same height in every panel.
                 values.setMinimum(0.0);
                 values.setMaximum(1.0);
+                values.setMajorUnit(0.25);
                 values.setNumberFormat("0%");
             } else {
                 values.setNumberFormat(labelFormat);
             }
+            // Faint solid gridlines and no tick marks, as on the page.
+            values.setMajorTickMark(AxisTickMark.NONE);
+            months.setMajorTickMark(AxisTickMark.NONE);
+            XDDFLineProperties gridline = new XDDFLineProperties();
+            gridline.setFillProperties(new XDDFSolidFillProperties(XDDFColor.from(rgb(GRIDLINE))));
+            gridline.setWidth(0.75);
+            values.getOrAddMajorGridProperties().setLineProperties(gridline);
 
             XDDFDataSource<String> categories = XDDFDataSourcesFactory.fromStringCellRange(
                     sheet, new CellRangeAddress(1, lastRow, 0, 0));
             XDDFBarChartData bar = (XDDFBarChartData) chart.createData(ChartTypes.BAR, months, values);
             bar.setBarDirection(BarDirection.COL);
+            // The page gives a bar 62% of its month's slot; Excel's default gap
+            // of 150% of the bar makes them slivers.
+            bar.setGapWidth(60);
             // Stated either way: the schema defaults an absent grouping to
             // clustered, but a chart that says what it is survives being edited.
             bar.setBarGrouping(spec.stacking() == Stacking.STACKED
@@ -302,6 +319,8 @@ final class XlsxBook {
                 properties.setLineProperties(line);
                 series.setShapeProperties(properties);
                 chart.plot(rule);
+                labelRuleEnd(chart.getCTChart().getPlotArea().getLineChartArray(0).getSerArray(0),
+                        lastRow - 1, spec.percent() ? "0.0%" : "#,##0");
             }
 
             var barChart = chart.getCTChart().getPlotArea().getBarChartArray(0);
@@ -339,6 +358,38 @@ final class XlsxBook {
         numberFormat.setSourceLinked(false);
         labels.addNewShowLegendKey().setVal(false);
         labels.addNewShowVal().setVal(true);
+        labels.addNewShowCatName().setVal(false);
+        labels.addNewShowSerName().setVal(false);
+        labels.addNewShowPercent().setVal(false);
+        labels.addNewShowBubbleSize().setVal(false);
+    }
+
+    /**
+     * Labels one point of the rule — the last — with the series name and its
+     * value, so the line reads "Avg 86.2%" at its end as the page's does.
+     *
+     * <p>A single point's label is a {@code dLbl} inside the series' {@code dLbls},
+     * and both carry the same run of show-flags in schema order: the point's
+     * turn the name and value on; the group's, which govern every other point,
+     * turn everything off.
+     */
+    private static void labelRuleEnd(CTLineSer series, int pointIndex, String format) {
+        CTDLbls labels = series.isSetDLbls() ? series.getDLbls() : series.addNewDLbls();
+        CTDLbl label = labels.addNewDLbl();
+        label.addNewIdx().setVal(pointIndex);
+        CTNumFmt numberFormat = label.addNewNumFmt();
+        numberFormat.setFormatCode(format);
+        numberFormat.setSourceLinked(false);
+        label.addNewDLblPos().setVal(STDLblPos.T);
+        label.addNewShowLegendKey().setVal(false);
+        label.addNewShowVal().setVal(true);
+        label.addNewShowCatName().setVal(false);
+        label.addNewShowSerName().setVal(true);
+        label.addNewShowPercent().setVal(false);
+        label.addNewShowBubbleSize().setVal(false);
+        label.setSeparator(" ");
+        labels.addNewShowLegendKey().setVal(false);
+        labels.addNewShowVal().setVal(false);
         labels.addNewShowCatName().setVal(false);
         labels.addNewShowSerName().setVal(false);
         labels.addNewShowPercent().setVal(false);
