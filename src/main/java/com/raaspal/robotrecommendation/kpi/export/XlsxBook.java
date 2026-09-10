@@ -255,9 +255,13 @@ final class XlsxBook {
             String labelFormat = spec.percent() ? "0%" : "#,##0";
             if (spec.percent()) {
                 // The deck's rate charts all run 0–100 in quarters, so a good
-                // month and a bad one are the same height in every panel.
+                // month and a bad one are the same height in every panel. The
+                // axis ends a little above 100% though: pinned at exactly 1.0, a
+                // 100% bar hits the ceiling and its label lands outside the plot.
+                // Ticks are only drawn at multiples of the unit, so nothing says
+                // "110%" — the top just has room.
                 values.setMinimum(0.0);
-                values.setMaximum(1.0);
+                values.setMaximum(1.1);
                 values.setMajorUnit(0.25);
                 values.setNumberFormat("0%");
             } else {

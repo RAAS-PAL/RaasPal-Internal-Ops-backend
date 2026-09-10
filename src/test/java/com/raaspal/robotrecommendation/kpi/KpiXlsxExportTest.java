@@ -211,7 +211,9 @@ class KpiXlsxExportTest {
             var axis = charts.get(0).getCTChart().getPlotArea().getValAxArray(0);
             assertThat(axis.getNumFmt().getFormatCode()).isEqualTo("0%");
             assertThat(axis.getNumFmt().getSourceLinked()).isFalse();
-            assertThat(axis.getScaling().getMax().getVal()).isEqualTo(1.0);
+            // Headroom above 100%, or a full-height bar's label leaves the plot.
+            assertThat(axis.getScaling().getMax().getVal()).isEqualTo(1.1);
+            assertThat(axis.getMajorUnit().getVal()).isEqualTo(0.25);
 
             // Each survey's chart carries its own total as a rule, labelled at its end.
             assertThat(charts.get(1).getCTChart().getPlotArea().getLineChartArray()).hasSize(1);
