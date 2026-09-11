@@ -1,0 +1,187 @@
+package com.raaspal.robotrecommendation.casereport;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
+import com.raaspal.robotrecommendation.casereport.dto.CaseRowEdit;
+import com.raaspal.robotrecommendation.casereport.entity.CaseReportDefinition;
+import com.raaspal.robotrecommendation.casereport.entity.CaseReportRun;
+import com.raaspal.robotrecommendation.casereport.entity.CaseRunStatus;
+import com.raaspal.robotrecommendation.casereport.repository.CaseReportDefinitionRepository;
+import com.raaspal.robotrecommendation.casereport.repository.CaseReportRunRepository;
+import com.raaspal.robotrecommendation.casereport.service.CaseReportRunService;
+import com.raaspal.robotrecommendation.casereport.service.MkPendingReportGenerator;
+import com.raaspal.robotrecommendation.casereport.service.SlaCalculator;
+import com.raaspal.robotrecommendation.casereport.service.SlaStatus;
+import com.raaspal.robotrecommendation.common.exception.BadRequestException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+/**
+ * Correcting a generated row, and what a regeneration does with the correction.
+ *
+ * <p>Plain Mockito, no Spring context: the service takes its collaborators through the
+ * constructor and the rows live in a JSON column, so a stubbed repository is enough.
+ */
+class CaseReportRunServiceEditTest {
+
+    private static final LocalDate TODAY = LocalDate.now(ZoneId.of("Asia/Bangkok"));
+    private static final UUID DEFINITION_ID = UUID.randomUUID();
+
+    private final CaseReportRunRepository runs = mock(CaseReportRunRepository.class);
+    private final MkPendingReportGenerator generator = mock(MkPendingReportGenerator.class);
+    private final ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
+
+    private CaseReportRunService service;
+    private CaseReportRun run;
+
+    @BeforeEach
+    void storedDraft() {
+        CaseReportDefinition definition = CaseReportDefinition.builder()
+                .id(DEFINITION_ID)
+                .code(CaseReportDefinition.MK_PENDING)
+                .build();
+        CaseReportDefinitionRepository definitions = mock(CaseReportDefinitionRepository.class);
+        when(definitions.findByCode(CaseReportDefinition.MK_PENDING))
+                .thenReturn(Optional.of(definition));
+
+        run = CaseReportRun.builder()
+                .definitionId(DEFINITION_ID)
+                .runDate(TODAY)
+                .status(CaseRunStatus.AWAITING_APPROVAL)
+                .build();
+        run.setRowsJson(write(List.of(
+                row(1, "1001", "โลตัส จันทบุรี", TODAY.minusDays(6), SlaStatus.BREACHED),
+                row(2, "1002", "บิ๊กซี-กัลปพฤกษ์", TODAY.minusDays(2), SlaStatus.WITHIN))));
+        when(runs.findByDefinitionIdAndRunDate(DEFINITION_ID, TODAY)).thenReturn(Optional.of(run));
+        when(runs.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service = new CaseReportRunService(definitions, runs, generator,
+                new SlaCalculator(List.of("Bangkok")), json);
+    }
+
+    /** The case that prompted this: the team counts from a later date than the ticket's. */
+    @Test
+    void correctingTheOpenDateRecomputesDaysAndSlaUnlessTyped() {
+        CaseReportRow saved = service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "1001",
+                edit("M154 โลตัส จันทบุรี", TODAY.minusDays(2), null, null));
+
+        assertThat(saved.branch()).isEqualTo("M154 โลตัส จันทบุรี");
+        assertThat(saved.days()).isEqualTo(2);
+        assertThat(saved.sla()).isEqualTo(SlaStatus.WITHIN);
+        assertThat(saved.slaLabel()).isEqualTo("Within SLA");
+        assertThat(saved.edited()).isTrue();
+        assertThat(saved.no()).isEqualTo(1);
+        assertThat(saved.sourceItemId()).isEqualTo("1001");
+
+        // Stored, not only returned.
+        assertThat(rows()).extracting(CaseReportRow::branch)
+                .containsExactly("M154 โลตัส จันทบุรี", "บิ๊กซี-กัลปพฤกษ์");
+    }
+
+    @Test
+    void typedDaysAndSlaWinOverTheArithmetic() {
+        CaseReportRow saved = service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "1001",
+                edit("โลตัส จันทบุรี", TODAY.minusDays(6), 3, SlaStatus.ON_HOLD));
+
+        assertThat(saved.days()).isEqualTo(3);
+        assertThat(saved.sla()).isEqualTo(SlaStatus.ON_HOLD);
+        assertThat(saved.slaLabel()).isEqualTo("On Hold");
+    }
+
+    @Test
+    void blankCellsAreStoredAsNothingNotAsEmptyStrings() {
+        CaseReportRow saved = service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "1002",
+                new CaseRowEdit("MK", "  ", null, "", "ฝาครอบหลุด", null, null, null, null, null));
+
+        assertThat(saved.branch()).isNull();
+        assertThat(saved.serialNumber()).isNull();
+        assertThat(saved.days()).isNull();
+        assertThat(saved.sla()).isEqualTo(SlaStatus.UNKNOWN);
+    }
+
+    /**
+     * What makes editing safe to offer at all: pressing Regenerate must not undo it.
+     * The board is re-read, but the corrected row comes through as it was.
+     */
+    @Test
+    void regeneratingKeepsAnEditedRowAndRebuildsTheRest() {
+        service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "1001",
+                edit("M154 โลตัส จันทบุรี", TODAY.minusDays(2), null, null));
+
+        // The board now lists the same two tickets in the other order, plus a new one,
+        // and its value for 1001 is still the uncorrected one.
+        when(generator.generate(TODAY)).thenReturn(List.of(
+                row(1, "1002", "บิ๊กซี-กัลปพฤกษ์", TODAY.minusDays(2), SlaStatus.WITHIN),
+                row(2, "1001", "โลตัส จันทบุรี", TODAY.minusDays(6), SlaStatus.BREACHED),
+                row(3, "1003", "โลตัสเพชรบูรณ์", TODAY, SlaStatus.WITHIN)));
+
+        List<CaseReportRow> regenerated =
+                service.rowsFor(CaseReportDefinition.MK_PENDING, TODAY, true);
+
+        assertThat(regenerated).extracting(CaseReportRow::no).containsExactly(1, 2, 3);
+        assertThat(regenerated).extracting(CaseReportRow::branch)
+                .containsExactly("บิ๊กซี-กัลปพฤกษ์", "M154 โลตัส จันทบุรี", "โลตัสเพชรบูรณ์");
+        assertThat(regenerated.get(1).edited()).isTrue();
+        assertThat(regenerated.get(1).days()).isEqualTo(2);
+        assertThat(regenerated.get(0).edited()).isFalse();
+    }
+
+    @Test
+    void aSentReportCannotBeEdited() {
+        run.setStatus(CaseRunStatus.SENT);
+
+        assertThatThrownBy(() -> service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "1001",
+                edit("x", TODAY, null, null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("already been sent");
+    }
+
+    @Test
+    void aTicketNotOnTheReportIsRefused() {
+        assertThatThrownBy(() -> service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "9999",
+                edit("x", TODAY, null, null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("no row for ticket 9999");
+    }
+
+    private static CaseReportRow row(int no, String itemId, String branch, LocalDate opened,
+                                     SlaStatus sla) {
+        return CaseReportRow.of(no, "MK", branch, "Pudu 1", "PD" + itemId, "ปัญหา", null,
+                opened, null, SlaCalculator.daysOpen(opened, TODAY), sla, "Bangkok", itemId);
+    }
+
+    private static CaseRowEdit edit(String branch, LocalDate opened, Integer days, SlaStatus sla) {
+        return new CaseRowEdit("MK", branch, "Pudu 1", "PD1", "ปัญหา", null, opened, null,
+                days, sla);
+    }
+
+    private List<CaseReportRow> rows() {
+        try {
+            return json.readValue(run.getRowsJson(),
+                    json.getTypeFactory().constructCollectionType(List.class, CaseReportRow.class));
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private String write(List<CaseReportRow> rows) {
+        try {
+            return json.writeValueAsString(rows);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+}

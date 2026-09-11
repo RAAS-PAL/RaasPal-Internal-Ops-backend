@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.casereport.controller;
 
 import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
+import com.raaspal.robotrecommendation.casereport.dto.CaseRowEdit;
 import com.raaspal.robotrecommendation.casereport.entity.CaseReportDefinition;
 import com.raaspal.robotrecommendation.casereport.entity.CaseReportRun;
 import com.raaspal.robotrecommendation.casereport.repository.CaseTicketRepository;
@@ -69,6 +70,25 @@ public class CaseReportController {
         LocalDate date = asOf != null ? asOf : LocalDate.now(BUSINESS_ZONE);
         return ApiResponse.success(
                 runService.rowsFor(CaseReportDefinition.MK_PENDING, date, refresh));
+    }
+
+    /**
+     * Correct one row of a generated report.
+     *
+     * <p>The whole row is sent and the whole row is replaced; Days and SLA are recomputed
+     * from the Open Date when the form leaves them blank. The row is then kept through any
+     * regeneration, so a correction is not lost the next time somebody re-reads the board.
+     *
+     * <p>Refused once the run has been sent.
+     */
+    @PutMapping("/mk/rows/{sourceItemId}")
+    public ApiResponse<CaseReportRow> editMkRow(
+            @PathVariable String sourceItemId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf,
+            @RequestBody CaseRowEdit edit) {
+
+        return ApiResponse.success("Row saved",
+                runService.editRow(CaseReportDefinition.MK_PENDING, asOf, sourceItemId, edit));
     }
 
     /**

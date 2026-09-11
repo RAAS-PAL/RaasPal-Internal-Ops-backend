@@ -14,8 +14,11 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Builds the MK pending-case sheet from the delivery board.
@@ -64,10 +67,19 @@ public class MkPendingReportGenerator {
     private static final String C_PROVINCE = "color_mm6mwh74";       // Province
     private static final String C_STATUS = "status";                 // Status
     private static final String C_SUP_STATUS = "status_1";           // Sup Status
+    private static final String C_UNIT = "text_mksgzhzr";            // Unit — see branchCode()
 
     private static final List<String> COLUMN_IDS = List.of(
             C_PROJECT, C_BRANCH, C_BRANCH_CODE, C_ROBOT, C_SERIAL, C_PROBLEM,
-            C_SOLUTION, C_OPEN_DATE, C_RE_ON_SITE, C_PROVINCE, C_STATUS, C_SUP_STATUS);
+            C_SOLUTION, C_OPEN_DATE, C_RE_ON_SITE, C_PROVINCE, C_STATUS, C_SUP_STATUS,
+            C_UNIT);
+
+    /**
+     * A branch code as the customer writes them: one letter and three digits — M154,
+     * Y084, K036. The letter is the brand (MK, Yayoi, Bonus Suki), which is why the sheet
+     * prints the code beside the branch name.
+     */
+    private static final Pattern BRANCH_CODE = Pattern.compile("\\b([A-Z]\\d{3})\\b");
 
     /**
      * The customer this report covers.
@@ -107,7 +119,7 @@ public class MkPendingReportGenerator {
     public List<CaseReportRow> generate(LocalDate asOf) {
         List<MondayItem> items = boardReader.readGroupItems(BOARD_ID, GROUP_ID, COLUMN_IDS);
 
-        List<CaseReportRow> rows = new ArrayList<>();
+        List<CaseReportRow> unordered = new ArrayList<>();
         int otherCustomers = 0;
         int notYetOpen = 0;
 
@@ -146,8 +158,8 @@ public class MkPendingReportGenerator {
                     SLA_METRO,
                     SLA_UPCOUNTRY);
 
-            rows.add(CaseReportRow.of(
-                    rows.size() + 1,
+            unordered.add(CaseReportRow.of(
+                    0,
                     project,
                     branchLabel(item),
                     item.columnText(C_ROBOT),
@@ -160,6 +172,17 @@ public class MkPendingReportGenerator {
                     sla,
                     province,
                     item.id()));
+        }
+
+        // Oldest case first, as the team's own sheet is ordered: the rows most overdue are
+        // the ones the reader wants at the top. A case with no open date goes last, where
+        // its blank SLA is also a prompt to fill the date in.
+        unordered.sort(Comparator.comparing(CaseReportRow::openDate,
+                Comparator.nullsLast(Comparator.naturalOrder())));
+
+        List<CaseReportRow> rows = new ArrayList<>(unordered.size());
+        for (CaseReportRow row : unordered) {
+            rows.add(row.withNo(rows.size() + 1));
         }
 
         log.info("MK pending report for {}: {} rows from {} tickets on the delivery board "
@@ -227,11 +250,33 @@ public class MkPendingReportGenerator {
      * rather than print with a leading space where the code would have been.
      */
     private static String branchLabel(MondayItem item) {
-        String code = item.columnText(C_BRANCH_CODE);
+        String code = branchCode(item);
         String name = item.columnText(C_BRANCH);
         if (code == null) return name;
         if (name == null) return code;
         return code + " " + name;
+    }
+
+    /**
+     * The branch code, from wherever the ticket carries it.
+     *
+     * <p>The Branch code tag is the proper home and is empty on half the open tickets. On
+     * every one of those, checked 2026-09-11, the code is in the free-text Unit column
+     * ("M442", or "MK M453") or in the item name ("Pudu Bot : M066 : MK สาขา …"), and
+     * the team fills it in by hand on their sheet. Reading it from there means the sheet
+     * matches without anyone retyping it. Only the tag is trusted as-is; the two fallbacks
+     * are searched for the code's shape, since the Unit cell also holds things like
+     * "Pudu 2".
+     */
+    private static String branchCode(MondayItem item) {
+        String tagged = item.columnText(C_BRANCH_CODE);
+        if (tagged != null) return tagged;
+        for (String candidate : new String[] { item.columnText(C_UNIT), item.name() }) {
+            if (candidate == null) continue;
+            Matcher m = BRANCH_CODE.matcher(candidate);
+            if (m.find()) return m.group(1);
+        }
+        return null;
     }
 
     /**

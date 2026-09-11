@@ -10,10 +10,11 @@ import java.time.LocalDate;
  * <p>The field order is the column order of the {@code Raw_Delivery} sheet, so the Excel
  * writer and the review table walk the same list and cannot disagree about layout.
  *
- * <p>Two fields are carried that the sheet does not print. {@link #province} explains a
- * blank SLA — without it a reviewer sees an empty cell and no reason for it. And
- * {@link #sourceItemId} is what a reviewer clicks to open the ticket on monday, which is
- * where a wrong value actually gets fixed.
+ * <p>Three fields are carried that the sheet does not print. {@link #province} explains a
+ * blank SLA — without it a reviewer sees an empty cell and no reason for it.
+ * {@link #sourceItemId} is what a reviewer clicks to open the ticket on monday, and what an
+ * edit is addressed to. And {@link #edited} records that a person changed the row after it
+ * was generated, which is what stops a regeneration from writing over their correction.
  */
 public record CaseReportRow(
 
@@ -44,7 +45,10 @@ public record CaseReportRow(
         LocalDate openDate,
         LocalDate reOnSite,
 
-        /** Inclusive of the open day; null when there is no open date to count from. */
+        /**
+         * Whole days since the open date, not counting it: a case opened today reads 0.
+         * Null when there is no open date to count from.
+         */
         Integer days,
 
         SlaStatus sla,
@@ -56,7 +60,14 @@ public record CaseReportRow(
         String province,
 
         /** Not printed. Links a row back to the ticket a correction belongs on. */
-        String sourceItemId
+        String sourceItemId,
+
+        /**
+         * Not printed. True once a person has saved a change to this row. An edited row is
+         * kept as it is when the report is regenerated from the board; the rest are
+         * rebuilt.
+         */
+        boolean edited
 ) {
 
     public static CaseReportRow of(int no,
@@ -74,6 +85,13 @@ public record CaseReportRow(
                                    String sourceItemId) {
         return new CaseReportRow(no, project, branch, robot, serialNumber, problem, solution,
                 openDate, reOnSite, days, sla, sla == null ? "" : sla.label(),
-                province, sourceItemId);
+                province, sourceItemId, false);
+    }
+
+    /** The same row under a different number, for renumbering after rows come and go. */
+    public CaseReportRow withNo(int newNo) {
+        return new CaseReportRow(newNo, project, branch, robot, serialNumber, problem,
+                solution, openDate, reOnSite, days, sla, slaLabel, province, sourceItemId,
+                edited);
     }
 }

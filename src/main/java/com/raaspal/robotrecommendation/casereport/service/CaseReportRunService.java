@@ -3,6 +3,7 @@ package com.raaspal.robotrecommendation.casereport.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
+import com.raaspal.robotrecommendation.casereport.dto.CaseRowEdit;
 import com.raaspal.robotrecommendation.casereport.entity.*;
 import com.raaspal.robotrecommendation.casereport.repository.CaseReportDefinitionRepository;
 import com.raaspal.robotrecommendation.casereport.repository.CaseReportRunRepository;
@@ -15,7 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Generates a report once, then keeps it.
@@ -34,6 +39,12 @@ import java.util.List;
  * regenerated on request: the reviewer is still correcting it, and serving a stale copy
  * from an hour ago would be worse than re-reading the board. Once a run is
  * {@link CaseRunStatus#SENT} it is what the customer received and never moves again.
+ *
+ * <p><strong>And the draft is the thing people correct.</strong> The board is wrong in
+ * small ways every day — a serial from the intake form, an open date the team counts
+ * from a later event — and the fix the reviewer wants is to overtype the cell on the
+ * report, not to go and argue with monday first. {@link #editRow} writes the correction
+ * into the stored rows, and a regeneration keeps every row a person has edited.
  */
 @Slf4j
 @Service
@@ -43,6 +54,7 @@ public class CaseReportRunService {
     private final CaseReportDefinitionRepository definitions;
     private final CaseReportRunRepository runs;
     private final MkPendingReportGenerator mkGenerator;
+    private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
 
     /**
@@ -103,8 +115,131 @@ public class CaseReportRunService {
         }
 
         List<CaseReportRow> rows = generate(definitionCode, definition, asOf);
+        if (existing != null) {
+            rows = keepEditedRows(parse(existing.getRowsJson()), rows);
+        }
         freeze(definition, asOf, existing, rows);
         return rows;
+    }
+
+    /**
+     * Correct one row of a stored draft.
+     *
+     * <p>Every printed cell is replaced by what the form sent. Days and SLA are worked out
+     * again from the Open Date unless the editor typed them, so correcting a date does not
+     * leave yesterday's arithmetic beside it; a held case stays held, because On Hold is a
+     * fact about the ticket's status, not its dates.
+     *
+     * <p>The row is marked edited, which is what a later regeneration honours.
+     *
+     * @return the row as stored
+     */
+    @Transactional
+    public CaseReportRow editRow(String definitionCode,
+                                 LocalDate asOf,
+                                 String sourceItemId,
+                                 CaseRowEdit edit) {
+        CaseReportDefinition definition = requireDefinition(definitionCode);
+        CaseReportRun run = runs.findByDefinitionIdAndRunDate(definition.getId(), asOf)
+                .orElseThrow(() -> new BadRequestException(
+                        "There is no generated " + definitionCode + " report for " + asOf
+                                + " to edit. Generate it first."));
+
+        if (!run.getStatus().isReplaceable()) {
+            throw new BadRequestException(
+                    "The " + asOf + " report has already been sent and cannot be edited.");
+        }
+
+        List<CaseReportRow> rows = new ArrayList<>(parse(run.getRowsJson()));
+        int index = -1;
+        for (int i = 0; i < rows.size(); i++) {
+            if (sourceItemId.equals(rows.get(i).sourceItemId())) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            throw new BadRequestException(
+                    "The " + asOf + " report has no row for ticket " + sourceItemId + ".");
+        }
+
+        CaseReportRow before = rows.get(index);
+        LocalDate openDate = edit.openDate();
+
+        Integer days = edit.days() != null
+                ? edit.days()
+                : openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf);
+
+        SlaStatus sla;
+        if (edit.sla() != null) {
+            sla = edit.sla();
+        } else if (before.sla() == SlaStatus.ON_HOLD) {
+            sla = SlaStatus.ON_HOLD;
+        } else {
+            sla = slaCalculator.evaluate(null, null, before.province(), openDate, asOf,
+                    definition.getSlaDaysMetro(), definition.getSlaDaysUpcountry());
+        }
+
+        CaseReportRow after = new CaseReportRow(
+                before.no(),
+                blankToNull(edit.project()),
+                blankToNull(edit.branch()),
+                blankToNull(edit.robot()),
+                blankToNull(edit.serialNumber()),
+                blankToNull(edit.problem()),
+                blankToNull(edit.solution()),
+                openDate,
+                edit.reOnSite(),
+                days,
+                sla,
+                sla == null ? "" : sla.label(),
+                before.province(),
+                before.sourceItemId(),
+                true);
+
+        rows.set(index, after);
+        run.setRowsJson(write(rows));
+        runs.save(run);
+
+        log.info("Edited row {} (ticket {}) of the {} run for {}",
+                after.no(), sourceItemId, definitionCode, asOf);
+        return after;
+    }
+
+    /**
+     * The regenerated rows, with every row a person edited carried over unchanged.
+     *
+     * <p>Matched by ticket, so a regeneration that reorders the sheet still finds them.
+     * An edited row whose ticket has left the board is dropped with the rest: the case
+     * closed, and a correction to a closed case has nothing left to correct. Rows are
+     * renumbered afterwards because the generator numbered them before the swap.
+     */
+    private static List<CaseReportRow> keepEditedRows(List<CaseReportRow> stored,
+                                                      List<CaseReportRow> fresh) {
+        Map<String, CaseReportRow> edited = stored.stream()
+                .filter(CaseReportRow::edited)
+                .filter(row -> row.sourceItemId() != null)
+                .collect(Collectors.toMap(CaseReportRow::sourceItemId, Function.identity(),
+                        (a, b) -> a));
+        if (edited.isEmpty()) {
+            return fresh;
+        }
+
+        List<CaseReportRow> merged = new ArrayList<>(fresh.size());
+        int kept = 0;
+        for (CaseReportRow row : fresh) {
+            CaseReportRow keep = edited.get(row.sourceItemId());
+            if (keep != null) kept++;
+            merged.add((keep != null ? keep : row).withNo(merged.size() + 1));
+        }
+        log.info("Regenerated with {} edited row(s) kept as they were", kept);
+        return merged;
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.strip();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**
