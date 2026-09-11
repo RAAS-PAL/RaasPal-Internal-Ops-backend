@@ -65,6 +65,11 @@ public class CaseTicketUpdate {
     @Column(name = "creator_name", columnDefinition = "TEXT")
     private String creatorName;
 
+    /**
+     * When monday says the comment was posted, in UTC: monday's own zone, pinned by
+     * {@code CaseTicketSyncService}. Convert before taking a date from it, because a
+     * comment posted before 07:00 in Bangkok is still the previous day in UTC.
+     */
     @Column(name = "posted_at")
     private LocalDateTime postedAt;
 

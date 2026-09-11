@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
@@ -85,6 +86,14 @@ public class MkPendingReportGenerator {
 
     /** 5 days anywhere else. */
     private static final int SLA_UPCOUNTRY = 5;
+
+    /**
+     * The zone a comment's date is taken in.
+     *
+     * <p>monday's timestamps are UTC, and the Solution line prints a date for each step.
+     * Read as UTC, anything posted before 07:00 Bangkok would be dated the day before.
+     */
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Bangkok");
 
     private final MondayBoardReader boardReader;
     private final SlaCalculator slaCalculator;
@@ -185,7 +194,9 @@ public class MkPendingReportGenerator {
             String body = u.textBody() == null ? "" : u.textBody().strip();
             if (body.isEmpty() || isIntakeForm(body)) continue;
             comments.add(new CaseProgressRequest.Comment(
-                    u.createdAt() == null ? null : u.createdAt().toLocalDate(),
+                    u.createdAt() == null
+                            ? null
+                            : u.createdAt().atZoneSameInstant(BUSINESS_ZONE).toLocalDate(),
                     u.creatorName(),
                     body));
         }

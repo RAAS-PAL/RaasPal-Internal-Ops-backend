@@ -21,8 +21,8 @@ import java.time.ZoneId;
  * was happening. Two things do, and they are not interchangeable:
  *
  * <ul>
- *   <li>The <b>snapshot</b> records the boards — which is what builds the delivery report's
- *       Solution column, since that column is a status log rather than prose.</li>
+ *   <li>The <b>snapshot</b> records the boards: each ticket's status that morning and any
+ *       comments not yet stored, neither of which monday can give back later.</li>
  *   <li>The <b>frozen run</b> records the report itself, exactly as it read that morning.
  *       This is the one that makes a past date reproducible: without it,
  *       {@code CaseReportRunService} refuses the date rather than fabricating it from

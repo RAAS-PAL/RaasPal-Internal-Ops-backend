@@ -24,13 +24,15 @@ public final class SolutionLine {
     /**
      * {@code DD-DD Mon phrase}, where the phrase runs to the next date token or the end.
      *
-     * <p>Group 1 and 2 are the day numbers, 3 the month, 4 the phrase. The lookahead that
-     * ends the phrase matches either form of a following date: {@code 03-Sep} or
-     * {@code 08-09 Sep}.
+     * <p>Group 1 and 2 are the day numbers, 3 the separator before the month, 4 the month,
+     * 5 the phrase. The separator is a space or a hyphen because the model writes both,
+     * {@code 25-11 Sep} and {@code 25-11-Sep}, for the same range, and a form this does not
+     * recognise goes into the report unsplit. The lookahead that ends the phrase accepts
+     * every form of a following date: {@code 03-Sep}, {@code 08-09 Sep} or {@code 08-09-Sep}.
      */
     private static final Pattern RANGE = Pattern.compile(
-            "\\b(\\d{1,2})-(\\d{1,2}) (" + MON + ")\\b\\s*(.*?)"
-                    + "(?=\\s+\\d{1,2}-(?:\\d{1,2} )?(?:" + MON + ")\\b|$)");
+            "\\b(\\d{1,2})-(\\d{1,2})([- ])(" + MON + ")\\b\\s*(.*?)"
+                    + "(?=\\s+\\d{1,2}-(?:\\d{1,2}[- ])?(?:" + MON + ")\\b|$)");
 
     private SolutionLine() {
     }
@@ -43,7 +45,13 @@ public final class SolutionLine {
      * {@code 25-31 Aug อยู่ระหว่างเบิกอะไหล่ 01-11 Sep อยู่ระหว่างเบิกอะไหล่}. The phrase is
      * repeated because that is how the workbook writes a state that spans two ranges: every
      * range has its own phrase, and a bare {@code 25-31 Aug 01-11 Sep} would read as two
-     * dates with one description.
+     * dates with one description. A side of the split that covers a single day is written
+     * as one date, {@code 31-Aug}, never {@code 31-31 Aug}.
+     *
+     * <p>A hyphenated range inside one month, {@code 25-26-Aug}, is rewritten in the
+     * workbook's form, {@code 25-26 Aug}. A range whose first day does not exist in the
+     * earlier month, such as {@code 30-05 Mar}, is a wrong date rather than a crossing and
+     * is left exactly as written, for the reviewer to catch.
      *
      * @param year the report year, needed only to know how long the earlier month was
      */
@@ -56,11 +64,17 @@ public final class SolutionLine {
         while (m.find()) {
             int from = Integer.parseInt(m.group(1));
             int to = Integer.parseInt(m.group(2));
-            String monthName = m.group(3);
-            String phrase = m.group(4).strip();
+            boolean hyphenated = "-".equals(m.group(3));
+            String monthName = m.group(4);
+            String phrase = m.group(5).strip();
 
             if (from <= to) {
-                m.appendReplacement(out, Matcher.quoteReplacement(m.group()));
+                String kept = m.group();
+                if (hyphenated) {
+                    int separator = m.start(3) - m.start();
+                    kept = kept.substring(0, separator) + ' ' + kept.substring(separator + 1);
+                }
+                m.appendReplacement(out, Matcher.quoteReplacement(kept));
                 continue;
             }
 
@@ -70,14 +84,30 @@ public final class SolutionLine {
             int previousYear = month == Month.JANUARY ? year - 1 : year;
             int lastDay = previous.length(Year.isLeap(previousYear));
 
-            String fixed = String.format("%02d-%02d %s %s 01-%02d %s %s",
-                    from, lastDay, abbreviate(previous), phrase,
-                    to, monthName, phrase).strip();
+            if (from > lastDay || to < 1) {
+                m.appendReplacement(out, Matcher.quoteReplacement(m.group()));
+                continue;
+            }
+
+            String fixed = entry(span(from, lastDay, abbreviate(previous)), phrase)
+                    + ' ' + entry(span(1, to, monthName), phrase);
 
             m.appendReplacement(out, Matcher.quoteReplacement(fixed));
         }
         m.appendTail(out);
         return out.toString();
+    }
+
+    /** {@code 25-31 Aug}, or {@code 31-Aug} when the range is a single day. */
+    private static String span(int from, int to, String month) {
+        return from == to
+                ? String.format(Locale.ROOT, "%02d-%s", from, month)
+                : String.format(Locale.ROOT, "%02d-%02d %s", from, to, month);
+    }
+
+    /** A date and its phrase, with no trailing space when the phrase is empty. */
+    private static String entry(String date, String phrase) {
+        return phrase.isEmpty() ? date : date + ' ' + phrase;
     }
 
     /**

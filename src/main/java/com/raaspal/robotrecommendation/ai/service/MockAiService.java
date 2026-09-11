@@ -240,7 +240,7 @@ public class MockAiService implements RequirementExtractionService, RobotRecomme
                 java.time.format.DateTimeFormatter.ofPattern("dd-MMM", java.util.Locale.ENGLISH);
         StringBuilder out = new StringBuilder();
         for (CaseProgressRequest.Comment c : request.comments()) {
-            String body = c.body() == null ? "" : c.body().replaceAll("\s+", " ").strip();
+            String body = c.body() == null ? "" : c.body().replaceAll("\\s+", " ").strip();
             if (body.isEmpty()) continue;
             if (out.length() > 0) out.append(' ');
             out.append(c.postedOn() == null ? "??-???" : c.postedOn().format(dmy))

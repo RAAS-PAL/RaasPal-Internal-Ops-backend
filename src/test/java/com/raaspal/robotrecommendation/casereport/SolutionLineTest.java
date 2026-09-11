@@ -8,7 +8,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The date-range clean-up applied to a model-written Solution line.
  *
- * <p>The inputs are the actual strings Haiku produced on 2026-09-11, not invented ones.
+ * <p>The first inputs are the actual strings Haiku produced on 2026-09-11, not invented
+ * ones. The edge cases after them are constructed.
  */
 class SolutionLineTest {
 
@@ -62,6 +63,37 @@ class SolutionLineTest {
     void aRangeIntoJanuarySplitsAtTheThirtyFirstOfDecember() {
         assertThat(SolutionLine.splitCrossMonthRanges("28-05 Jan รออะไหล่", 2027))
                 .isEqualTo("28-31 Dec รออะไหล่ 01-05 Jan รออะไหล่");
+    }
+
+    /** The same range with a hyphen before the month, which the model also writes. */
+    @Test
+    void theHyphenatedFormIsSplitTheSameWay() {
+        assertThat(SolutionLine.splitCrossMonthRanges("25-11-Sep อยู่ระหว่างเบิกอะไหล่", 2026))
+                .isEqualTo("25-31 Aug อยู่ระหว่างเบิกอะไหล่ 01-11 Sep อยู่ระหว่างเบิกอะไหล่");
+    }
+
+    /** Hyphenated but inside one month: rewritten in the workbook's form, neighbours intact. */
+    @Test
+    void aHyphenatedRangeWithinOneMonthTakesTheWorkbookForm() {
+        assertThat(SolutionLine.splitCrossMonthRanges(
+                "25-26-Aug รออะไหล่แบตเตอรี่ 04-09-Sep อยู่ระหว่างเบิกอะไหล่", 2026))
+                .isEqualTo("25-26 Aug รออะไหล่แบตเตอรี่ 04-09 Sep อยู่ระหว่างเบิกอะไหล่");
+    }
+
+    /** A state that began on the month's last day is one date there, not 31-31 Aug. */
+    @Test
+    void aOneDaySideOfTheSplitIsASingleDate() {
+        assertThat(SolutionLine.splitCrossMonthRanges("31-02 Sep รออะไหล่", 2026))
+                .isEqualTo("31-Aug รออะไหล่ 01-02 Sep รออะไหล่");
+        assertThat(SolutionLine.splitCrossMonthRanges("28-01 Mar รออะไหล่", 2026))
+                .isEqualTo("28-Feb รออะไหล่ 01-Mar รออะไหล่");
+    }
+
+    /** There is no 30 February, so this is a wrong date rather than a crossing. Untouched. */
+    @Test
+    void aFirstDayTheEarlierMonthDoesNotHaveIsLeftAsWritten() {
+        assertThat(SolutionLine.splitCrossMonthRanges("30-05 Mar รออะไหล่", 2026))
+                .isEqualTo("30-05 Mar รออะไหล่");
     }
 
     @Test

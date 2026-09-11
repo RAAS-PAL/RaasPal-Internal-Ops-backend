@@ -11,19 +11,19 @@ import java.util.UUID;
 /**
  * One observed status change. Maps to {@code case_ticket_status_history} (V38).
  *
- * <p>This is what the delivery report calls "Solution". That column is not prose — it
- * is a status log, one line per change, where {@code "24-Aug อยู่ระหว่างจัดส่งอะไหล่"} is
- * simply the date plus the value of the board's status column on that date. Confirmed
- * against item {@code 12874545928}.
+ * <p>The record of where a ticket stood on each day, which monday cannot give back: the
+ * board keeps only the current status, so a day's value is known only if a sync wrote it
+ * down that day.
  *
- * <p><strong>So the daily sync builds that column for free.</strong> No AI, no prompt,
- * no review — reading it back is an ordered select.
+ * <p>Not the report's Solution column. That line paraphrases the comment thread, one
+ * dated entry per step, and is written by {@code CaseSolutionAiService}; see
+ * {@code MkPendingReportGenerator}.
  *
  * <p>A row is written <em>only</em> when the status differs from the previous one, which
  * keeps the table small and makes the log read as a list of changes rather than a list
  * of days. The unique constraint on {@code (case_ticket_id, observed_on)} caps it at one
- * row per ticket per day: a status flipped twice in an afternoon must not put two lines
- * under the same date in a customer's report.
+ * row per ticket per day, so a status flipped twice in an afternoon leaves one row
+ * carrying the latest value.
  */
 @Entity
 @Table(name = "case_ticket_status_history")

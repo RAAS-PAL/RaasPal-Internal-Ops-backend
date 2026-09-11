@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.*;
 
 /**
@@ -24,10 +25,10 @@ import java.util.*;
  * daily record instead. Two things come out of it that a live read cannot give:
  *
  * <ul>
- *   <li><b>The delivery report's Solution column.</b> It is not prose — it is a status log,
- *       one line per change, "24-Aug อยู่ระหว่างจัดส่งอะไหล่". Consecutive snapshots produce
- *       it for free, with no AI involved. It is filled on about one ticket in eight today
- *       because staff type it by hand.</li>
+ *   <li><b>Status history.</b> The board holds only a ticket's current status, so the day
+ *       it moved is known only if a sync was there to see it. One row per change, in
+ *       {@code case_ticket_status_history}. (It is not the report's Solution column, which
+ *       is written from the comment thread; see {@code MkPendingReportGenerator}.)</li>
  *   <li><b>Comment threads.</b> Part Received, Required Part and Waiting have no board
  *       column at all — those three were verified empty on every live cleaning ticket — so
  *       whatever fills them has to come from the comments stored here.</li>
@@ -256,8 +257,12 @@ public class CaseTicketSyncService {
                     // null when monday omits the author, and the author matters here --
                     // the *status* marker convention is one person's habit.
                     .creatorName(update.creatorName())
+                    // UTC, pinned here rather than inherited from whatever offset the JSON
+                    // happened to be parsed with. See CaseTicketUpdate#postedAt.
                     .postedAt(update.createdAt() == null
-                            ? null : update.createdAt().toLocalDateTime())
+                            ? null
+                            : update.createdAt().withOffsetSameInstant(ZoneOffset.UTC)
+                                    .toLocalDateTime())
                     .build());
             stored++;
         }
@@ -267,8 +272,8 @@ public class CaseTicketSyncService {
     /**
      * A status-history row, but only when the status actually moved.
      *
-     * <p>Writing one per day regardless would turn the delivery report's Solution column
-     * into a line for every day a case sat still, when what it shows is a list of changes.
+     * <p>Writing one per day regardless would bury the days a status changed under the
+     * days it sat still, and the changes are what the history is kept for.
      *
      * <p>Today's row is updated rather than inserted twice: a second sync on the same day
      * must not trip {@code uq_case_ticket_status_day}, and a status flipped twice in an

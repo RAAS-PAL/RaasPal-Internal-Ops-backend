@@ -112,10 +112,10 @@ public class CaseTicket {
     private String mainIssue;
 
     /**
-     * ⚠️ On the delivery board this is a <em>status-change log</em>, not prose — each
-     * line is {@code {date} {status value}}. The daily sync builds that column itself
-     * from {@link CaseTicketStatusHistory}; no AI is involved. On the cleaning board it
-     * is free text.
+     * The board's own Solution cell, as typed. On the delivery board it is empty on about
+     * seven tickets in eight, and the report's Solution line is written from the comment
+     * thread instead (see {@code MkPendingReportGenerator}). On the cleaning board it is
+     * free text.
      */
     @Column(columnDefinition = "TEXT")
     private String solution;

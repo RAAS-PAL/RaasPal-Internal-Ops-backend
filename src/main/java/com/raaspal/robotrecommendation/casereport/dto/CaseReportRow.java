@@ -35,9 +35,9 @@ public record CaseReportRow(
         String problem,
 
         /**
-         * The board's Solution column, which is filled on only about one ticket in eight.
-         * It is meant to be a status log built from consecutive snapshots rather than
-         * typed, so it stays mostly blank until the daily sync has run for a while.
+         * The board's Solution cell when somebody typed one, which is about one ticket in
+         * eight, and otherwise the model's paraphrase of the comment thread: one dated
+         * entry per step. Null when neither has anything to say.
          */
         String solution,
 
