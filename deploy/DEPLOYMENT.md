@@ -32,12 +32,13 @@ nano api.env          # paste the values copied out of Render
 chmod 600 api.env     # only ubuntu may read it — www-data must not
 ```
 
-Four values differ from Render and are easy to miss:
+Five values differ from Render and are easy to miss:
 
 | Variable | Value |
 |---|---|
 | `DB_POOL_MAX` | `6` while both hosts are live, `10` after |
 | `TELEMETRY_SYNC_ENABLED` | `false` until Render is off, then `true` |
+| `CASE_REPORT_SYNC_ENABLED` | `false` until Render is off, then `true` |
 | `REPORT_EMAIL_SCHEDULER_ENABLED` | `false` — permanently, see below |
 | `AI_PROVIDER` | `claude` — it defaults to `mock`, which fabricates proposals |
 
@@ -51,6 +52,10 @@ reports to customers, which is worse than sending none.
 `AI_PROVIDER` is the quiet one. Omit it and the app starts happily on
 [[MockAiService]], producing proposals that look real and are invented — the
 migration appears to succeed while the output is worthless.
+
+`MONDAY_API_TOKEN` is the one that is **not on Render at all** yet, so copying values
+out of Render will not bring it across. Without it the pending-case reports fail on
+their first monday call. Take it from monday.com (avatar → Developers → My access tokens).
 
 ## 3 · Start it
 
@@ -109,7 +114,7 @@ URL. No DNS change, no wait — the frontends address the backend directly.
 ## 8 · After 48 quiet hours
 
 ```bash
-nano deploy/api.env     # TELEMETRY_SYNC_ENABLED=true, DB_POOL_MAX=10
+nano deploy/api.env     # TELEMETRY_SYNC_ENABLED=true, CASE_REPORT_SYNC_ENABLED=true, DB_POOL_MAX=10
                         # REPORT_EMAIL_SCHEDULER_ENABLED stays false
 bash deploy/deploy.sh
 ```
