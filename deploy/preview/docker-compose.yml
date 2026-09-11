@@ -1,0 +1,88 @@
+# Preview stack for feat/pm-52-week-planner.
+#
+# Runs a SECOND api container next to the production one, against its OWN
+# throwaway database. Four differences from ../docker-compose.yml, each
+# load-bearing:
+#
+#   1. Its own postgres. The preview must never reach Supabase. This branch
+#      carries V38, claiming the number directly after main's V37. Letting an
+#      unmerged migration reach production would record V38 as pm_planning in
+#      flyway_schema_history permanently — and that record cannot be taken
+#      back. It is the only irreversible mistake available here.
+#
+#   2. container_name differs. The prod compose hardcodes `raaspal-api`;
+#      reusing it makes the two stacks fight over the name.
+#
+#   3. mem_limit on both services. The prod compose sets MaxRAMPercentage=70
+#      with NO limit, so that JVM sizes its heap from the HOST's RAM. A second
+#      unlimited JVM is how you OOM the one serving customers.
+#
+#   4. Port 8081, still bound to 127.0.0.1. Nginx is the only way in.
+
+name: raaspal-preview
+
+services:
+  db:
+    image: postgres:16
+    container_name: raaspal-preview-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: raaspal_pm_preview
+      POSTGRES_USER: preview
+      # Compose substitutes this from deploy/preview/.env, which it loads
+      # automatically. Note that `env_file:` below is for the CONTAINER's
+      # environment and is NOT read for substitution — a common mix-up.
+      POSTGRES_PASSWORD: ${PREVIEW_DB_PASSWORD:?set PREVIEW_DB_PASSWORD in deploy/preview/.env}
+    volumes:
+      - preview-db:/var/lib/postgresql/data
+    # No `ports:` on purpose. Only the api container reaches it, over the
+    # compose network. Nothing on the host or the internet can.
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preview -d raaspal_pm_preview"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    # A distinct tag, so building the preview never replaces the image
+    # production would roll back to.
+    image: raaspal-api:preview
+    container_name: raaspal-api-preview
+    restart: unless-stopped
+    env_file: ./preview.env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8080"
+    mem_limit: 1200m
+    environment:
+      # 70% of 1200m is about 840m of heap. Ample — the year grid query
+      # touches roughly 4,400 rows.
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70"
+      # `environment:` wins over `env_file:`, so the password has exactly one
+      # source — deploy/preview/.env — and cannot drift out of sync with the
+      # database container's.
+      DB_PASSWORD: ${PREVIEW_DB_PASSWORD:?set PREVIEW_DB_PASSWORD in deploy/preview/.env}
+    volumes:
+      - preview-uploads:/app/uploads
+    healthcheck:
+      # A 401 still proves the app is up and routing, same as prod's.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health >/dev/null 2>&1 || wget -S -qO- http://localhost:8080/actuator/health 2>&1 | grep -q '401'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+volumes:
+  preview-db:
+  preview-uploads:

@@ -46,4 +46,5 @@ uploads/
 # original out of the repo avoids carrying 520KB that nothing reads.
 docs/email_bottom_photo.png
 deploy/api.env
+deploy/preview/preview.env
 deploy/*.pem
