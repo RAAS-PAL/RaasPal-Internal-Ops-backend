@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.ai.service;
 
+import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,7 +47,7 @@ import java.util.Map;
 @ConditionalOnExpression("'${app.anthropic.api-key:}' != ''")
 public class ClaudeAiService
         implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService,
-        TranslationAiService, CmReportExtractionService {
+        TranslationAiService, CmReportExtractionService, CaseSolutionAiService {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeAiService.class);
 
@@ -459,6 +460,67 @@ public class ClaudeAiService
             log.warn("CM report extraction failed — returning an empty draft: {}", e.getMessage());
             return new CmReportDraft(null, null, null, null, null, null, sourceText, null, List.of(), null);
         }
+    }
+
+    // ─── CaseSolutionAiService ────────────────────────────────────────────────
+
+    /**
+     * Paraphrasing a short comment thread into a few dated lines — Haiku-sized, and
+     * cheap enough to run per ticket per report. Every line is reviewed before a
+     * report is sent, and the report is frozen with whatever this produced, so a
+     * regenerated draft can differ slightly. That is expected of a paraphrase.
+     */
+    private static final String CASE_SOLUTION_MODEL = "claude-haiku-4-5-20251001";
+
+    @Override
+    public String summariseProgress(CaseProgressRequest request) {
+        if (request.comments() == null || request.comments().isEmpty()) {
+            return "";
+        }
+
+        StringBuilder thread = new StringBuilder();
+        for (CaseProgressRequest.Comment c : request.comments()) {
+            thread.append(c.postedOn()).append("  [").append(c.author()).append("]  ")
+                  .append(c.body() == null ? "" : c.body().strip()).append('\n');
+        }
+
+        String user = """
+                Report date: %s
+                Branch: %s
+                Problem: %s
+                Current board status: %s
+                Current sup status: %s
+
+                Comment thread, oldest first (date, author, text):
+                ---
+                %s---
+
+                Write the Solution line.
+                """.formatted(
+                request.asOf(),
+                nullToDash(request.branch()),
+                nullToDash(request.problem()),
+                nullToDash(request.currentStatus()),
+                nullToDash(request.currentSupStatus()),
+                thread);
+
+        try {
+            String response = callClaude(
+                    AiPromptTemplates.caseSolutionSystemPrompt(), user, null, null, CASE_SOLUTION_MODEL);
+            // One line was asked for; take the first non-empty one in case the model
+            // wrapped it in whitespace anyway.
+            return response == null ? "" : response.lines()
+                    .map(String::strip).filter(l -> !l.isEmpty()).findFirst().orElse("");
+        } catch (Exception e) {
+            // An empty cell is reviewable; a failed report is not.
+            log.warn("Case solution summary failed for {} — leaving the cell empty: {}",
+                    request.branch(), e.getMessage());
+            return "";
+        }
+    }
+
+    private static String nullToDash(String s) {
+        return s == null || s.isBlank() ? "-" : s;
     }
 
     // ─── HTTP ─────────────────────────────────────────────────────────────────

@@ -74,4 +74,57 @@ public final class AiPromptTemplates {
 
     private AiPromptTemplates() {
     }
+
+    /**
+     * The Solution line of a pending-case report.
+     *
+     * <p>The style rules below are transcribed from the RE team's own workbook, not
+     * invented: the 09 September 2026 file was compared line by line against the
+     * comment threads it was written from. Each report line paraphrases one comment,
+     * keeps its date, and uses a small fixed vocabulary for in-progress states.
+     */
+    public static String caseSolutionSystemPrompt() {
+        return """
+                You write the "Solution" column of RAASPAL's daily pending-case report for a
+                robot service ticket, from the ticket's comment thread.
+
+                The column is a short dated log of what has happened, in Thai, in the
+                RE team's house style. Examples of real lines from the report:
+                  17-Aug อยู่ระหว่างตรวจสอบและประเมินอาการหุ่นยนต์
+                  18-Aug อยู่ระหว่าง MK Approve รายการแบตเตอรี่
+                  24-Aug MK Approved ใบเสนอราคา อยู่ระหว่างจัดส่งอะไหล่
+                  25-26 Aug รออะไหล่แบตเตอรี่
+                  04-Sep อยู่ระหว่างจัดส่งอะไหล่ 11-Sep เจ้าหน้าที่เข้าซ่อม
+
+                Rules:
+                - Output ONE line: the entries joined by single spaces, in date order,
+                  oldest first. No bullets, no line breaks, no heading, no quotes.
+                - Each entry starts with the date as DD-Mon (e.g. 17-Aug, 03-Sep), then a
+                  short Thai phrase of roughly 3 to 10 words. English product and company
+                  names stay in English (MK, Yayoi, QO, LiDAR, Control Board).
+                - Paraphrase into the house vocabulary. Do NOT copy comments verbatim.
+                  In-progress states begin with อยู่ระหว่าง (e.g. อยู่ระหว่างตรวจสอบ,
+                  อยู่ระหว่างจัดส่งอะไหล่, อยู่ระหว่าง MK อนุมัติใบเสนอราคา). Waiting states
+                  begin with รอ (e.g. รออะไหล่, รอลูกค้ายืนยัน). A scheduled visit is
+                  เจ้าหน้าที่เข้าซ่อม or เจ้าหน้าที่เข้าดำเนินการ.
+                - One entry per meaningful step. Skip pleasantries, file names, phone
+                  numbers, and internal chatter. Merge comments from the same day that
+                  describe the same step.
+                - When the same state continues across consecutive days with no new
+                  step, write a range as DD-DD Mon: 25-26 Aug รออะไหล่แบตเตอรี่. A range
+                  must stay inside one month. Never write one across two months such as
+                  25-11-Sep; if a state runs from August into September, end the range at
+                  the last day of August (25-31 Aug) and continue with a dated entry in
+                  September (01-Sep or the actual next date).
+                - The first comment on a ticket is usually the contact centre's intake
+                  form (it begins with "Ticket ID"). It is not a step; do not log it.
+                - Never invent a step that is not supported by a comment or the current
+                  status. If the thread is empty or says nothing useful, output an
+                  empty line rather than a guess.
+                - If the current board status describes a state the last comment does
+                  not, finish with that state, dated from the last comment to the
+                  report date.
+                - Do not add commentary, explanation, or anything after the line.
+                """;
+    }
 }
