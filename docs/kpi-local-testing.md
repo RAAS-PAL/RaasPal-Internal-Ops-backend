@@ -220,7 +220,7 @@ for CSAT whether a figure is a `sheet cell` or was `pooled`. Anything written
 above a data block is what breaks Excel's series detection, which is why it is
 not there.
 
-### Writing charts with POI — the four traps
+### Writing charts with POI — the five traps
 
 All of them fail silently or as "Excel found a problem with some content", so
 `KpiXlsxExportTest` validates every chart's XML against the schema
@@ -243,8 +243,14 @@ All of them fail silently or as "Excel found a problem with some content", so
    each of those two bars outside the plot and clips it: the file opens with the
    first and last month shaved down their outer side, and nothing in the XML
    looks wrong. `setCrossBetween(AxisCrossBetween.BETWEEN)` gives each month a
-   band, which is Excel's own default for a column chart. It shortens the average
-   rule to the outermost months' centres — the price of whole bars.
+   band, which is Excel's own default for a column chart.
+5. **A line over banded months cannot span the plot.** With the months in bands,
+   the average rule starts and stops at the outermost months' centres, well short
+   of the page's. The fix is Excel's own: a second axis pair for the line —
+   `catAx`/`valAx` both `delete="1"`, the value axis left at `midCat` — so the
+   line crosses at the ticks while the bars keep their bands. The two only line
+   up because both value axes are pinned to the same scale, which is why a count
+   panel's axis is rounded up here rather than left to Excel.
 
 The rule's own figure is printed on one point of the line, and which point is
 chosen by reading the bars back out of the cells: the last month whose bar is
