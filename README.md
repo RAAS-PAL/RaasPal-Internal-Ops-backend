@@ -137,6 +137,11 @@ The API starts on `http://localhost:8080`.
 | `POST` | `/api/v1/cvte/devices/sync` | Search Kava by factory SN / device name / org code and start tracking matches |
 | `POST` | `/api/v1/cvte/devices/poll-now` | Refresh status for every tracked CVTE device |
 | `POST` | `/api/v1/cvte/devices/{deviceId}/poll-now` | Refresh status for a single tracked CVTE device |
+| `GET` | `/api/v1/kpi/cm-cases?from=YYYY-MM&to=YYYY-MM` | RE KPI: CM cases, SLA and first-time fix per month and service line, from the synced monday tickets (ADMIN / RAASPAL_TEAM) |
+| `POST` | `/api/v1/kpi/monday/sync` | Start a background sync of the Cleaning + Delivery Tickets boards into `case_ticket` (202; poll `/monday/sync/status`) |
+| `GET` | `/api/v1/kpi/monday/sync/runs` | Sync history, newest first |
+| `GET` | `/api/v1/kpi/monday/config` | Effective board/column mapping (never the token) |
+| `GET` | `/api/v1/kpi/monday/boards/{boardId}` | Live column + group ids of a board, for writing the mapping |
 
 All endpoints (except login) require `Authorization: Bearer <token>`.
 
@@ -161,6 +166,11 @@ All endpoints (except login) require `Authorization: Bearer <token>`.
 | `CVTE_KAVA_SIGN_TYPE` | Signing algorithm: `md5` or `hmac` (default `hmac`) |
 | `CVTE_KAVA_POLLING_ENABLED` | `true` to enable background refresh of tracked devices (default `false`, manual sync/poll works either way) |
 | `CVTE_KAVA_POLLING_INTERVAL_MS` | Interval between scheduled polls in milliseconds (default `60000`) |
+| `MONDAY_API_TOKEN` | monday.com API token — needed by the CM-report preview and the RE KPI case sync |
+| `KPI_MONDAY_SYNC_ENABLED` | `true` to run the nightly monday → `case_ticket` sync (default `false`; `POST /api/v1/kpi/monday/sync` works either way) |
+| `KPI_MONDAY_SYNC_CRON` / `KPI_MONDAY_SYNC_ZONE` | When it runs (default `0 30 1 * * *` in `Asia/Bangkok`) |
+| `KPI_REPEAT_WINDOW_DAYS` | Days after a ticket closes within which a new ticket for the same serial counts as a repeat (default `7`) |
+| `APP_KPI_MONDAY_BOARDS_<n>_COLUMNS_<FIELD>` | Override a board's column mapping without a deploy, e.g. `APP_KPI_MONDAY_BOARDS_0_COLUMNS_CLOSEDATE=date_xxxx`; see the `app.kpi.monday` block in `application.properties` |
 
 ---
 

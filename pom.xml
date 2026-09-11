@@ -120,6 +120,48 @@
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>
 			<version>5.3.0</version>
+			<exclusions>
+				<!-- Replaced by poi-ooxml-full below; the two carry the same
+				     packages and must not both be on the classpath. -->
+				<exclusion>
+					<groupId>org.apache.poi</groupId>
+					<artifactId>poi-ooxml-lite</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<!--
+		  The full OOXML schemas, not the trimmed poi-ooxml-lite that poi-ooxml
+		  pulls by default. Lite ships the generated classes for the chart types
+		  but omits some of their compiled schema resources, so writing a stacked
+		  column chart's <c:overlap> — which every stacked chart needs, or Excel
+		  draws the series side by side instead of stacked — dies at runtime with
+		  "Could not locate compiled schema resource … stoverlappercent…xsb".
+		  Costs ~14 MB in the image, which is the price of the KPI chart exports.
+		-->
+		<dependency>
+			<groupId>org.apache.poi</groupId>
+			<artifactId>poi-ooxml-full</artifactId>
+			<version>5.3.0</version>
+		</dependency>
+
+		<!--
+		  S3, for the CSAT survey workbooks. Deliberately the S3 API rather than
+		  Supabase's own REST one: Supabase Storage speaks S3 through a gateway,
+		  so the same client reads a Supabase bucket today and an AWS one later
+		  with nothing but an endpoint and a pair of keys changing. The async
+		  client is excluded — the reads here are four small files, synchronous,
+		  and Netty is 5 MB of transport nobody would use.
+		-->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>2.54.16</version>
+			<exclusions>
+				<exclusion>
+					<groupId>software.amazon.awssdk</groupId>
+					<artifactId>netty-nio-client</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 
 		<!-- Lombok -->
