@@ -10,5 +10,16 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * anything derived from one has to be computed here instead.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record MondayColumnValue(String id, String type, String text) {
+public record MondayColumnValue(String id, String type, String text, String value) {
+
+    /**
+     * The raw JSON monday stores for this cell, or null when it was not requested.
+     *
+     * <p>Needed where {@code text} loses structure: a location cell's text is a
+     * postal address with the coordinates dropped, and a timeline's text is two
+     * dates glued with a dash. Both are unambiguous in {@code value}.
+     */
+    public String rawValue() {
+        return value;
+    }
 }
