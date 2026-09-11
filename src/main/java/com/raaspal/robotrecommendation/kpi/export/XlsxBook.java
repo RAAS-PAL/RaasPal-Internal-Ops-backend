@@ -267,20 +267,25 @@ final class XlsxBook {
             // panels print them. The cells keep their own finer format: a bar
             // labelled 87% still sits on a cell reading 86.6%, as on the page.
             String labelFormat = spec.percent() ? "0%" : "#,##0";
-            if (spec.percent()) {
-                // The deck's rate charts all run 0–100 in quarters, so a good
-                // month and a bad one are the same height in every panel. The
-                // axis ends a little above 100% though: pinned at exactly 1.0, a
-                // 100% bar hits the ceiling and its label lands outside the plot.
-                // Ticks are only drawn at multiples of the unit, so nothing says
-                // "110%" — the top just has room.
-                values.setMinimum(0.0);
-                values.setMaximum(1.1);
-                values.setMajorUnit(0.25);
-                values.setNumberFormat("0%");
-            } else {
-                values.setNumberFormat(labelFormat);
-            }
+            // How tall the plot stands, in the values' own units: a rate panel
+            // runs 0–100 so that a good month and a bad one are the same height
+            // in every panel, and a count panel is rounded up the way the page
+            // rounds it. Both are pinned rather than left to Excel — the rule is
+            // drawn against a second axis below, which can only line up with this
+            // one if the two are told the same scale.
+            double[] tops = columnTops(spec, lastRow);
+            double top = spec.percent() ? 1.0 : niceMax(tops);
+            // Ticks in quarters, and the axis a tenth above the last of them:
+            // pinned at exactly the top tick, a full-height bar hits the ceiling
+            // and its label lands outside the plot. Ticks are only drawn at
+            // multiples of the unit, so nothing says "110%" — the top just has room.
+            // Rounded off, or a count axis ends at 440.00000000000006 and says
+            // so in Excel's own axis dialog.
+            double axisTop = Math.round(top * 110.0) / 100.0;
+            values.setMinimum(0.0);
+            values.setMaximum(axisTop);
+            values.setMajorUnit(top / 4);
+            values.setNumberFormat(labelFormat);
             // Faint solid gridlines and no tick marks, as on the page.
             values.setMajorTickMark(AxisTickMark.NONE);
             months.setMajorTickMark(AxisTickMark.NONE);
@@ -319,7 +324,29 @@ final class XlsxBook {
             // over a column repeating the one value — which is also why that
             // column is in the sheet rather than computed here.
             if (spec.averageColumn() != null) {
-                XDDFLineChartData rule = (XDDFLineChartData) chart.createData(ChartTypes.LINE, months, values);
+                // The page's rule runs the full width of the plot, which the
+                // bars' axis cannot do: months sit in bands there, so a line over
+                // them starts and stops at the outermost months' centres. Excel's
+                // own answer is a second axis pair, crossing at the ticks instead
+                // and hidden behind the first — the line then reaches both edges
+                // while the bars keep their bands. It only lines up because both
+                // value axes are pinned to the same scale above.
+                XDDFCategoryAxis ruleMonths = chart.createCategoryAxis(AxisPosition.BOTTOM);
+                XDDFValueAxis ruleValues = chart.createValueAxis(AxisPosition.RIGHT);
+                ruleMonths.crossAxis(ruleValues);
+                ruleValues.crossAxis(ruleMonths);
+                ruleValues.setCrosses(AxisCrosses.AUTO_ZERO);
+                ruleValues.setCrossBetween(AxisCrossBetween.MIDPOINT_CATEGORY);
+                ruleValues.setMinimum(0.0);
+                ruleValues.setMaximum(axisTop);
+                // Nothing of the second pair is drawn — it only decides where the
+                // line's points fall. Visible, it would repeat the scale down the
+                // right-hand side and the months along the top.
+                ruleMonths.setVisible(false);
+                ruleValues.setVisible(false);
+
+                XDDFLineChartData rule =
+                        (XDDFLineChartData) chart.createData(ChartTypes.LINE, ruleMonths, ruleValues);
                 // A lineChart must declare its grouping; POI writes none, and
                 // Excel rejects the whole file rather than the one element.
                 rule.setGrouping(Grouping.STANDARD);
@@ -338,7 +365,7 @@ final class XlsxBook {
                 series.setShapeProperties(properties);
                 chart.plot(rule);
                 labelRule(chart.getCTChart().getPlotArea().getLineChartArray(0).getSerArray(0),
-                        ruleLabelPoint(spec, lastRow), spec.percent() ? "0.0%" : "#,##0");
+                        ruleLabelPoint(spec, tops, axisTop), spec.percent() ? "0.0%" : "#,##0");
             }
 
             var barChart = chart.getCTChart().getPlotArea().getBarChartArray(0);
@@ -359,6 +386,20 @@ final class XlsxBook {
             }
         }
 
+        /** Each month's tallest point: a stack's total, or its highest series. */
+        private double[] columnTops(ChartSpec spec, int lastRow) {
+            double[] tops = new double[lastRow];
+            for (int row = 1; row <= lastRow; row++) {
+                double column = 0;
+                for (int i : spec.columns()) {
+                    double value = numeric(row, i);
+                    column = spec.stacking() == Stacking.STACKED ? column + value : Math.max(column, value);
+                }
+                tops[row - 1] = column;
+            }
+            return tops;
+        }
+
         /**
          * Which month carries the rule's figure: the last one whose bar is clear
          * of it, or failing that the one furthest from it.
@@ -371,34 +412,29 @@ final class XlsxBook {
          *
          * <p>The heights come back out of the cells just written, so this reads
          * exactly what the chart reads. A month with no bar at all counts as
-         * clear: an empty band is the best place a label can land.
+         * clear: an empty band is the best place a label can land. The first and
+         * last months are a last resort: the rule's axis stands them on the plot's
+         * edges, where a label straddles the border.
          */
-        private int ruleLabelPoint(ChartSpec spec, int lastRow) {
+        private int ruleLabelPoint(ChartSpec spec, double[] tops, double axisTop) {
             double rule = numeric(1, spec.averageColumn());
-            // Percent panels are pinned; a count panel's axis is as tall as its
-            // tallest column, near enough for measuring a label against.
-            double span = spec.percent() ? 1.1 : 0.0;
-            double[] tops = new double[lastRow];
-            for (int row = 1; row <= lastRow; row++) {
-                double top = 0;
-                for (int column : spec.columns()) {
-                    double value = numeric(row, column);
-                    top = spec.stacking() == Stacking.STACKED ? top + value : Math.max(top, value);
-                }
-                tops[row - 1] = top;
-                span = Math.max(span, top);
-            }
             // A label stands about a tenth of the plot high, counting its air.
-            double clear = span * 0.1;
-            int furthest = 0;
-            for (int i = 0; i < tops.length; i++) {
-                if (Math.abs(tops[i] - rule) > Math.abs(tops[furthest] - rule)) {
-                    furthest = i;
-                }
-            }
-            for (int i = tops.length - 1; i >= 0; i--) {
+            double clear = axisTop * 0.1;
+            int last = tops.length - 1;
+            for (int i = last - 1; i > 0; i--) {
                 if (Math.abs(tops[i] - rule) >= clear) {
                     return i;
+                }
+            }
+            for (int edge : new int[]{last, 0}) {
+                if (Math.abs(tops[edge] - rule) >= clear) {
+                    return edge;
+                }
+            }
+            int furthest = 0;
+            for (int i = 1; i <= last; i++) {
+                if (Math.abs(tops[i] - rule) > Math.abs(tops[furthest] - rule)) {
+                    furthest = i;
                 }
             }
             return furthest;
@@ -466,6 +502,22 @@ final class XlsxBook {
         labels.addNewShowSerName().setVal(false);
         labels.addNewShowPercent().setVal(false);
         labels.addNewShowBubbleSize().setVal(false);
+    }
+
+    /**
+     * A count axis's top tick, rounded up to a readable number as the page
+     * rounds it — the same four quarters, so the two panels match.
+     */
+    private static double niceMax(double[] tops) {
+        double max = 0;
+        for (double top : tops) {
+            max = Math.max(max, top);
+        }
+        if (max <= 0) {
+            return 4;
+        }
+        double step = Math.pow(10, Math.floor(Math.log10(max))) / 2;
+        return Math.ceil(max / (step * 4)) * step * 4;
     }
 
     /** "#E8A33D" as the three bytes a fill wants. */

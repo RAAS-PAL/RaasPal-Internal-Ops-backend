@@ -220,6 +220,23 @@ class KpiXlsxExportTest {
             // last month on the plot's edges and Excel clips half of both bars.
             assertThat(axis.getCrossBetween().getVal()).isEqualTo(STCrossBetween.BETWEEN);
 
+            // Which is why the rule has an axis pair of its own, hidden behind
+            // the first and crossing at the ticks: over the bars' axis a line
+            // stops at the outermost months' centres, well short of the page's
+            // rule. It lines up only because both axes are pinned to one scale.
+            var plot = charts.get(0).getCTChart().getPlotArea();
+            assertThat(plot.getValAxArray()).hasSize(2);
+            assertThat(plot.getCatAxArray()).hasSize(2);
+            var ruleAxis = plot.getValAxArray(1);
+            assertThat(ruleAxis.getCrossBetween().getVal()).isEqualTo(STCrossBetween.MID_CAT);
+            assertThat(ruleAxis.getScaling().getMax().getVal()).isEqualTo(1.1);
+            assertThat(ruleAxis.getDelete().getVal()).isTrue();
+            assertThat(plot.getCatAxArray(1).getDelete().getVal()).isTrue();
+            // and it is the pair the line is actually plotted against.
+            var lineAxes = plot.getLineChartArray(0).getAxIdArray();
+            assertThat(lineAxes[0].getVal()).isEqualTo(plot.getCatAxArray(1).getAxId().getVal());
+            assertThat(lineAxes[1].getVal()).isEqualTo(ruleAxis.getAxId().getVal());
+
             // Each survey's chart carries its own total as a rule, labelled at its end.
             assertThat(charts.get(1).getCTChart().getPlotArea().getLineChartArray()).hasSize(1);
             var rule = charts.get(1).getCTChart().getPlotArea().getLineChartArray(0).getSerArray(0);
@@ -276,6 +293,13 @@ class KpiXlsxExportTest {
                 assertThat(bars.getOverlap().getVal()).as(stacked).isEqualTo((byte) 100);
                 assertThat(bars.getSerArray()).hasSize(2);
             }
+            // A count panel's axis has to be pinned too, or Excel scales the
+            // bars' axis to the stack and the rule's to one repeated figure, and
+            // draws the rule at a height that is nobody's average.
+            var cases = charts(book, "CM Cases").get(0).getCTChart().getPlotArea();
+            assertThat(cases.getValAxArray(0).getScaling().getMax().getVal())
+                    .isEqualTo(cases.getValAxArray(1).getScaling().getMax().getVal());
+
             CTBarChart ftf = charts(book, "First Time Fix").get(0).getCTChart().getPlotArea().getBarChartArray(0);
             assertThat(ftf.getGrouping().getVal()).isEqualTo(STBarGrouping.CLUSTERED);
             assertThat(ftf.getSerArray()).hasSize(2);
