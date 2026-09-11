@@ -107,6 +107,10 @@ public class KpiCsatService {
         synchronized (this) {
             cached = null;
         }
+        // The source may be holding a listing of its own — a bucket reuses one for
+        // a few seconds — and this button means "look again", not "look at what you
+        // looked at a moment ago".
+        source.refresh();
         return status();
     }
 

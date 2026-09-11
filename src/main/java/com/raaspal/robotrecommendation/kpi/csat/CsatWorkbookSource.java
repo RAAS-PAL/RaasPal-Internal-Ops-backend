@@ -6,10 +6,10 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Where the survey workbooks come from. Today a folder on the machine running
- * the backend ({@link FolderCsatWorkbookSource}); the plan is an object-storage
- * bucket the RE team uploads to, which would be a second implementation behind
- * this interface and nothing else changes.
+ * Where the survey workbooks come from: an S3 bucket the RE team uploads to
+ * ({@link BucketCsatWorkbookSource}) wherever one is configured, and otherwise a
+ * folder on the machine running the backend ({@link FolderCsatWorkbookSource}),
+ * which is how a developer works on this without credentials.
  *
  * <p>The contract is the whole current set, every call: the team replaces all
  * four workbooks each month, so the source is a snapshot, not a stream of
@@ -27,6 +27,15 @@ public interface CsatWorkbookSource {
      * workbooks: the console shows the reason, and it is not the caller's fault.
      */
     List<WorkbookFile> list();
+
+    /**
+     * Drops whatever the source is holding, so the next {@link #list()} asks the
+     * real thing again. The console's reload button calls this: a remote source
+     * reuses a listing for a few seconds, and "re-read files" has to mean it.
+     * A folder holds nothing, so for it this is nothing.
+     */
+    default void refresh() {
+    }
 
     /** Opens the workbook's bytes; the caller closes the stream. */
     @FunctionalInterface

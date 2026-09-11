@@ -164,12 +164,51 @@ sheets, combine them the deck's way.**
   columns of the question rows. Every deck figure reproduces exactly.
 - Response rate → responses ÷ customers called (`ประเมินผล` ÷ `# ลูกค้า`).
 
-Point the backend at the folder (the `local` profile already does; blank = not
-configured, and `GET /kpi/csat` is a 400 naming the variable):
+### Where they are read from
+
+Two sources, one interface (`kpi.csat.CsatWorkbookSource`). **The bucket wins
+wherever one is configured**; the folder is the fallback, and with neither set
+`GET /kpi/csat` is a 400 naming both.
 
 ```properties
+# a developer's machine — the local profile already sets this
 app.kpi.csat.folder=/Users/kusk/Downloads/csatscorefordashboard   # or KPI_CSAT_FOLDER=…
 ```
+
+The deployed console reads the bucket, because Render's disk is wiped on every
+deploy and the RE team cannot write to it anyway. It is spoken to over **S3** on
+purpose: Supabase Storage answers S3 through a gateway, so one client reads the
+Supabase bucket today and an AWS bucket later with nothing but an endpoint and a
+key pair changing.
+
+```bash
+# Supabase — Storage > create a PRIVATE bucket, then Storage settings > S3 access keys
+KPI_CSAT_BUCKET_ENDPOINT=https://<project-ref>.supabase.co/storage/v1/s3
+KPI_CSAT_BUCKET_REGION=<the project's region, e.g. ap-southeast-1>
+KPI_CSAT_BUCKET=csat-workbooks
+KPI_CSAT_BUCKET_ACCESS_KEY=…
+KPI_CSAT_BUCKET_SECRET_KEY=…
+
+# AWS — same four workbooks, no endpoint; an IAM user with ListBucket + GetObject
+KPI_CSAT_BUCKET_ENDPOINT=            # blank
+KPI_CSAT_BUCKET_REGION=ap-southeast-1
+KPI_CSAT_BUCKET=raaspal-csat-workbooks
+KPI_CSAT_BUCKET_ACCESS_KEY=…
+KPI_CSAT_BUCKET_SECRET_KEY=…
+```
+
+Optional: `KPI_CSAT_BUCKET_PREFIX` (a folder inside the bucket),
+`KPI_CSAT_BUCKET_PATH_STYLE` (leave `true`; Supabase and MinIO answer nothing
+else), `KPI_CSAT_BUCKET_LIST_CACHE_SECONDS` (a listing is reused for a minute, so
+the page does not make a round trip per request; the reload button ignores it).
+
+**Keep the bucket private.** The workbooks name customers; a public bucket hands
+them to anyone who guesses the URL. The secret is never logged, never returned by
+`/kpi/csat/source`, and never sent to the browser.
+
+Uploading is the RE team's monthly job and needs no console feature: drag the
+four workbooks into the bucket in the Supabase dashboard, overwriting last
+month's, then press **Re-read files** on the CSAT page (or wait a minute).
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -185,8 +224,9 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:8081/api/v1/kpi/csat
 Box cell or the rating header; a file whose survey could not be told; a survey with
 no workbook.
 
-When the workbooks move to a bucket, implement `kpi.csat.CsatWorkbookSource` for it
-and nothing else changes.
+A bucket is tested without one: `BucketCsatWorkbookSourceTest` stands a stub S3 up
+on localhost and the SDK signs and speaks to it for real, which is also why that
+test stands in for AWS as much as for Supabase.
 
 ## Excel export — for the deck
 

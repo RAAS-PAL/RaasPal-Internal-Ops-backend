@@ -210,12 +210,14 @@ class KpiCsatServiceTest {
                 .isInstanceOf(BadRequestException.class).hasMessageContaining("must not exceed");
     }
 
+    /** The message a deployed console shows when nobody has set CSAT up at all. */
     @Test
-    void anUnconfiguredFolderIsA400ThatNamesTheEnvVar() {
+    void anUnconfiguredSourceIsA400ThatNamesBothWaysToConfigureIt() {
         KpiCsatService service = service(new FolderCsatWorkbookSource(new KpiCsatProperties()));
 
         assertThatThrownBy(() -> service.monthly(JAN, JAN))
                 .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("KPI_CSAT_BUCKET")
                 .hasMessageContaining("KPI_CSAT_FOLDER");
     }
 
