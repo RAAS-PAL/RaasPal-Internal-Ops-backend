@@ -14,7 +14,12 @@ public record MondayItem(
         @JsonProperty("updated_at") OffsetDateTime updatedAt,
         MondayGroup group,
         @JsonProperty("column_values") List<MondayColumnValue> columnValues,
-        List<MondayUpdate> updates
+        List<MondayUpdate> updates,
+        /**
+         * The owning item when this row is a subitem, otherwise null. Only the PM
+         * reader requests it; board reads that do not ask for it get null here.
+         */
+        @JsonProperty("parent_item") MondayItemRef parentItem
 ) {
 
     /**
@@ -39,6 +44,24 @@ public record MondayItem(
     /** The most recent comment, or null when the item has none. */
     public MondayUpdate latestUpdate() {
         return updates == null || updates.isEmpty() ? null : updates.get(0);
+    }
+
+    /** The raw JSON of one column, for cells whose text drops structure. */
+    public String columnRawValue(String columnId) {
+        if (columnValues == null) {
+            return null;
+        }
+        return columnValues.stream()
+                .filter(value -> columnId.equals(value.id()))
+                .map(MondayColumnValue::value)
+                .filter(value -> value != null && !value.isBlank() && !"null".equals(value))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** The parent item's id, or null when this row is not a subitem. */
+    public String parentItemId() {
+        return parentItem == null ? null : parentItem.id();
     }
 
     /** The group title, or null when the group was not requested. */

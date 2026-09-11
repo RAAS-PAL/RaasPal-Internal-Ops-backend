@@ -1,0 +1,587 @@
+{
+  "_comment": "Province -> Region -> Zone master (PDF section 9). The single source for geography. The Monday boards' own region column is NOT used: it carries 12 different spellings for about 7 regions (ใต้/ภาคใต้, อีสาน/ตะวันออกเฉียงเหนือ), so region and zone are derived from the province instead. Bangkok and its 5 vicinity provinces are lifted out of the official Central region into BANGKOK, because they are one dispatch area - a day trip, no hotel - which is also how the RE team already writes it (กรุงเทพและปริมณฑล).",
+  "regions": [
+    "BANGKOK",
+    "CENTRAL",
+    "EAST",
+    "WEST",
+    "NORTH",
+    "NORTHEAST",
+    "SOUTH"
+  ],
+  "provinces": [
+    {
+      "provinceTh": "กรุงเทพมหานคร",
+      "provinceEn": "Bangkok",
+      "region": "BANGKOK",
+      "zone": "BANGKOK",
+      "aliases": [
+        "กรุงเทพ",
+        "กทม",
+        "กทม.",
+        "กรุงเทพฯ",
+        "บางกอก",
+        "Bangkok",
+        "BKK",
+        "Krungthep"
+      ]
+    },
+    {
+      "provinceTh": "นนทบุรี",
+      "provinceEn": "Nonthaburi",
+      "region": "BANGKOK",
+      "zone": "VICINITY",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ปทุมธานี",
+      "provinceEn": "Pathum Thani",
+      "region": "BANGKOK",
+      "zone": "VICINITY",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สมุทรปราการ",
+      "provinceEn": "Samut Prakan",
+      "region": "BANGKOK",
+      "zone": "VICINITY",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สมุทรสาคร",
+      "provinceEn": "Samut Sakhon",
+      "region": "BANGKOK",
+      "zone": "VICINITY",
+      "aliases": []
+    },
+    {
+      "provinceTh": "นครปฐม",
+      "provinceEn": "Nakhon Pathom",
+      "region": "BANGKOK",
+      "zone": "VICINITY",
+      "aliases": []
+    },
+    {
+      "provinceTh": "นครสวรรค์",
+      "provinceEn": "Nakhon Sawan",
+      "region": "CENTRAL",
+      "zone": "UPPER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "พิจิตร",
+      "provinceEn": "Phichit",
+      "region": "CENTRAL",
+      "zone": "UPPER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "พิษณุโลก",
+      "provinceEn": "Phitsanulok",
+      "region": "CENTRAL",
+      "zone": "UPPER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "เพชรบูรณ์",
+      "provinceEn": "Phetchabun",
+      "region": "CENTRAL",
+      "zone": "UPPER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สุโขทัย",
+      "provinceEn": "Sukhothai",
+      "region": "CENTRAL",
+      "zone": "UPPER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "กำแพงเพชร",
+      "provinceEn": "Kamphaeng Phet",
+      "region": "CENTRAL",
+      "zone": "UPPER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "อุทัยธานี",
+      "provinceEn": "Uthai Thani",
+      "region": "CENTRAL",
+      "zone": "UPPER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ชัยนาท",
+      "provinceEn": "Chai Nat",
+      "region": "CENTRAL",
+      "zone": "UPPER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "พระนครศรีอยุธยา",
+      "provinceEn": "Phra Nakhon Si Ayutthaya",
+      "region": "CENTRAL",
+      "zone": "LOWER_CENTRAL",
+      "aliases": [
+        "อยุธยา",
+        "Ayutthaya",
+        "Ayudhya",
+        "พระนครศรีอยุทธยา"
+      ]
+    },
+    {
+      "provinceTh": "อ่างทอง",
+      "provinceEn": "Ang Thong",
+      "region": "CENTRAL",
+      "zone": "LOWER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ลพบุรี",
+      "provinceEn": "Lopburi",
+      "region": "CENTRAL",
+      "zone": "LOWER_CENTRAL",
+      "aliases": [
+        "ละโว้"
+      ]
+    },
+    {
+      "provinceTh": "สิงห์บุรี",
+      "provinceEn": "Sing Buri",
+      "region": "CENTRAL",
+      "zone": "LOWER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สระบุรี",
+      "provinceEn": "Saraburi",
+      "region": "CENTRAL",
+      "zone": "LOWER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สุพรรณบุรี",
+      "provinceEn": "Suphan Buri",
+      "region": "CENTRAL",
+      "zone": "LOWER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "นครนายก",
+      "provinceEn": "Nakhon Nayok",
+      "region": "CENTRAL",
+      "zone": "LOWER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สมุทรสงคราม",
+      "provinceEn": "Samut Songkhram",
+      "region": "CENTRAL",
+      "zone": "LOWER_CENTRAL",
+      "aliases": []
+    },
+    {
+      "provinceTh": "เชียงราย",
+      "provinceEn": "Chiang Rai",
+      "region": "NORTH",
+      "zone": "UPPER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "เชียงใหม่",
+      "provinceEn": "Chiang Mai",
+      "region": "NORTH",
+      "zone": "UPPER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "แม่ฮ่องสอน",
+      "provinceEn": "Mae Hong Son",
+      "region": "NORTH",
+      "zone": "UPPER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ลำพูน",
+      "provinceEn": "Lamphun",
+      "region": "NORTH",
+      "zone": "UPPER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ลำปาง",
+      "provinceEn": "Lampang",
+      "region": "NORTH",
+      "zone": "UPPER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "พะเยา",
+      "provinceEn": "Phayao",
+      "region": "NORTH",
+      "zone": "UPPER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "แพร่",
+      "provinceEn": "Phrae",
+      "region": "NORTH",
+      "zone": "UPPER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "น่าน",
+      "provinceEn": "Nan",
+      "region": "NORTH",
+      "zone": "UPPER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "อุตรดิตถ์",
+      "provinceEn": "Uttaradit",
+      "region": "NORTH",
+      "zone": "LOWER_NORTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "อุดรธานี",
+      "provinceEn": "Udon Thani",
+      "region": "NORTHEAST",
+      "zone": "UPPER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "หนองคาย",
+      "provinceEn": "Nong Khai",
+      "region": "NORTHEAST",
+      "zone": "UPPER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "บึงกาฬ",
+      "provinceEn": "Bueng Kan",
+      "region": "NORTHEAST",
+      "zone": "UPPER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "เลย",
+      "provinceEn": "Loei",
+      "region": "NORTHEAST",
+      "zone": "UPPER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "หนองบัวลำภู",
+      "provinceEn": "Nong Bua Lam Phu",
+      "region": "NORTHEAST",
+      "zone": "UPPER_NORTHEAST",
+      "aliases": [
+        "หนองบัวลําภู"
+      ]
+    },
+    {
+      "provinceTh": "สกลนคร",
+      "provinceEn": "Sakon Nakhon",
+      "region": "NORTHEAST",
+      "zone": "UPPER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "นครพนม",
+      "provinceEn": "Nakhon Phanom",
+      "region": "NORTHEAST",
+      "zone": "UPPER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ขอนแก่น",
+      "provinceEn": "Khon Kaen",
+      "region": "NORTHEAST",
+      "zone": "CENTRAL_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "กาฬสินธุ์",
+      "provinceEn": "Kalasin",
+      "region": "NORTHEAST",
+      "zone": "CENTRAL_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "มหาสารคาม",
+      "provinceEn": "Maha Sarakham",
+      "region": "NORTHEAST",
+      "zone": "CENTRAL_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ร้อยเอ็ด",
+      "provinceEn": "Roi Et",
+      "region": "NORTHEAST",
+      "zone": "CENTRAL_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ชัยภูมิ",
+      "provinceEn": "Chaiyaphum",
+      "region": "NORTHEAST",
+      "zone": "CENTRAL_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "มุกดาหาร",
+      "provinceEn": "Mukdahan",
+      "region": "NORTHEAST",
+      "zone": "CENTRAL_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "นครราชสีมา",
+      "provinceEn": "Nakhon Ratchasima",
+      "region": "NORTHEAST",
+      "zone": "LOWER_NORTHEAST",
+      "aliases": [
+        "โคราช",
+        "Korat",
+        "Khorat"
+      ]
+    },
+    {
+      "provinceTh": "บุรีรัมย์",
+      "provinceEn": "Buriram",
+      "region": "NORTHEAST",
+      "zone": "LOWER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สุรินทร์",
+      "provinceEn": "Surin",
+      "region": "NORTHEAST",
+      "zone": "LOWER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ศรีสะเกษ",
+      "provinceEn": "Sisaket",
+      "region": "NORTHEAST",
+      "zone": "LOWER_NORTHEAST",
+      "aliases": [
+        "ศรีษะเกษ",
+        "ศีรษะเกษ"
+      ]
+    },
+    {
+      "provinceTh": "อุบลราชธานี",
+      "provinceEn": "Ubon Ratchathani",
+      "region": "NORTHEAST",
+      "zone": "LOWER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ยโสธร",
+      "provinceEn": "Yasothon",
+      "region": "NORTHEAST",
+      "zone": "LOWER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "อำนาจเจริญ",
+      "provinceEn": "Amnat Charoen",
+      "region": "NORTHEAST",
+      "zone": "LOWER_NORTHEAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "จันทบุรี",
+      "provinceEn": "Chanthaburi",
+      "region": "EAST",
+      "zone": "EAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ฉะเชิงเทรา",
+      "provinceEn": "Chachoengsao",
+      "region": "EAST",
+      "zone": "EAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ชลบุรี",
+      "provinceEn": "Chonburi",
+      "region": "EAST",
+      "zone": "EAST",
+      "aliases": [
+        "Chon Buri",
+        "ชลบุรีย์"
+      ]
+    },
+    {
+      "provinceTh": "ตราด",
+      "provinceEn": "Trat",
+      "region": "EAST",
+      "zone": "EAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ปราจีนบุรี",
+      "provinceEn": "Prachinburi",
+      "region": "EAST",
+      "zone": "EAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ระยอง",
+      "provinceEn": "Rayong",
+      "region": "EAST",
+      "zone": "EAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สระแก้ว",
+      "provinceEn": "Sa Kaeo",
+      "region": "EAST",
+      "zone": "EAST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "กาญจนบุรี",
+      "provinceEn": "Kanchanaburi",
+      "region": "WEST",
+      "zone": "WEST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ตาก",
+      "provinceEn": "Tak",
+      "region": "WEST",
+      "zone": "WEST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ประจวบคีรีขันธ์",
+      "provinceEn": "Prachuap Khiri Khan",
+      "region": "WEST",
+      "zone": "WEST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "เพชรบุรี",
+      "provinceEn": "Phetchaburi",
+      "region": "WEST",
+      "zone": "WEST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ราชบุรี",
+      "provinceEn": "Ratchaburi",
+      "region": "WEST",
+      "zone": "WEST",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ชุมพร",
+      "provinceEn": "Chumphon",
+      "region": "SOUTH",
+      "zone": "UPPER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ระนอง",
+      "provinceEn": "Ranong",
+      "region": "SOUTH",
+      "zone": "UPPER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สุราษฎร์ธานี",
+      "provinceEn": "Surat Thani",
+      "region": "SOUTH",
+      "zone": "UPPER_SOUTH",
+      "aliases": [
+        "สุราษฏร์ธานี",
+        "สุราษฎธานี",
+        "สุราษฎร์"
+      ]
+    },
+    {
+      "provinceTh": "นครศรีธรรมราช",
+      "provinceEn": "Nakhon Si Thammarat",
+      "region": "SOUTH",
+      "zone": "UPPER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "พังงา",
+      "provinceEn": "Phang Nga",
+      "region": "SOUTH",
+      "zone": "UPPER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "กระบี่",
+      "provinceEn": "Krabi",
+      "region": "SOUTH",
+      "zone": "UPPER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ภูเก็ต",
+      "provinceEn": "Phuket",
+      "region": "SOUTH",
+      "zone": "UPPER_SOUTH",
+      "aliases": [
+        "Phuket Island"
+      ]
+    },
+    {
+      "provinceTh": "ตรัง",
+      "provinceEn": "Trang",
+      "region": "SOUTH",
+      "zone": "LOWER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "พัทลุง",
+      "provinceEn": "Phatthalung",
+      "region": "SOUTH",
+      "zone": "LOWER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สตูล",
+      "provinceEn": "Satun",
+      "region": "SOUTH",
+      "zone": "LOWER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "สงขลา",
+      "provinceEn": "Songkhla",
+      "region": "SOUTH",
+      "zone": "LOWER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ปัตตานี",
+      "provinceEn": "Pattani",
+      "region": "SOUTH",
+      "zone": "LOWER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "ยะลา",
+      "provinceEn": "Yala",
+      "region": "SOUTH",
+      "zone": "LOWER_SOUTH",
+      "aliases": []
+    },
+    {
+      "provinceTh": "นราธิวาส",
+      "provinceEn": "Narathiwat",
+      "region": "SOUTH",
+      "zone": "LOWER_SOUTH",
+      "aliases": []
+    }
+  ]
+}
