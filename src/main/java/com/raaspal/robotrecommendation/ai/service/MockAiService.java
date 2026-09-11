@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.ai.service;
 
+import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalRequest;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalResult;
 import com.raaspal.robotrecommendation.ai.dto.AiRecommendationOption;
@@ -25,7 +26,8 @@ import java.util.Map;
 @Service
 @ConditionalOnExpression("'${app.anthropic.api-key:}' == ''")
 public class MockAiService implements RequirementExtractionService, RobotRecommendationAiService,
-        ProposalGenerationAiService, TranslationAiService, CmReportExtractionService {
+        ProposalGenerationAiService, TranslationAiService, CmReportExtractionService,
+        CaseSolutionAiService {
 
     @Override
     public ExtractedRequirementData extract(FileUpload fileUpload, RobotType robotType) {
@@ -221,6 +223,31 @@ public class MockAiService implements RequirementExtractionService, RobotRecomme
             missing.add("robot specifications");
         }
         return missing.isEmpty() ? "No major missing information detected by mock AI." : String.join(", ", missing);
+    }
+
+    // ─── CaseSolutionAiService ────────────────────────────────────────────────
+
+    /**
+     * One dated entry per comment, first few words of each. Deterministic, so a test
+     * can assert on it, and honest about what it is: without an API key the column
+     * shows the raw thread condensed, not a paraphrase. Same contract as the real
+     * service — never throws, empty string for nothing to say.
+     */
+    @Override
+    public String summariseProgress(CaseProgressRequest request) {
+        if (request.comments() == null) return "";
+        java.time.format.DateTimeFormatter dmy =
+                java.time.format.DateTimeFormatter.ofPattern("dd-MMM", java.util.Locale.ENGLISH);
+        StringBuilder out = new StringBuilder();
+        for (CaseProgressRequest.Comment c : request.comments()) {
+            String body = c.body() == null ? "" : c.body().replaceAll("\s+", " ").strip();
+            if (body.isEmpty()) continue;
+            if (out.length() > 0) out.append(' ');
+            out.append(c.postedOn() == null ? "??-???" : c.postedOn().format(dmy))
+               .append(' ')
+               .append(body.length() > 40 ? body.substring(0, 40) + "…" : body);
+        }
+        return out.toString();
     }
 
     // ─── CmReportExtractionService ────────────────────────────────────────────
