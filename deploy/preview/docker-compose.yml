@@ -5,8 +5,8 @@
 # load-bearing:
 #
 #   1. Its own postgres. The preview must never reach Supabase. This branch
-#      carries V38, claiming the number directly after main's V37. Letting an
-#      unmerged migration reach production would record V38 as pm_planning in
+#      carries V39 — main stops at V37 and dev-1 already holds V38. Letting an
+#      unmerged migration reach production would record V39 as pm_planning in
 #      flyway_schema_history permanently — and that record cannot be taken
 #      back. It is the only irreversible mistake available here.
 #

@@ -13,13 +13,15 @@
 -- case_ticket; adding several thousand PM rows to it risks silently changing the
 -- CM and Installation numbers on a dashboard nobody would think to re-check.
 --
--- Version numbering. V38 follows directly from V37, the highest migration on main,
--- because this branch is the next one to merge. That is a deliberate claim on the
--- number: feat/re-kpi-dashboard also carries a V38 (add_case_ticket_sync) through
--- V41, so once this lands, that branch must renumber its four files to V39-V42
--- before it can merge. Flyway refuses to start when two files share a version
--- ("Found more than one migration with version 38"), so the clash surfaces the
--- moment that branch rebases onto main rather than silently at deploy time.
+-- Version numbering. main stops at V37, but V38 is already spoken for: dev-1 carries
+-- V38__add_case_report_tables.sql (the Daily Pending Case Report), unmerged but ahead
+-- of this branch in the queue. So this file takes V39, the first number actually free
+-- once that lands.
+--
+-- feat/re-kpi-dashboard carries its own V38-V41 and collides with both of us. It has
+-- to renumber to V40-V43 before it can merge. Flyway refuses to start when two files
+-- share a version ("Found more than one migration with version 39"), so the clash
+-- surfaces the moment that branch rebases onto main rather than silently at deploy.
 --
 -- This migration only adds tables. It alters nothing existing and drops nothing,
 -- which matters because local development and production share one database:
