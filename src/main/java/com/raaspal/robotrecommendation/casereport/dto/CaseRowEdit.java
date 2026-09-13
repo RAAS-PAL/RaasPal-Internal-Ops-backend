@@ -28,6 +28,13 @@ public record CaseRowEdit(
         Integer days,
 
         /** Null: recalculated from {@link #openDate}. A value: printed as given. */
-        SlaStatus sla
+        SlaStatus sla,
+
+        /**
+         * Not printed, but decides the SLA threshold. Editable because a blank one is the
+         * commonest reason for a row with no verdict, and a row added by hand has no
+         * ticket to take it from.
+         */
+        String province
 ) {
 }

@@ -104,7 +104,8 @@ class CaseReportRunServiceEditTest {
     @Test
     void blankCellsAreStoredAsNothingNotAsEmptyStrings() {
         CaseReportRow saved = service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "1002",
-                new CaseRowEdit("MK", "  ", null, "", "ฝาครอบหลุด", null, null, null, null, null));
+                new CaseRowEdit("MK", "  ", null, "", "ฝาครอบหลุด", null, null, null, null, null,
+                        "Bangkok"));
 
         assertThat(saved.branch()).isNull();
         assertThat(saved.serialNumber()).isNull();
@@ -162,6 +163,67 @@ class CaseReportRunServiceEditTest {
                 .containsExactly("M154 โลตัส จันทบุรี", "บิ๊กซี-กัลปพฤกษ์");
     }
 
+    /**
+     * The M057 case: a ticket the team counts as pending that the board keeps in another
+     * group. Added by hand, it gets a verdict from its own province and open date, sits at
+     * the bottom, and is still there after the board is re-read.
+     */
+    @Test
+    void aRowAddedByHandGetsAVerdictAndSurvivesRegeneration() {
+        CaseReportRow added = service.addRow(CaseReportDefinition.MK_PENDING, TODAY,
+                new CaseRowEdit("MK", "M057 ศรีราชานคร", "Pudu 1", "PD1020211015009",
+                        "ล้อหุ่นยนต์เสื่อมสภาพ", null, TODAY.minusDays(7), TODAY.plusDays(1),
+                        null, null, "ชลบุรี"));
+
+        assertThat(added.no()).isEqualTo(3);
+        assertThat(added.sourceItemId()).startsWith(CaseReportRow.MANUAL_PREFIX);
+        assertThat(added.isManual()).isTrue();
+        assertThat(added.edited()).isTrue();
+        assertThat(added.days()).isEqualTo(7);
+        assertThat(added.sla()).isEqualTo(SlaStatus.BREACHED); // upcountry, 7 > 5
+        assertThat(run.getTicketCount()).isEqualTo(3);
+
+        when(generator.generate(TODAY)).thenReturn(List.of(
+                row(1, "1002", "บิ๊กซี-กัลปพฤกษ์", TODAY.minusDays(2), SlaStatus.WITHIN)));
+
+        List<CaseReportRow> regenerated =
+                service.rowsFor(CaseReportDefinition.MK_PENDING, TODAY, true);
+
+        assertThat(regenerated).extracting(CaseReportRow::branch)
+                .containsExactly("บิ๊กซี-กัลปพฤกษ์", "M057 ศรีราชานคร");
+        assertThat(regenerated).extracting(CaseReportRow::no).containsExactly(1, 2);
+    }
+
+    @Test
+    void onlyARowAddedByHandCanBeRemoved() {
+        CaseReportRow added = service.addRow(CaseReportDefinition.MK_PENDING, TODAY,
+                edit("M057 ศรีราชานคร", TODAY.minusDays(7), null, null));
+
+        assertThatThrownBy(() -> service.removeRow(CaseReportDefinition.MK_PENDING, TODAY, "1001"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("comes from the monday board");
+
+        service.removeRow(CaseReportDefinition.MK_PENDING, TODAY, added.sourceItemId());
+
+        assertThat(rows()).extracting(CaseReportRow::sourceItemId).containsExactly("1001", "1002");
+        assertThat(rows()).extracting(CaseReportRow::no).containsExactly(1, 2);
+        assertThat(run.getTicketCount()).isEqualTo(2);
+    }
+
+    /** Editing a board row can fill in a province the ticket lacked, and the verdict follows. */
+    @Test
+    void fillingInAMissingProvinceGivesTheRowAVerdict() {
+        run.setRowsJson(write(List.of(CaseReportRow.of(1, "MK", "โลตัสพิมาย", "Pudu 1", "PD9",
+                "ปัญหา", null, TODAY.minusDays(4), null, 4, SlaStatus.UNKNOWN, null, "1009"))));
+
+        CaseReportRow saved = service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "1009",
+                new CaseRowEdit("MK", "โลตัสพิมาย", "Pudu 1", "PD9", "ปัญหา", null,
+                        TODAY.minusDays(4), null, null, null, "นครราชสีมา"));
+
+        assertThat(saved.province()).isEqualTo("นครราชสีมา");
+        assertThat(saved.sla()).isEqualTo(SlaStatus.WITHIN); // upcountry, 4 <= 5
+    }
+
     @Test
     void aSentReportCannotBeEdited() {
         run.setStatus(CaseRunStatus.SENT);
@@ -188,7 +250,7 @@ class CaseReportRunServiceEditTest {
 
     private static CaseRowEdit edit(String branch, LocalDate opened, Integer days, SlaStatus sla) {
         return new CaseRowEdit("MK", branch, "Pudu 1", "PD1", "ปัญหา", null, opened, null,
-                days, sla);
+                days, sla, "Bangkok");
     }
 
     private List<CaseReportRow> rows() {

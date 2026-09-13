@@ -92,6 +92,32 @@ public class CaseReportController {
     }
 
     /**
+     * Add a row the board does not have — a case the team is tracking that sits in another
+     * group, or never got a ticket. Kept through regeneration; nothing is written to monday.
+     */
+    @PostMapping("/mk/rows")
+    public ApiResponse<CaseReportRow> addMkRow(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf,
+            @RequestBody CaseRowEdit edit) {
+
+        return ApiResponse.success("Row added",
+                runService.addRow(CaseReportDefinition.MK_PENDING, asOf, edit));
+    }
+
+    /**
+     * Remove a row that was added by hand. A board row is refused: closing or moving the
+     * ticket on monday, then regenerating, is what removes those.
+     */
+    @DeleteMapping("/mk/rows/{sourceItemId}")
+    public ApiResponse<Void> removeMkRow(
+            @PathVariable String sourceItemId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
+
+        runService.removeRow(CaseReportDefinition.MK_PENDING, asOf, sourceItemId);
+        return ApiResponse.success("Row removed");
+    }
+
+    /**
      * Whether a date is already frozen, and what state it is in.
      *
      * <p>So the screen can say "generated at 08:12, not yet sent" rather than leaving a

@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.casereport.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.raaspal.robotrecommendation.casereport.service.SlaStatus;
 
 import java.time.LocalDate;
@@ -59,7 +60,11 @@ public record CaseReportRow(
         /** Not printed. Present so a blank SLA can say why it is blank. */
         String province,
 
-        /** Not printed. Links a row back to the ticket a correction belongs on. */
+        /**
+         * Not printed. Links a row back to the ticket a correction belongs on. A row a
+         * person added by hand has no ticket and carries a {@link #MANUAL_PREFIX} id
+         * instead, which is how it is told apart from a board row.
+         */
         String sourceItemId,
 
         /**
@@ -69,6 +74,21 @@ public record CaseReportRow(
          */
         boolean edited
 ) {
+
+    /** Id prefix of a row added by hand rather than read from the board. */
+    public static final String MANUAL_PREFIX = "manual-";
+
+    /**
+     * True for a row a person added, which no board read can produce or remove.
+     *
+     * <p>Not serialised: Jackson would write it as a {@code manual} property and then fail
+     * to read the stored JSON back, since the record has no such component. Readers look
+     * at the id prefix instead.
+     */
+    @JsonIgnore
+    public boolean isManual() {
+        return sourceItemId != null && sourceItemId.startsWith(MANUAL_PREFIX);
+    }
 
     public static CaseReportRow of(int no,
                                    String project,
