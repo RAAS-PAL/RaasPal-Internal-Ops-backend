@@ -74,17 +74,18 @@ public class SlaCalculator {
     /**
      * How many days a case has been open, as the report counts them.
      *
-     * <p><strong>Inclusive of the day it opened</strong>, so a case opened today reads as
-     * 1 and never 0. Confirmed against the 09 September 2026 workbook, where all five raw
-     * sheets put {@code Open Date + Days} at the same serial — one day past the "as of"
-     * date in every heading.
+     * <p><strong>Exclusive of the day it opened</strong>: a case opened today reads 0, and
+     * {@code Open Date + Days} lands on the report date. The RE team's own files disagree
+     * with each other — the 09 September 2026 workbook counted inclusively, the 11
+     * September one did not — and exclusive was chosen on 2026-09-11 to match the newer
+     * file. A reviewer who wants a different number for one row types it into the row.
      *
      * <p>Public, and the only place this arithmetic lives, because the same number is both
      * printed in the Days column and compared against the threshold. Computing it twice is
      * how a report ends up showing 5 days beside a verdict that judged it as 4.
      */
     public static int daysOpen(LocalDate openDate, LocalDate asOf) {
-        return (int) ChronoUnit.DAYS.between(openDate, asOf) + 1;
+        return (int) ChronoUnit.DAYS.between(openDate, asOf);
     }
 
     /**

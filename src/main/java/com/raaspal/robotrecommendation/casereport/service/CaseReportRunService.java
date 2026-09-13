@@ -3,6 +3,7 @@ package com.raaspal.robotrecommendation.casereport.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
+import com.raaspal.robotrecommendation.casereport.dto.CaseRowEdit;
 import com.raaspal.robotrecommendation.casereport.entity.*;
 import com.raaspal.robotrecommendation.casereport.repository.CaseReportDefinitionRepository;
 import com.raaspal.robotrecommendation.casereport.repository.CaseReportRunRepository;
@@ -15,7 +16,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Generates a report once, then keeps it.
@@ -34,6 +40,12 @@ import java.util.List;
  * regenerated on request: the reviewer is still correcting it, and serving a stale copy
  * from an hour ago would be worse than re-reading the board. Once a run is
  * {@link CaseRunStatus#SENT} it is what the customer received and never moves again.
+ *
+ * <p><strong>And the draft is the thing people correct.</strong> The board is wrong in
+ * small ways every day — a serial from the intake form, an open date the team counts
+ * from a later event — and the fix the reviewer wants is to overtype the cell on the
+ * report, not to go and argue with monday first. {@link #editRow} writes the correction
+ * into the stored rows, and a regeneration keeps every row a person has edited.
  */
 @Slf4j
 @Service
@@ -43,6 +55,7 @@ public class CaseReportRunService {
     private final CaseReportDefinitionRepository definitions;
     private final CaseReportRunRepository runs;
     private final MkPendingReportGenerator mkGenerator;
+    private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
 
     /**
@@ -94,6 +107,15 @@ public class CaseReportRunService {
         // honest answer is that nobody knows, and monday cannot be asked after the fact.
         // ─────────────────────────────────────────────────────────────────────────────
         if (asOf.isBefore(today)) {
+            if (existing != null) {
+                // A draft from an earlier day, asked to be regenerated. Same reason as
+                // below: the board describes today, not that day. Say so, rather than
+                // claiming nothing was generated when the reviewer is looking at it.
+                throw new BadRequestException(
+                        "The " + asOf + " report is from an earlier day and cannot be "
+                                + "regenerated: the board is read live and no longer shows "
+                                + "what was open then. Correct its rows by editing them.");
+            }
             throw new BadRequestException(
                     "No report was generated for " + asOf + ", so it cannot be produced now. "
                             + "The boards are read live and are edited continuously, so "
@@ -103,8 +125,226 @@ public class CaseReportRunService {
         }
 
         List<CaseReportRow> rows = generate(definitionCode, definition, asOf);
+        if (existing != null) {
+            rows = keepEditedRows(parse(existing.getRowsJson()), rows);
+        }
         freeze(definition, asOf, existing, rows);
         return rows;
+    }
+
+    /**
+     * Correct one row of a stored draft.
+     *
+     * <p>Every printed cell is replaced by what the form sent. Days and SLA are worked out
+     * again from the Open Date unless the editor typed them, so correcting a date does not
+     * leave yesterday's arithmetic beside it; a held case stays held, because On Hold is a
+     * fact about the ticket's status, not its dates.
+     *
+     * <p>The row is marked edited, which is what a later regeneration honours.
+     *
+     * @return the row as stored
+     */
+    @Transactional
+    public CaseReportRow editRow(String definitionCode,
+                                 LocalDate asOf,
+                                 String sourceItemId,
+                                 CaseRowEdit edit) {
+        CaseReportDefinition definition = requireDefinition(definitionCode);
+        CaseReportRun run = requireDraft(definitionCode, definition, asOf);
+
+        List<CaseReportRow> rows = new ArrayList<>(parse(run.getRowsJson()));
+        int index = indexOf(rows, sourceItemId);
+        if (index < 0) {
+            throw new BadRequestException(
+                    "The " + asOf + " report has no row for ticket " + sourceItemId + ".");
+        }
+
+        CaseReportRow before = rows.get(index);
+        CaseReportRow after = build(definition, asOf, before.no(), before.sourceItemId(),
+                before.sla(), edit);
+
+        rows.set(index, after);
+        run.setRowsJson(write(rows));
+        runs.save(run);
+
+        log.info("Edited row {} (ticket {}) of the {} run for {}",
+                after.no(), sourceItemId, definitionCode, asOf);
+        return after;
+    }
+
+    /**
+     * Add a row the board does not have.
+     *
+     * <p>For the case the team is tracking that the board is not — a ticket sitting in
+     * another group, or one that never got a ticket. It goes at the bottom, carries a
+     * {@link CaseReportRow#MANUAL_PREFIX} id in place of a ticket, and is kept through
+     * regeneration the way an edited row is. Nothing is written to monday.
+     */
+    @Transactional
+    public CaseReportRow addRow(String definitionCode, LocalDate asOf, CaseRowEdit edit) {
+        CaseReportDefinition definition = requireDefinition(definitionCode);
+        CaseReportRun run = requireDraft(definitionCode, definition, asOf);
+
+        List<CaseReportRow> rows = new ArrayList<>(parse(run.getRowsJson()));
+        String id = CaseReportRow.MANUAL_PREFIX + UUID.randomUUID().toString().substring(0, 8);
+        CaseReportRow row = build(definition, asOf, rows.size() + 1, id, null, edit);
+
+        rows.add(row);
+        run.setRowsJson(write(rows));
+        run.setTicketCount(rows.size());
+        runs.save(run);
+
+        log.info("Added row {} ({}) to the {} run for {}", row.no(), id, definitionCode, asOf);
+        return row;
+    }
+
+    /**
+     * Take out a row that was added by hand.
+     *
+     * <p>Only those. A board row is monday's, and removing it here would only last until
+     * the next regeneration put it back: the ticket has to be closed or moved there.
+     */
+    @Transactional
+    public void removeRow(String definitionCode, LocalDate asOf, String sourceItemId) {
+        CaseReportDefinition definition = requireDefinition(definitionCode);
+        CaseReportRun run = requireDraft(definitionCode, definition, asOf);
+
+        List<CaseReportRow> rows = new ArrayList<>(parse(run.getRowsJson()));
+        int index = indexOf(rows, sourceItemId);
+        if (index < 0) {
+            throw new BadRequestException(
+                    "The " + asOf + " report has no row " + sourceItemId + ".");
+        }
+        if (!rows.get(index).isManual()) {
+            throw new BadRequestException(
+                    "Row " + rows.get(index).no() + " comes from the monday board and cannot be "
+                            + "removed here — a regeneration would bring it back. Close or move "
+                            + "the ticket on monday, then regenerate.");
+        }
+
+        rows.remove(index);
+        run.setRowsJson(write(renumber(rows)));
+        run.setTicketCount(rows.size());
+        runs.save(run);
+
+        log.info("Removed row {} from the {} run for {}", sourceItemId, definitionCode, asOf);
+    }
+
+    /** The stored draft for a date, or the reason there is nothing to change. */
+    private CaseReportRun requireDraft(String definitionCode,
+                                       CaseReportDefinition definition,
+                                       LocalDate asOf) {
+        CaseReportRun run = runs.findByDefinitionIdAndRunDate(definition.getId(), asOf)
+                .orElseThrow(() -> new BadRequestException(
+                        "There is no generated " + definitionCode + " report for " + asOf
+                                + " to change. Generate it first."));
+
+        if (!run.getStatus().isReplaceable()) {
+            throw new BadRequestException(
+                    "The " + asOf + " report has already been sent and cannot be changed.");
+        }
+        return run;
+    }
+
+    /**
+     * A row from the form.
+     *
+     * @param previousSla what the row said before, so a held case stays held when the
+     *                    editor leaves SLA blank; null for a new row
+     */
+    private CaseReportRow build(CaseReportDefinition definition,
+                                LocalDate asOf,
+                                int no,
+                                String sourceItemId,
+                                SlaStatus previousSla,
+                                CaseRowEdit edit) {
+        LocalDate openDate = edit.openDate();
+        String province = blankToNull(edit.province());
+
+        Integer days = edit.days() != null
+                ? edit.days()
+                : openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf);
+
+        SlaStatus sla;
+        if (edit.sla() != null) {
+            sla = edit.sla();
+        } else if (previousSla == SlaStatus.ON_HOLD) {
+            sla = SlaStatus.ON_HOLD;
+        } else {
+            sla = slaCalculator.evaluate(null, null, province, openDate, asOf,
+                    definition.getSlaDaysMetro(), definition.getSlaDaysUpcountry());
+        }
+
+        return new CaseReportRow(
+                no,
+                blankToNull(edit.project()),
+                blankToNull(edit.branch()),
+                blankToNull(edit.robot()),
+                blankToNull(edit.serialNumber()),
+                blankToNull(edit.problem()),
+                blankToNull(edit.solution()),
+                openDate,
+                edit.reOnSite(),
+                days,
+                sla,
+                sla == null ? "" : sla.label(),
+                province,
+                sourceItemId,
+                true);
+    }
+
+    private static int indexOf(List<CaseReportRow> rows, String sourceItemId) {
+        for (int i = 0; i < rows.size(); i++) {
+            if (sourceItemId.equals(rows.get(i).sourceItemId())) return i;
+        }
+        return -1;
+    }
+
+    private static List<CaseReportRow> renumber(List<CaseReportRow> rows) {
+        List<CaseReportRow> out = new ArrayList<>(rows.size());
+        for (CaseReportRow row : rows) out.add(row.withNo(out.size() + 1));
+        return out;
+    }
+
+    /**
+     * The regenerated rows, with every row a person edited carried over unchanged and
+     * every row a person added kept at the bottom.
+     *
+     * <p>Edited rows are matched by ticket, so a regeneration that reorders the sheet
+     * still finds them. An edited row whose ticket has left the board is dropped with
+     * the rest: the case closed, and a correction to a closed case has nothing left to
+     * correct. Added rows have no ticket to leave, so they stay until somebody removes
+     * them. Renumbered afterwards because the generator numbered before the swap.
+     */
+    private static List<CaseReportRow> keepEditedRows(List<CaseReportRow> stored,
+                                                      List<CaseReportRow> fresh) {
+        Map<String, CaseReportRow> edited = stored.stream()
+                .filter(CaseReportRow::edited)
+                .filter(row -> row.sourceItemId() != null && !row.isManual())
+                .collect(Collectors.toMap(CaseReportRow::sourceItemId, Function.identity(),
+                        (a, b) -> a));
+        List<CaseReportRow> manual = stored.stream().filter(CaseReportRow::isManual).toList();
+        if (edited.isEmpty() && manual.isEmpty()) {
+            return fresh;
+        }
+
+        List<CaseReportRow> merged = new ArrayList<>(fresh.size() + manual.size());
+        int kept = 0;
+        for (CaseReportRow row : fresh) {
+            CaseReportRow keep = edited.get(row.sourceItemId());
+            if (keep != null) kept++;
+            merged.add(keep != null ? keep : row);
+        }
+        merged.addAll(manual);
+        log.info("Regenerated with {} edited row(s) kept and {} added row(s) carried over",
+                kept, manual.size());
+        return renumber(merged);
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.strip();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**

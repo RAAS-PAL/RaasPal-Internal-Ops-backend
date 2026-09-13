@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * on time when it is overdue, and nobody re-reads a row that already looks fine.
  *
  * <p>Cases are expressed in terms of the <em>reported</em> Days value — the number the
- * report actually prints — because that is what the team talks in, and because the count
- * is inclusive of the open day and so is one more than a naive date difference.
+ * report actually prints — because that is what the team talks in. The count excludes the
+ * open day, so it is the plain date difference and a case opened today reads 0.
  *
  * <p>A plain unit test, no Spring context: the class takes its config through the
  * constructor precisely so this is possible.
@@ -44,9 +44,9 @@ class SlaCalculatorTest {
 
     private final SlaCalculator calculator = new SlaCalculator(METRO);
 
-    /** Open date that produces the given reported Days, counting inclusively. */
+    /** Open date that produces the given reported Days, counting exclusively. */
     private static LocalDate openedFor(int reportedDays) {
-        return AS_OF.minusDays(reportedDays - 1L);
+        return AS_OF.minusDays(reportedDays);
     }
 
     private SlaStatus delivery(String province, int reportedDays) {
@@ -60,21 +60,22 @@ class SlaCalculatorTest {
     }
 
     /**
-     * The day count includes the day the case opened, so a case opened today is 1 day old
-     * and never 0.
+     * The day count excludes the day the case opened, so a case opened today reads 0.
      *
-     * <p>Pinned from the 09 September 2026 workbook: on all five raw sheets
-     * {@code Open Date + Days} lands on the same serial, one past the "as of" date in every
-     * heading. Drop the inclusive +1 and every case crosses its threshold a day late.
+     * <p>The RE team's files disagree: the 09 September 2026 workbook counted inclusively
+     * (M154, opened 15 Aug, printed 26) while the 11 September report counted exclusively
+     * (M154 printed 27 on the 11th, and three cases opened that day printed 0). Exclusive
+     * was chosen on 2026-09-11 to match the newer file; a reviewer can overtype one row.
      */
     @Test
-    void daysOpenCountsTheDayTheCaseOpened() {
-        assertThat(SlaCalculator.daysOpen(AS_OF, AS_OF)).isEqualTo(1);
-        assertThat(SlaCalculator.daysOpen(AS_OF.minusDays(1), AS_OF)).isEqualTo(2);
-        assertThat(SlaCalculator.daysOpen(LocalDate.of(2026, 9, 7), AS_OF)).isEqualTo(3);
+    void daysOpenExcludesTheDayTheCaseOpened() {
+        assertThat(SlaCalculator.daysOpen(AS_OF, AS_OF)).isEqualTo(0);
+        assertThat(SlaCalculator.daysOpen(AS_OF.minusDays(1), AS_OF)).isEqualTo(1);
+        assertThat(SlaCalculator.daysOpen(LocalDate.of(2026, 9, 7), AS_OF)).isEqualTo(2);
 
-        // M154 โลตัส จันทบุรี on the 09 Sep sheet: opened 15 Aug, reported as 26 days.
-        assertThat(SlaCalculator.daysOpen(LocalDate.of(2026, 8, 15), AS_OF)).isEqualTo(26);
+        // M154 โลตัส จันทบุรี on the 11 Sep report: opened 15 Aug, printed as 27 days.
+        assertThat(SlaCalculator.daysOpen(LocalDate.of(2026, 8, 15), LocalDate.of(2026, 9, 11)))
+                .isEqualTo(27);
     }
 
     /**
