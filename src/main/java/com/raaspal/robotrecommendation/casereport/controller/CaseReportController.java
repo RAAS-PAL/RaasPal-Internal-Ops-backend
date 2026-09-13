@@ -50,7 +50,24 @@ public class CaseReportController {
     private final CaseTicketStatusHistoryRepository statusHistory;
 
     /**
-     * The MK sheet — MK, Yayoi and Bonus Suki delivery cases.
+     * The report slugs in the URL, and the definitions they name.
+     *
+     * <p>A closed list rather than the definition table so a typo in a URL is a 404 and
+     * not a query for a report that does not exist. Adding a sheet means adding a line
+     * here, which is deliberate: the console needs a tab for it anyway.
+     */
+    private static final Map<String, String> REPORTS = Map.of(
+            "mk", CaseReportDefinition.MK_PENDING,
+            "cleaning", CaseReportDefinition.CLEANING_PENDING,
+            "makro", CaseReportDefinition.MAKRO_PENDING);
+
+    /** Only these slugs reach the handlers below; anything else falls through to a 404. */
+    private static final String REPORT = "{report:mk|cleaning|makro}";
+
+    /**
+     * A pending-case sheet: {@code mk} (MK, Yayoi and Bonus Suki delivery cases),
+     * {@code cleaning} (every open cleaning case except Makro's and the airports') or
+     * {@code makro} (Makro's cleaning cases).
      *
      * <p>Frozen on first generation. Asking again for the same date returns what was
      * stored rather than re-reading monday, because the board moves under you: a case that
@@ -61,15 +78,15 @@ public class CaseReportController {
      * @param refresh regenerate a stored draft from the board. Refused once the run has
      *                been sent — that version is the record of what the customer received.
      */
-    @GetMapping("/mk")
-    public ApiResponse<List<CaseReportRow>> mk(
+    @GetMapping("/" + REPORT)
+    public ApiResponse<List<CaseReportRow>> rows(
+            @PathVariable String report,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf,
             @RequestParam(defaultValue = "false") boolean refresh) {
 
         LocalDate date = asOf != null ? asOf : LocalDate.now(BUSINESS_ZONE);
-        return ApiResponse.success(
-                runService.rowsFor(CaseReportDefinition.MK_PENDING, date, refresh));
+        return ApiResponse.success(runService.rowsFor(REPORTS.get(report), date, refresh));
     }
 
     /**
@@ -81,39 +98,42 @@ public class CaseReportController {
      *
      * <p>Refused once the run has been sent.
      */
-    @PutMapping("/mk/rows/{sourceItemId}")
-    public ApiResponse<CaseReportRow> editMkRow(
+    @PutMapping("/" + REPORT + "/rows/{sourceItemId}")
+    public ApiResponse<CaseReportRow> editRow(
+            @PathVariable String report,
             @PathVariable String sourceItemId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf,
             @RequestBody CaseRowEdit edit) {
 
         return ApiResponse.success("Row saved",
-                runService.editRow(CaseReportDefinition.MK_PENDING, asOf, sourceItemId, edit));
+                runService.editRow(REPORTS.get(report), asOf, sourceItemId, edit));
     }
 
     /**
      * Add a row the board does not have — a case the team is tracking that sits in another
      * group, or never got a ticket. Kept through regeneration; nothing is written to monday.
      */
-    @PostMapping("/mk/rows")
-    public ApiResponse<CaseReportRow> addMkRow(
+    @PostMapping("/" + REPORT + "/rows")
+    public ApiResponse<CaseReportRow> addRow(
+            @PathVariable String report,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf,
             @RequestBody CaseRowEdit edit) {
 
         return ApiResponse.success("Row added",
-                runService.addRow(CaseReportDefinition.MK_PENDING, asOf, edit));
+                runService.addRow(REPORTS.get(report), asOf, edit));
     }
 
     /**
      * Remove a row that was added by hand. A board row is refused: closing or moving the
      * ticket on monday, then regenerating, is what removes those.
      */
-    @DeleteMapping("/mk/rows/{sourceItemId}")
-    public ApiResponse<Void> removeMkRow(
+    @DeleteMapping("/" + REPORT + "/rows/{sourceItemId}")
+    public ApiResponse<Void> removeRow(
+            @PathVariable String report,
             @PathVariable String sourceItemId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
 
-        runService.removeRow(CaseReportDefinition.MK_PENDING, asOf, sourceItemId);
+        runService.removeRow(REPORTS.get(report), asOf, sourceItemId);
         return ApiResponse.success("Row removed");
     }
 
@@ -123,13 +143,14 @@ public class CaseReportController {
      * <p>So the screen can say "generated at 08:12, not yet sent" rather than leaving a
      * reviewer to guess whether they are looking at live data or a stored copy.
      */
-    @GetMapping("/mk/run")
-    public ApiResponse<Map<String, Object>> mkRun(
+    @GetMapping("/" + REPORT + "/run")
+    public ApiResponse<Map<String, Object>> run(
+            @PathVariable String report,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
 
         LocalDate date = asOf != null ? asOf : LocalDate.now(BUSINESS_ZONE);
-        CaseReportRun run = runService.findRun(CaseReportDefinition.MK_PENDING, date);
+        CaseReportRun run = runService.findRun(REPORTS.get(report), date);
 
         if (run == null) {
             return ApiResponse.success(Map.of("runDate", date.toString(), "exists", false));
@@ -153,13 +174,15 @@ public class CaseReportController {
      *
      * <p>Refused once the run has been sent.
      */
-    @DeleteMapping("/mk/run")
-    public ApiResponse<Void> discardMkRun(
+    @DeleteMapping("/" + REPORT + "/run")
+    public ApiResponse<Void> discardRun(
+            @PathVariable String report,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
 
-        runService.discardRun(CaseReportDefinition.MK_PENDING, asOf);
+        runService.discardRun(REPORTS.get(report), asOf);
         return ApiResponse.success("Discarded the run for " + asOf);
     }
+
     /**
      * Record today's state of both boards.
      *

@@ -31,6 +31,8 @@ public class CaseReportDefinition {
 
     /** The MK sheet: MK, Yayoi and Bonus Suki delivery — one customer, three brands. */
     public static final String MK_PENDING = "MK_PENDING";
+    public static final String CLEANING_PENDING = "CLEANING_PENDING";
+    public static final String MAKRO_PENDING = "MAKRO_PENDING";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
