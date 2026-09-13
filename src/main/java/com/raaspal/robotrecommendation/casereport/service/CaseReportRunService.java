@@ -106,6 +106,15 @@ public class CaseReportRunService {
         // honest answer is that nobody knows, and monday cannot be asked after the fact.
         // ─────────────────────────────────────────────────────────────────────────────
         if (asOf.isBefore(today)) {
+            if (existing != null) {
+                // A draft from an earlier day, asked to be regenerated. Same reason as
+                // below: the board describes today, not that day. Say so, rather than
+                // claiming nothing was generated when the reviewer is looking at it.
+                throw new BadRequestException(
+                        "The " + asOf + " report is from an earlier day and cannot be "
+                                + "regenerated: the board is read live and no longer shows "
+                                + "what was open then. Correct its rows by editing them.");
+            }
             throw new BadRequestException(
                     "No report was generated for " + asOf + ", so it cannot be produced now. "
                             + "The boards are read live and are edited continuously, so "

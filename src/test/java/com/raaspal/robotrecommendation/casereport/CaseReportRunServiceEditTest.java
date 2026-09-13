@@ -139,6 +139,29 @@ class CaseReportRunServiceEditTest {
         assertThat(regenerated.get(0).edited()).isFalse();
     }
 
+    /**
+     * Yesterday's draft can still be corrected but not re-read: the board describes
+     * today. The refusal must say that, not claim nothing was generated.
+     */
+    @Test
+    void anEarlierDaysDraftCanBeEditedButNotRegenerated() {
+        LocalDate yesterday = TODAY.minusDays(1);
+        run.setRunDate(yesterday);
+        when(runs.findByDefinitionIdAndRunDate(DEFINITION_ID, yesterday)).thenReturn(Optional.of(run));
+
+        assertThatThrownBy(() -> service.rowsFor(CaseReportDefinition.MK_PENDING, yesterday, true))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("from an earlier day")
+                .hasMessageContaining("editing");
+
+        CaseReportRow saved = service.editRow(CaseReportDefinition.MK_PENDING, yesterday, "1001",
+                edit("M154 โลตัส จันทบุรี", yesterday.minusDays(2), null, null));
+        assertThat(saved.days()).isEqualTo(2);
+        assertThat(service.rowsFor(CaseReportDefinition.MK_PENDING, yesterday, false))
+                .extracting(CaseReportRow::branch)
+                .containsExactly("M154 โลตัส จันทบุรี", "บิ๊กซี-กัลปพฤกษ์");
+    }
+
     @Test
     void aSentReportCannotBeEdited() {
         run.setStatus(CaseRunStatus.SENT);
