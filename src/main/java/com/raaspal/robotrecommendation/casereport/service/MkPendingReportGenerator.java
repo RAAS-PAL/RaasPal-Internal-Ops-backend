@@ -1,18 +1,13 @@
 package com.raaspal.robotrecommendation.casereport.service;
 
 import com.raaspal.robotrecommendation.casereport.adapters.monday.MondayBoardReader;
-import com.raaspal.robotrecommendation.ai.service.CaseSolutionAiService;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
-import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayUpdate;
-import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -31,7 +26,7 @@ import java.util.regex.Pattern;
  * has a column for it and nobody fills it — empty on seven tickets in eight. What the
  * report actually prints is a human paraphrase of the comment thread, one dated line per
  * update, which was verified against the 09 September 2026 workbook. So the thread goes
- * to {@link CaseSolutionAiService} and the result is what the reviewer sees. A value
+ * to {@link SolutionLineWriter} and the result is what the reviewer sees. A value
  * somebody did type into the board column wins over the model, since a human wrote it.
  *
  * <p><strong>The column ids are hard-coded here on purpose.</strong> The two boards use the
@@ -99,17 +94,9 @@ public class MkPendingReportGenerator {
     /** 5 days anywhere else. */
     private static final int SLA_UPCOUNTRY = 5;
 
-    /**
-     * The zone a comment's date is taken in.
-     *
-     * <p>monday's timestamps are UTC, and the Solution line prints a date for each step.
-     * Read as UTC, anything posted before 07:00 Bangkok would be dated the day before.
-     */
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Bangkok");
-
     private final MondayBoardReader boardReader;
     private final SlaCalculator slaCalculator;
-    private final CaseSolutionAiService solutionAi;
+    private final SolutionLineWriter solutions;
 
     /**
      * @param asOf the business date the report is for; every day count is relative to it,
@@ -130,7 +117,7 @@ public class MkPendingReportGenerator {
                 continue;
             }
 
-            LocalDate openDate = parseDate(item.columnText(C_OPEN_DATE));
+            LocalDate openDate = MondayCells.date(item.columnText(C_OPEN_DATE));
 
             // A case that had not been opened yet is not on that day's report.
             //
@@ -165,9 +152,11 @@ public class MkPendingReportGenerator {
                     item.columnText(C_ROBOT),
                     item.columnText(C_SERIAL),
                     item.columnText(C_PROBLEM),
-                    solutionFor(item, asOf),
+                    solutions.write(item, item.columnText(C_SOLUTION), branchLabel(item),
+                            item.columnText(C_PROBLEM), item.columnText(C_STATUS),
+                            item.columnText(C_SUP_STATUS), asOf),
                     openDate,
-                    parseDate(item.columnText(C_RE_ON_SITE)),
+                    MondayCells.date(item.columnText(C_RE_ON_SITE)),
                     openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf),
                     sla,
                     province,
@@ -190,57 +179,6 @@ public class MkPendingReportGenerator {
                 asOf, rows.size(), items.size(), otherCustomers, notYetOpen);
 
         return rows;
-    }
-
-    /**
-     * The Solution line: the board's own column if a human filled it, else the model's
-     * paraphrase of the comment thread.
-     *
-     * <p>The contact centre's intake form is dropped before the thread goes to the
-     * model. It is the first comment on nearly every ticket, it begins "Ticket ID", and
-     * it describes the request rather than any step taken on it — so it is both noise
-     * and, at several hundred characters, most of the tokens.
-     */
-    private String solutionFor(MondayItem item, LocalDate asOf) {
-        String typed = item.columnText(C_SOLUTION);
-        if (typed != null && !typed.isBlank()) {
-            return typed;
-        }
-        if (item.updates() == null || item.updates().isEmpty()) {
-            return null;
-        }
-
-        List<CaseProgressRequest.Comment> comments = new ArrayList<>();
-        // monday returns newest first; the line is written oldest first.
-        for (int i = item.updates().size() - 1; i >= 0; i--) {
-            MondayUpdate u = item.updates().get(i);
-            String body = u.textBody() == null ? "" : u.textBody().strip();
-            if (body.isEmpty() || isIntakeForm(body)) continue;
-            comments.add(new CaseProgressRequest.Comment(
-                    u.createdAt() == null
-                            ? null
-                            : u.createdAt().atZoneSameInstant(BUSINESS_ZONE).toLocalDate(),
-                    u.creatorName(),
-                    body));
-        }
-        if (comments.isEmpty()) {
-            return null;
-        }
-
-        String line = solutionAi.summariseProgress(new CaseProgressRequest(
-                branchLabel(item),
-                item.columnText(C_PROBLEM),
-                item.columnText(C_STATUS),
-                item.columnText(C_SUP_STATUS),
-                asOf,
-                comments));
-        if (line == null || line.isBlank()) return null;
-        // The one rule the model is allowed to break and the report is not.
-        return SolutionLine.splitCrossMonthRanges(line, asOf.getYear());
-    }
-
-    private static boolean isIntakeForm(String body) {
-        return body.startsWith("Ticket ID");
     }
 
     /**
@@ -295,22 +233,5 @@ public class MkPendingReportGenerator {
         if (project == null) return false;
         String lower = project.toLowerCase(Locale.ROOT);
         return PROJECTS.stream().anyMatch(lower::contains);
-    }
-
-    /**
-     * A monday date column, or null.
-     *
-     * <p>Lenient by design. An unparseable date leaves the day count and the SLA blank,
-     * which surfaces the row for a human; throwing would fail the whole report over one
-     * malformed cell, on a board people edit by hand all day.
-     */
-    private static LocalDate parseDate(String text) {
-        if (text == null || text.isBlank()) return null;
-        try {
-            return LocalDate.parse(text.trim());
-        } catch (DateTimeParseException e) {
-            log.warn("Unparseable date on the delivery board: '{}'", text);
-            return null;
-        }
     }
 }

@@ -10,6 +10,7 @@ import com.raaspal.robotrecommendation.casereport.entity.CaseRunStatus;
 import com.raaspal.robotrecommendation.casereport.repository.CaseReportDefinitionRepository;
 import com.raaspal.robotrecommendation.casereport.repository.CaseReportRunRepository;
 import com.raaspal.robotrecommendation.casereport.service.CaseReportRunService;
+import com.raaspal.robotrecommendation.casereport.service.CleaningPendingReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.MkPendingReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.SlaCalculator;
 import com.raaspal.robotrecommendation.casereport.service.SlaStatus;
@@ -69,7 +70,8 @@ class CaseReportRunServiceEditTest {
         when(runs.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service = new CaseReportRunService(definitions, runs, generator,
-                new SlaCalculator(List.of("Bangkok")), json);
+                mock(CleaningPendingReportGenerator.class), new SlaCalculator(List.of("Bangkok")),
+                json);
     }
 
     /** The case that prompted this: the team counts from a later date than the ticket's. */

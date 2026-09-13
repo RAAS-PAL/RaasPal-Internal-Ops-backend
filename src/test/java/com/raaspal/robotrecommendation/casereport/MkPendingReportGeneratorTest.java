@@ -8,6 +8,7 @@ import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayUpda
 import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import com.raaspal.robotrecommendation.casereport.service.MkPendingReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.SlaCalculator;
+import com.raaspal.robotrecommendation.casereport.service.SolutionLineWriter;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -46,7 +47,8 @@ class MkPendingReportGeneratorTest {
                 null);
         when(boardReader.readGroupItems(any(), any(), any())).thenReturn(List.of(ticket));
 
-        new MkPendingReportGenerator(boardReader, new SlaCalculator(List.of("Bangkok")), solutionAi)
+        new MkPendingReportGenerator(boardReader, new SlaCalculator(List.of("Bangkok")),
+                new SolutionLineWriter(solutionAi))
                 .generate(LocalDate.of(2026, 9, 11));
 
         ArgumentCaptor<CaseProgressRequest> sent = ArgumentCaptor.forClass(CaseProgressRequest.class);

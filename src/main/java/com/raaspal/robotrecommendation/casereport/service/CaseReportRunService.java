@@ -55,6 +55,7 @@ public class CaseReportRunService {
     private final CaseReportDefinitionRepository definitions;
     private final CaseReportRunRepository runs;
     private final MkPendingReportGenerator mkGenerator;
+    private final CleaningPendingReportGenerator cleaningGenerator;
     private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
 
@@ -383,12 +384,16 @@ public class CaseReportRunService {
     private List<CaseReportRow> generate(String code,
                                          CaseReportDefinition definition,
                                          LocalDate asOf) {
-        if (!CaseReportDefinition.MK_PENDING.equals(code)) {
-            // One generator exists so far. Named explicitly rather than falling through to
-            // it, so adding AOT is a compile-time obligation and not a silent wrong report.
-            throw new BadRequestException("No generator is wired for report " + code);
-        }
-        return mkGenerator.generate(asOf);
+        // Each code named explicitly rather than falling through to a default, so adding
+        // AOTGA is a compile-time obligation and not a silent wrong report.
+        return switch (code) {
+            case CaseReportDefinition.MK_PENDING -> mkGenerator.generate(asOf);
+            case CaseReportDefinition.CLEANING_PENDING ->
+                    cleaningGenerator.generate(CleaningPendingReportGenerator.Scope.CLEANING, asOf);
+            case CaseReportDefinition.MAKRO_PENDING ->
+                    cleaningGenerator.generate(CleaningPendingReportGenerator.Scope.MAKRO, asOf);
+            default -> throw new BadRequestException("No generator is wired for report " + code);
+        };
     }
 
     private void freeze(CaseReportDefinition definition,
