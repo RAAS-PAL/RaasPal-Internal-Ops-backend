@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.report.service;
 
+import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.report.entity.ReportSend;
 import com.raaspal.robotrecommendation.report.repository.ReportSendRepository;
 import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
@@ -190,10 +191,38 @@ public class ReportDeliveryService {
         }
         try {
             ReportEmailService.SentEmail result = reportEmailService.sendBundle(customerProfileId, month);
-            return record(customerProfileId, month, ReportSend.Status.SENT, result.recipient(), null);
+            return record(customerProfileId, month, ReportSend.Kind.BUNDLE, null, ReportSend.Status.SENT, result.recipient(), null);
         } catch (Exception e) {
             log.error("Report delivery failed for customer {} ({}): {}", customerProfileId, month, e.getMessage(), e);
-            return record(customerProfileId, month, ReportSend.Status.FAILED, null, e.getMessage());
+            return record(customerProfileId, month, ReportSend.Kind.BUNDLE, null, ReportSend.Status.FAILED, null, e.getMessage());
+        }
+    }
+
+    /**
+     * Sends one robot's report — the Report preview tab's Send — and records it as a
+     * ROBOT_REPORT, so it appears in Delivery history alongside the bundles. It is
+     * not the month's deliverable and never satisfies {@link #isAlreadySent}.
+     *
+     * <p>The customer is resolved here, before the send, so a failure inside the send
+     * can be recorded against them; the email service repeats the lookup, but it is
+     * one read. A robot that is unknown or not deployed is refused before anything is
+     * attempted and leaves no row — there was no send to record. Unlike the bundle
+     * path this rethrows: the person pressing Send is waiting for the answer.
+     */
+    public ReportEmailService.SentEmail sendRobotReport(String serialNumber, String month) {
+        RobotUnitResponse robot = robotUnitService.getBySerialNumber(serialNumber);
+        if (robot.deployment() == null) {
+            throw new BadRequestException("Robot " + serialNumber + " is not deployed to a customer.");
+        }
+        UUID customerId = robot.deployment().customerProfileId();
+        try {
+            ReportEmailService.SentEmail sent = reportEmailService.send(serialNumber, month);
+            record(customerId, month, ReportSend.Kind.ROBOT_REPORT, serialNumber, ReportSend.Status.SENT, sent.recipient(), null);
+            return sent;
+        } catch (RuntimeException e) {
+            log.error("Robot report email failed for {} ({}): {}", serialNumber, month, e.getMessage(), e);
+            record(customerId, month, ReportSend.Kind.ROBOT_REPORT, serialNumber, ReportSend.Status.FAILED, null, e.getMessage());
+            throw e;
         }
     }
 
@@ -236,16 +265,22 @@ public class ReportDeliveryService {
         return customerIds;
     }
 
+    /** A SENT bundle for the month. A robot report sent by hand does not count. */
     private boolean isAlreadySent(UUID customerProfileId, String month) {
         return reportSendRepository
-                .findByCustomerProfileIdAndReportMonthAndStatus(customerProfileId, month, ReportSend.Status.SENT)
+                .findByCustomerProfileIdAndReportMonthAndKindAndStatus(
+                        customerProfileId, month, ReportSend.Kind.BUNDLE, ReportSend.Status.SENT)
                 .isPresent();
     }
 
-    private ReportSend record(UUID customerId, String month, ReportSend.Status status, String recipient, String error) {
+    /** The one place a history row is written; every send, of every kind, passes through here. */
+    private ReportSend record(UUID customerId, String month, ReportSend.Kind kind, String robotSerial,
+                              ReportSend.Status status, String recipient, String error) {
         return reportSendRepository.save(ReportSend.builder()
                 .customerProfileId(customerId)
                 .reportMonth(month)
+                .kind(kind)
+                .robotSerial(robotSerial)
                 .status(status)
                 .recipientEmail(recipient)
                 .errorMessage(truncate(error))
