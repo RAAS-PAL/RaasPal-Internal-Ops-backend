@@ -205,7 +205,7 @@ public class ReportEmailService {
     private String buildHtml(String periodLabel, String url) {
         return """
                 <div style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; color:#16243a; max-width:560px; line-height:1.7;">
-                  <p style="color:#0f7ea8; font-weight:bold; font-size:18px; margin:0 0 16px;">RAAS PAL</p>
+                  <p style="color:#1d4ed8; font-weight:bold; font-size:18px; margin:0 0 16px;">RAAS PAL</p>
                   <p style="margin:0 0 14px;">เรียน&nbsp;&nbsp;&nbsp;ผู้บริหารโครงการและผู้ที่เกี่ยวข้อง</p>
                   <p style="margin:0 0 14px;">เพื่อให้ท่านสามารถติดตามประสิทธิภาพการทำงานของหุ่นยนต์ได้อย่างต่อเนื่อง
                      RAASPAL ขอส่ง <strong>รายงานสรุปผลการใช้งานหุ่นยนต์ (Executive Robot Performance Report)
@@ -218,7 +218,7 @@ public class ReportEmailService {
                     <li>ข้อเสนอแนะเพื่อการใช้งานอย่างมีประสิทธิภาพ</li>
                   </ul>
                   <p style="margin:24px 0;">
-                    <a href="%s" style="display:inline-block; background:#16b9d1; color:#ffffff;
+                    <a href="%s" style="display:inline-block; background:#2563eb; color:#ffffff;
                        padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">ดูรายงาน</a>
                   </p>
                   <p style="color:#6b7785; font-size:12px; margin:0 0 20px;">หรือเปิดลิงก์นี้:<br><a href="%s">%s</a></p>
