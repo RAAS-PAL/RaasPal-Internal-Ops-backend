@@ -58,6 +58,25 @@ public class CaseReportRunService {
     private final CleaningPendingReportGenerator cleaningGenerator;
     private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
+    private final CaseReportExcelWriter excelWriter;
+
+    /** A built workbook and the name it should download as. */
+    public record Export(byte[] bytes, String filename) {
+    }
+
+    /**
+     * The sheet for a date as a workbook, for the team to attach or forward.
+     *
+     * <p>Built from {@link #rowsFor} with {@code refresh=false}, so it is exactly what
+     * the screen shows for that date, corrections included, and a date that has never
+     * been generated is generated and frozen first - the same as opening it.
+     */
+    @Transactional
+    public Export export(String definitionCode, LocalDate asOf) {
+        CaseReportDefinition definition = requireDefinition(definitionCode);
+        List<CaseReportRow> rows = rowsFor(definitionCode, asOf, false);
+        return new Export(excelWriter.write(definition, asOf, rows), excelWriter.filename(definition, asOf));
+    }
 
     /**
      * The rows for a date: stored if frozen, freshly generated and frozen otherwise.

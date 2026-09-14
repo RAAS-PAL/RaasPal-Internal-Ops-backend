@@ -13,6 +13,9 @@ import com.raaspal.robotrecommendation.casereport.service.CaseTicketSyncService;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -87,6 +90,27 @@ public class CaseReportController {
 
         LocalDate date = asOf != null ? asOf : LocalDate.now(BUSINESS_ZONE);
         return ApiResponse.success(runService.rowsFor(REPORTS.get(report), date, refresh));
+    }
+
+    /**
+     * The sheet for a date as an Excel workbook - the file the team attaches to the
+     * morning email. Same rows as {@code GET /{report}} for that date, corrections
+     * included; a date not yet generated is generated and frozen on the way, exactly as
+     * opening it on screen would.
+     */
+    @GetMapping("/" + REPORT + "/export")
+    public ResponseEntity<byte[]> export(
+            @PathVariable String report,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
+
+        LocalDate date = asOf != null ? asOf : LocalDate.now(BUSINESS_ZONE);
+        CaseReportRunService.Export file = runService.export(REPORTS.get(report), date);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.filename() + "\"")
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(file.bytes());
     }
 
     /**
