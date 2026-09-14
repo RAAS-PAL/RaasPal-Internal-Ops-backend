@@ -62,10 +62,11 @@ public class CaseReportController {
     private static final Map<String, String> REPORTS = Map.of(
             "mk", CaseReportDefinition.MK_PENDING,
             "cleaning", CaseReportDefinition.CLEANING_PENDING,
-            "makro", CaseReportDefinition.MAKRO_PENDING);
+            "makro", CaseReportDefinition.MAKRO_PENDING,
+            "aotga", CaseReportDefinition.AOTGA_PENDING);
 
     /** Only these slugs reach the handlers below; anything else falls through to a 404. */
-    private static final String REPORT = "{report:mk|cleaning|makro}";
+    private static final String REPORT = "{report:mk|cleaning|makro|aotga}";
 
     /**
      * A pending-case sheet: {@code mk} (MK, Yayoi and Bonus Suki delivery cases),

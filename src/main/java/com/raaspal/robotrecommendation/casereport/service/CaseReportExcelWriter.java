@@ -146,6 +146,9 @@ public class CaseReportExcelWriter {
     }
 
     private static List<Column> columnsFor(String code) {
+        if (CaseReportDefinition.AOTGA_PENDING.equals(code)) {
+            return aotgaColumns();
+        }
         boolean project = !CaseReportDefinition.MAKRO_PENDING.equals(code);
         boolean branch = !CaseReportDefinition.CLEANING_PENDING.equals(code);
 
@@ -161,6 +164,29 @@ public class CaseReportExcelWriter {
         columns.add(Column.date("RE On Site", 13, CaseReportRow::reOnSite));
         columns.add(Column.number("Days", 7, r -> r.days() == null ? null : r.days().doubleValue()));
         columns.add(Column.tintedText("SLA", 12, CaseReportRow::slaLabel));
+        return columns;
+    }
+
+    /**
+     * The {@code RAW_AOTGA} layout, in the RE team's column order. No Solution, RE On
+     * Site or SLA; five part-tracking columns instead. Nothing here takes the SLA tint —
+     * the sheet does not judge the case, it tracks the part.
+     */
+    private static List<Column> aotgaColumns() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(Column.number("No", 6, r -> (double) r.no()));
+        columns.add(Column.text("Project", 14, CaseReportRow::project));
+        columns.add(Column.text("Robot", 8, CaseReportRow::robot));
+        columns.add(Column.wrap("SN", 22, r -> oneSerialPerLine(r.serialNumber())));
+        columns.add(Column.wrap("Problem", 30, CaseReportRow::problem));
+        columns.add(Column.wrap("Required Part", 26, CaseReportRow::requiredPart));
+        columns.add(Column.wrap("Waiting", 30, CaseReportRow::waiting));
+        columns.add(Column.text("Waiting From", 16, CaseReportRow::waitingFrom));
+        columns.add(Column.date("Open Date", 13, CaseReportRow::openDate));
+        columns.add(Column.number("Days", 7, r -> r.days() == null ? null : r.days().doubleValue()));
+        columns.add(Column.date("Part Received", 14, CaseReportRow::partReceived));
+        columns.add(Column.number("Aging After Received", 12,
+                r -> r.agingAfterReceived() == null ? null : r.agingAfterReceived().doubleValue()));
         return columns;
     }
 

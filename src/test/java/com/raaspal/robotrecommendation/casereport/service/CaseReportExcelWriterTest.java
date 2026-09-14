@@ -38,6 +38,7 @@ class CaseReportExcelWriterTest {
                                      Integer days, SlaStatus sla) {
         return new CaseReportRow(no, project, branch, "Pudu 1", "PD9112214736023",
                 "แบตลดลงเร็ว", "รอ QT", open, onSite, days, sla, sla == null ? null : sla.label(),
+                null, null, null, null, null,
                 "กรุงเทพมหานคร", "item-" + no, false);
     }
 

@@ -33,6 +33,8 @@ public class CaseReportDefinition {
     public static final String MK_PENDING = "MK_PENDING";
     public static final String CLEANING_PENDING = "CLEANING_PENDING";
     public static final String MAKRO_PENDING = "MAKRO_PENDING";
+    /** The airports' sheet: spare-part turnaround rather than an SLA. */
+    public static final String AOTGA_PENDING = "AOTGA_PENDING";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

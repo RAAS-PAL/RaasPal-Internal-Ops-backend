@@ -56,6 +56,7 @@ public class CaseReportRunService {
     private final CaseReportRunRepository runs;
     private final MkPendingReportGenerator mkGenerator;
     private final CleaningPendingReportGenerator cleaningGenerator;
+    private final AotgaReportGenerator aotgaGenerator;
     private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
     private final CaseReportExcelWriter excelWriter;
@@ -181,7 +182,7 @@ public class CaseReportRunService {
 
         CaseReportRow before = rows.get(index);
         CaseReportRow after = build(definition, asOf, before.no(), before.sourceItemId(),
-                before.sla(), edit);
+                before, edit);
 
         rows.set(index, after);
         run.setRowsJson(write(rows));
@@ -269,15 +270,19 @@ public class CaseReportRunService {
     /**
      * A row from the form.
      *
-     * @param previousSla what the row said before, so a held case stays held when the
-     *                    editor leaves SLA blank; null for a new row
+     * @param previous what the row said before the edit, or null for a new row. Two
+     *                 things survive from it: a held case stays held when the editor
+     *                 leaves SLA blank, and the AOTGA part-tracking fields are carried
+     *                 across unchanged, since the form does not yet offer them — an edit
+     *                 to the Problem cell must not blank the Required Part beside it.
      */
     private CaseReportRow build(CaseReportDefinition definition,
                                 LocalDate asOf,
                                 int no,
                                 String sourceItemId,
-                                SlaStatus previousSla,
+                                CaseReportRow previous,
                                 CaseRowEdit edit) {
+        SlaStatus previousSla = previous == null ? null : previous.sla();
         LocalDate openDate = edit.openDate();
         String province = blankToNull(edit.province());
 
@@ -308,6 +313,11 @@ public class CaseReportRunService {
                 days,
                 sla,
                 sla == null ? "" : sla.label(),
+                previous == null ? null : previous.requiredPart(),
+                previous == null ? null : previous.waiting(),
+                previous == null ? null : previous.waitingFrom(),
+                previous == null ? null : previous.partReceived(),
+                previous == null ? null : previous.agingAfterReceived(),
                 province,
                 sourceItemId,
                 true);
@@ -411,6 +421,7 @@ public class CaseReportRunService {
                     cleaningGenerator.generate(CleaningPendingReportGenerator.Scope.CLEANING, asOf);
             case CaseReportDefinition.MAKRO_PENDING ->
                     cleaningGenerator.generate(CleaningPendingReportGenerator.Scope.MAKRO, asOf);
+            case CaseReportDefinition.AOTGA_PENDING -> aotgaGenerator.generate(asOf);
             default -> throw new BadRequestException("No generator is wired for report " + code);
         };
     }

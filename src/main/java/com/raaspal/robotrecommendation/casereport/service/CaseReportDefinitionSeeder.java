@@ -99,6 +99,25 @@ public class CaseReportDefinitionSeeder implements ApplicationRunner {
                         .slaDaysMetro(3)
                         .slaDaysUpcountry(3)
                         .isActive(true)
+                        .build(),
+
+                CaseReportDefinition.builder()
+                        .code(CaseReportDefinition.AOTGA_PENDING)
+                        .name("AOTGA pending cases")
+                        .description("The airports' open cleaning cases, tracked by "
+                                + "spare-part turnaround rather than SLA: what was "
+                                + "ordered, who it is waited on, when it arrived. 3-day "
+                                + "SLA computed for the review table; the sheet does "
+                                + "not print it.")
+                        .generatorKey("AOTGA_PENDING")
+                        .source(CaseSource.MONDAY)
+                        .sourceBoardId(AotgaReportGenerator.BOARD_ID)
+                        .sourceGroupId(AotgaReportGenerator.GROUP_ID)
+                        .deliveryMode("MANUAL")
+                        .scheduleZone("Asia/Bangkok")
+                        .slaDaysMetro(3)
+                        .slaDaysUpcountry(3)
+                        .isActive(true)
                         .build());
     }
 }

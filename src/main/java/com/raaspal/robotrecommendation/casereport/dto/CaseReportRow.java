@@ -16,6 +16,13 @@ import java.time.LocalDate;
  * {@link #sourceItemId} is what a reviewer clicks to open the ticket on monday, and what an
  * edit is addressed to. And {@link #edited} records that a person changed the row after it
  * was generated, which is what stops a regeneration from writing over their correction.
+ *
+ * <p>Five fields belong to the {@code RAW_AOTGA} sheet alone — {@link #requiredPart},
+ * {@link #waiting}, {@link #waitingFrom}, {@link #partReceived} and
+ * {@link #agingAfterReceived}. That sheet tracks spare-part turnaround rather than an SLA,
+ * so it prints these in place of Solution, RE On Site and SLA. They are null on every other
+ * sheet's rows, and on rows frozen before the fields existed, which the JSON reader
+ * tolerates because a record component absent from the stored document reads as null.
  */
 public record CaseReportRow(
 
@@ -56,6 +63,25 @@ public record CaseReportRow(
 
         /** {@link SlaStatus#label()}, so the sheet and the screen print one string. */
         String slaLabel,
+
+        /** AOTGA only. The board's Spare Parts Name — what was ordered for this case. */
+        String requiredPart,
+
+        /** AOTGA only. What the case is waiting on, in the RE team's words. */
+        String waiting,
+
+        /** AOTGA only. Whose court the wait is in: AOTGA, the supplier, or RAASPAL. */
+        String waitingFrom,
+
+        /** AOTGA only. When the part arrived; null while it is still on its way. */
+        LocalDate partReceived,
+
+        /**
+         * AOTGA only. Days since {@link #partReceived}, counted the same way as
+         * {@link #days} — the received day itself is not counted. Null until a part is
+         * received.
+         */
+        Integer agingAfterReceived,
 
         /** Not printed. Present so a blank SLA can say why it is blank. */
         String province,
@@ -105,13 +131,39 @@ public record CaseReportRow(
                                    String sourceItemId) {
         return new CaseReportRow(no, project, branch, robot, serialNumber, problem, solution,
                 openDate, reOnSite, days, sla, sla == null ? "" : sla.label(),
+                null, null, null, null, null,
                 province, sourceItemId, false);
+    }
+
+    /**
+     * A row for the AOTGA sheet, which carries part-tracking fields and no solution, RE On
+     * Site or province — see the class note.
+     */
+    public static CaseReportRow ofAotga(int no,
+                                        String project,
+                                        String robot,
+                                        String serialNumber,
+                                        String problem,
+                                        LocalDate openDate,
+                                        Integer days,
+                                        SlaStatus sla,
+                                        String requiredPart,
+                                        String waiting,
+                                        String waitingFrom,
+                                        LocalDate partReceived,
+                                        Integer agingAfterReceived,
+                                        String sourceItemId) {
+        return new CaseReportRow(no, project, null, robot, serialNumber, problem, null,
+                openDate, null, days, sla, sla == null ? "" : sla.label(),
+                requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
+                null, sourceItemId, false);
     }
 
     /** The same row under a different number, for renumbering after rows come and go. */
     public CaseReportRow withNo(int newNo) {
         return new CaseReportRow(newNo, project, branch, robot, serialNumber, problem,
-                solution, openDate, reOnSite, days, sla, slaLabel, province, sourceItemId,
-                edited);
+                solution, openDate, reOnSite, days, sla, slaLabel,
+                requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
+                province, sourceItemId, edited);
     }
 }

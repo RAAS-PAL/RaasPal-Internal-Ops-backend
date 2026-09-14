@@ -75,18 +75,6 @@ public class CleaningPendingReportGenerator {
      */
     private static final List<String> MAKRO = List.of("makro");
 
-    /**
-     * How an airport ticket is recognised, so it can be kept off the Cleaning sheet for
-     * the AOTGA one.
-     *
-     * <p>Both spellings of ท่าอากาศยาน are on the board (one is missing a letter), and
-     * the tag reads "AOTGA-:-DMK" on one ticket and nothing on the next, so the branch
-     * name is checked too. Matched as substrings, lower-cased.
-     */
-    private static final List<String> AIRPORTS = List.of(
-            "aotga", "aot ", "ท่าอากาศยาน", "ท่าอาศยาน", "สนามบิน", "สุวรรณภูมิ", "ดอนเมือง",
-            "แม่ฟ้าหลวง");
-
     /** 3 days everywhere — same number twice, so the province is never consulted. */
     private static final int SLA_DAYS = 3;
 
@@ -183,7 +171,8 @@ public class CleaningPendingReportGenerator {
         boolean makro = MAKRO.stream().anyMatch(haystack::contains);
         return switch (scope) {
             case MAKRO -> makro;
-            case CLEANING -> !makro && AIRPORTS.stream().noneMatch(haystack::contains);
+            case CLEANING -> !makro && !AirportTickets.matches(
+                    item.columnText(C_PROJECT), item.columnText(C_BRANCH));
         };
     }
 }

@@ -86,7 +86,8 @@ public class CaseReportDailyScheduler {
         for (String code : new String[] {
                 CaseReportDefinition.MK_PENDING,
                 CaseReportDefinition.CLEANING_PENDING,
-                CaseReportDefinition.MAKRO_PENDING }) {
+                CaseReportDefinition.MAKRO_PENDING,
+                CaseReportDefinition.AOTGA_PENDING }) {
             try {
                 LocalDate today = LocalDate.now(ZoneId.of("Asia/Bangkok"));
                 int rows = runService.rowsFor(code, today, false).size();
