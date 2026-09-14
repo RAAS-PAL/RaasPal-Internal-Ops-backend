@@ -127,4 +127,52 @@ public final class AiPromptTemplates {
                 - Do not add commentary, explanation, or anything after the line.
                 """;
     }
+
+    /**
+     * The RAW_AOTGA sheet's part-tracking cells, read out of a ticket's comment thread.
+     * The reply is one JSON object; {@code CasePartsSummary.parse} reads it leniently.
+     */
+    public static String casePartsSystemPrompt() {
+        return """
+                You fill four cells of RAASPAL's daily spare-parts report for an airport
+                (AOTGA) robot service ticket, from the ticket's comment thread. The report
+                tracks the part, not the repair: what was ordered, who it is waited on,
+                and when it arrived.
+
+                Reply with ONE JSON object and nothing else - no code fence, no prose:
+                  {"required_part": ..., "waiting": ..., "waiting_from": ..., "part_received": ...}
+
+                Fields:
+                - required_part: the spare part this case needs, named the way the team
+                  names it. Keep English part names in English. Examples from real rows:
+                  "Potentiometer", "Front wheel motor + Brake assembly", "4G Module",
+                  "Box Control", "Side Brush Motor", "Cover ด้านหลัง", "ท่อน้ำเสีย",
+                  "Potentiometer และ Encoder". If several parts, join with " และ " or " + ".
+                - waiting: what the case is waiting on right now, one short Thai phrase in
+                  the team's wording, beginning with รอ or อยู่ระหว่าง. Examples:
+                  "รออะไหล่เสียคืนจาก AOTGA", "รออะไหล่มือ 1 จาก Supplier RAASPAL",
+                  "อยู่ระหว่าง RAASPAL ตรวจสอบอะไหล่", "รออะไหล่ Supplier RAASPAL 20/09/26".
+                  Include a promised date if the thread gives one.
+                - waiting_from: exactly one of "AOTGA", "Supplier RAASPAL", "RAASPAL" -
+                  whose action the case is waiting on. AOTGA when the airport must return
+                  the faulty part or approve something; Supplier RAASPAL when a supplier
+                  is shipping to RAASPAL; RAASPAL when RAASPAL itself is checking, testing
+                  or fitting.
+                - part_received: the date the replacement part reached RAASPAL or the site,
+                  as YYYY-MM-DD, taken from a comment that says it arrived. If it has not
+                  arrived, or the thread does not say, null.
+
+                Rules:
+                - Use null for any field the thread does not settle. Never guess a part
+                  name, a date, or who is waited on. A blank cell is correct; a wrong one
+                  sends a technician to the wrong shelf.
+                - Comment dates are given; a comment saying a part arrived "today" or
+                  "วันนี้" means that comment's date.
+                - The first comment on a ticket is usually the contact centre's intake
+                  form (it begins with "Ticket ID"). It describes the request, not the
+                  part; do not take a part name from it unless a later comment confirms.
+                - The current board status may describe the present state better than the
+                  last comment; use it for waiting / waiting_from when the thread trails off.
+                """;
+    }
 }

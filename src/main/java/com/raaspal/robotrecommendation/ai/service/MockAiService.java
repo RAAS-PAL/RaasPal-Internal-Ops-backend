@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.ai.service;
 
+import com.raaspal.robotrecommendation.casereport.dto.CasePartsSummary;
 import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalRequest;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalResult;
@@ -27,7 +28,7 @@ import java.util.Map;
 @ConditionalOnExpression("'${app.anthropic.api-key:}' == ''")
 public class MockAiService implements RequirementExtractionService, RobotRecommendationAiService,
         ProposalGenerationAiService, TranslationAiService, CmReportExtractionService,
-        CaseSolutionAiService {
+        CaseSolutionAiService, CasePartsAiService {
 
     @Override
     public ExtractedRequirementData extract(FileUpload fileUpload, RobotType robotType) {
@@ -248,6 +249,18 @@ public class MockAiService implements RequirementExtractionService, RobotRecomme
                .append(body.length() > 40 ? body.substring(0, 40) + "…" : body);
         }
         return out.toString();
+    }
+
+    // ─── CasePartsAiService ───────────────────────────────────────────────────
+
+    /**
+     * Nothing, deterministically. Without an API key the parts columns stay blank
+     * rather than showing a heuristic that would look like an answer. Same contract as
+     * the real service — never throws, {@link CasePartsSummary#EMPTY} for nothing.
+     */
+    @Override
+    public CasePartsSummary extractParts(CaseProgressRequest request) {
+        return CasePartsSummary.EMPTY;
     }
 
     // ─── CmReportExtractionService ────────────────────────────────────────────

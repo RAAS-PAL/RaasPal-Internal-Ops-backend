@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.casereport.service;
 
 import com.raaspal.robotrecommendation.casereport.adapters.monday.MondayBoardReader;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
+import com.raaspal.robotrecommendation.casereport.dto.CasePartsSummary;
 import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,9 +31,13 @@ import java.util.regex.Pattern;
  * confirmed the sheet is built from All Case only.
  *
  * <p><strong>The column ids here belong to the cleaning board and to no other.</strong>
- * Verified against the board's own column list on 2026-09-14. Three of the part-tracking
- * columns were chosen by title alone and are marked below; if the sheet shows the wrong
- * text in one of those columns, the fix is the one constant.
+ * Verified against the board's own column list on 2026-09-14.
+ *
+ * <p><strong>The part-tracking cells come from the comment thread, not the board.</strong>
+ * The board has columns for them, but a count on 2026-09-14 found zero of the twelve
+ * open airport tickets with a value in any of them, and every ticket with a thread. So
+ * they go through {@link PartsLineWriter}: a typed value still wins, field by field, and
+ * the model fills the rest — the same arrangement as the Solution column elsewhere.
  *
  * <p>The SLA is 3 days, as on every cleaning sheet, and is computed so the review table
  * can show it. The sheet itself does not print it.
@@ -57,10 +62,10 @@ public class AotgaReportGenerator {
     private static final String C_STATUS = "status";                // Status
     private static final String C_SUP_STATUS = "status7";           // Sup Status
 
+    // The board's own parts columns. Read so a typed value wins; empty on every airport
+    // ticket as of 2026-09-14, so in practice the thread supplies these.
     private static final String C_REQUIRED_PART = "dropdown_mknqq9fm"; // Spare Parts Name
-
-    // Chosen by title. See the class note.
-    private static final String C_WAITING = "text_mm3j1dbd";        // อัพเดทปัจจุบัน — "current update"
+    private static final String C_WAITING = "text_mm3j1dbd";        // อัพเดทปัจจุบัน
     private static final String C_WAITING_FROM = "dropdown_mm1gmnst"; // อัพเดท
     private static final String C_PART_RECEIVED = "date_mm3b365t";  // วันส่งอะไหล่
 
@@ -81,6 +86,7 @@ public class AotgaReportGenerator {
 
     private final MondayBoardReader boardReader;
     private final SlaCalculator slaCalculator;
+    private final PartsLineWriter parts;
 
     public List<CaseReportRow> generate(LocalDate asOf) {
         List<MondayItem> items = boardReader.readGroupItems(BOARD_ID, GROUP_ID, COLUMN_IDS);
@@ -112,20 +118,32 @@ public class AotgaReportGenerator {
                     SLA_DAYS,
                     SLA_DAYS);
 
-            LocalDate partReceived = MondayCells.date(item.columnText(C_PART_RECEIVED));
+            String project = projectLabel(item);
+            CasePartsSummary partsCells = parts.write(
+                    item,
+                    item.columnText(C_REQUIRED_PART),
+                    item.columnText(C_WAITING),
+                    item.columnText(C_WAITING_FROM),
+                    MondayCells.date(item.columnText(C_PART_RECEIVED)),
+                    project,
+                    item.columnText(C_PROBLEM),
+                    item.columnText(C_STATUS),
+                    item.columnText(C_SUP_STATUS),
+                    asOf);
+            LocalDate partReceived = partsCells.partReceived();
 
             unordered.add(CaseReportRow.ofAotga(
                     0,
-                    projectLabel(item),
+                    project,
                     item.columnText(C_ROBOT),
                     item.columnText(C_SERIAL),
                     item.columnText(C_PROBLEM),
                     openDate,
                     openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf),
                     sla,
-                    item.columnText(C_REQUIRED_PART),
-                    item.columnText(C_WAITING),
-                    item.columnText(C_WAITING_FROM),
+                    partsCells.requiredPart(),
+                    partsCells.waiting(),
+                    partsCells.waitingFrom(),
                     partReceived,
                     // Same count as Days: the received day itself is not counted. A part
                     // received after asOf has not, on that date, been received.

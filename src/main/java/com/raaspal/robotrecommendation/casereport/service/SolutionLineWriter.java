@@ -52,11 +52,29 @@ public class SolutionLineWriter {
         if (typed != null && !typed.isBlank()) {
             return typed;
         }
-        if (item.updates() == null || item.updates().isEmpty()) {
+        List<CaseProgressRequest.Comment> comments = commentsOf(item);
+        if (comments.isEmpty()) {
             return null;
         }
 
+        String line = solutionAi.summariseProgress(new CaseProgressRequest(
+                branch, problem, status, supStatus, asOf, comments));
+        if (line == null || line.isBlank()) return null;
+        // The one rule the model is allowed to break and the report is not.
+        return SolutionLine.splitCrossMonthRanges(line, asOf.getYear());
+    }
+
+    /**
+     * The ticket's comment thread as the model reads it: oldest first, dated in Bangkok,
+     * intake form and empty comments dropped. Shared with {@link PartsLineWriter}, which
+     * sends the same thread to a different prompt — one reading of the thread, so the
+     * two cannot disagree about which comments exist.
+     */
+    static List<CaseProgressRequest.Comment> commentsOf(MondayItem item) {
         List<CaseProgressRequest.Comment> comments = new ArrayList<>();
+        if (item.updates() == null) {
+            return comments;
+        }
         // monday returns newest first; the line is written oldest first.
         for (int i = item.updates().size() - 1; i >= 0; i--) {
             MondayUpdate u = item.updates().get(i);
@@ -69,15 +87,7 @@ public class SolutionLineWriter {
                     u.creatorName(),
                     body));
         }
-        if (comments.isEmpty()) {
-            return null;
-        }
-
-        String line = solutionAi.summariseProgress(new CaseProgressRequest(
-                branch, problem, status, supStatus, asOf, comments));
-        if (line == null || line.isBlank()) return null;
-        // The one rule the model is allowed to break and the report is not.
-        return SolutionLine.splitCrossMonthRanges(line, asOf.getYear());
+        return comments;
     }
 
     /**

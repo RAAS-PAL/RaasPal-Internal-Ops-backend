@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.ai.service;
 
+import com.raaspal.robotrecommendation.casereport.dto.CasePartsSummary;
 import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -47,7 +48,8 @@ import java.util.Map;
 @ConditionalOnExpression("'${app.anthropic.api-key:}' != ''")
 public class ClaudeAiService
         implements RequirementExtractionService, RobotRecommendationAiService, ProposalGenerationAiService,
-        TranslationAiService, CmReportExtractionService, CaseSolutionAiService {
+        TranslationAiService, CmReportExtractionService, CaseSolutionAiService,
+        CasePartsAiService {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeAiService.class);
 
@@ -521,6 +523,57 @@ public class ClaudeAiService
 
     private static String nullToDash(String s) {
         return s == null || s.isBlank() ? "-" : s;
+    }
+
+    // ─── CasePartsAiService ───────────────────────────────────────────────────
+
+    /**
+     * Same model and same per-ticket cost profile as {@link #summariseProgress}: the
+     * thread is short, the answer is four fields, and every row is reviewed before the
+     * report is sent.
+     */
+    @Override
+    public CasePartsSummary extractParts(CaseProgressRequest request) {
+        if (request.comments() == null || request.comments().isEmpty()) {
+            return CasePartsSummary.EMPTY;
+        }
+
+        StringBuilder thread = new StringBuilder();
+        for (CaseProgressRequest.Comment c : request.comments()) {
+            thread.append(c.postedOn()).append("  [").append(c.author()).append("]  ")
+                  .append(c.body() == null ? "" : c.body().strip()).append('\n');
+        }
+
+        String user = """
+                Report date: %s
+                Site: %s
+                Problem: %s
+                Current board status: %s
+                Current sup status: %s
+
+                Comment thread, oldest first (date, author, text):
+                ---
+                %s---
+
+                Reply with the JSON object.
+                """.formatted(
+                request.asOf(),
+                nullToDash(request.branch()),
+                nullToDash(request.problem()),
+                nullToDash(request.currentStatus()),
+                nullToDash(request.currentSupStatus()),
+                thread);
+
+        try {
+            String response = callClaude(
+                    AiPromptTemplates.casePartsSystemPrompt(), user, null, null, CASE_SOLUTION_MODEL);
+            return CasePartsSummary.parse(response, objectMapper);
+        } catch (Exception e) {
+            // Dashes are reviewable; a failed report is not.
+            log.warn("Case parts extraction failed for {} — leaving the cells empty: {}",
+                    request.branch(), e.getMessage());
+            return CasePartsSummary.EMPTY;
+        }
     }
 
     // ─── HTTP ─────────────────────────────────────────────────────────────────

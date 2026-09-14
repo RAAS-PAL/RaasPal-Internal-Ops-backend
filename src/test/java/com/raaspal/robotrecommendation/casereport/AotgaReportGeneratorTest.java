@@ -1,9 +1,14 @@
 package com.raaspal.robotrecommendation.casereport;
 
+import com.raaspal.robotrecommendation.ai.service.CasePartsAiService;
 import com.raaspal.robotrecommendation.ai.service.CaseSolutionAiService;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.MondayBoardReader;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayColumnValue;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
+import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayUpdate;
+import com.raaspal.robotrecommendation.casereport.service.PartsLineWriter;
+import com.raaspal.robotrecommendation.casereport.dto.CasePartsSummary;
+import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
 import com.raaspal.robotrecommendation.casereport.service.AotgaReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.CleaningPendingReportGenerator;
@@ -15,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -22,7 +28,10 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -38,13 +47,15 @@ class AotgaReportGeneratorTest {
     private static final LocalDate AS_OF = LocalDate.of(2026, 9, 10);
 
     private final MondayBoardReader boardReader = mock(MondayBoardReader.class);
+    private final CasePartsAiService partsAi = mock(CasePartsAiService.class);
     private AotgaReportGenerator generator;
     private CleaningPendingReportGenerator cleaning;
 
     @BeforeEach
     void board() {
         SlaCalculator sla = new SlaCalculator(List.of("Bangkok"));
-        generator = new AotgaReportGenerator(boardReader, sla);
+        when(partsAi.extractParts(any())).thenReturn(CasePartsSummary.EMPTY);
+        generator = new AotgaReportGenerator(boardReader, sla, new PartsLineWriter(partsAi));
 
         CaseSolutionAiService ai = mock(CaseSolutionAiService.class);
         when(ai.summariseProgress(any())).thenReturn("");
@@ -55,8 +66,9 @@ class AotgaReportGeneratorTest {
                 ticket("1", "AOTGA-DMK M75 : มอเตอร์เกียร์เลี้ยว", "AOTGA-:-DMK", "AOTGA ดอนเมือง", "M75",
                         "2026-07-14", "Potentiometer", "รออะไหล่เสียคืนจาก AOTGA", "AOTGA", "2026-07-22"),
                 // Row 7: opened 3 Jul, nothing received yet.
+                // Nothing typed on the board; the thread has to say it.
                 ticket("7", "AOTGA-BKK M40 : สายเสาโมดูล 4G ขาด", null, "ท่าอากาศยานสุวรรณภูมิ", "M40",
-                        "2026-07-03", "4G Module Cable", "รออะไหล่มือ 1 จาก Supplier", "Supplier RAASPAL", null),
+                        "2026-07-03", null, null, null, null),
                 // Row 13: the SAT1 site code, four characters.
                 ticket("13", "AOTGA-SAT1 M75 : โพเทนเชียล", "AOTGA-SAT1", null, "M75",
                         "2026-09-02", "Potentiometer และ Encoder", "รออะไหล่เสียคืนจาก AOTGA", "AOTGA", "2026-09-04"),
@@ -191,6 +203,57 @@ class AotgaReportGeneratorTest {
         assertThat(cleaningRows).doesNotContain("1", "7", "13", "21", "22");
     }
 
+    /** The board's typed cells win, and the model is not asked for a row that has them all. */
+    @Test
+    void typedBoardCellsWinAndSkipTheModel() {
+        CaseReportRow row = byId().get("1");
+
+        assertThat(row.requiredPart()).isEqualTo("Potentiometer");
+        verify(partsAi, never()).extractParts(argThat(r -> "AOTGA-DMK".equals(r.branch())
+                && r.comments().stream().anyMatch(c -> c.body().contains("ticket 1"))));
+    }
+
+    /** With nothing typed, the thread goes to the model and its answer fills the cells. */
+    @Test
+    void theThreadFillsWhatTheBoardLeavesBlank() {
+        when(partsAi.extractParts(argThat(r -> r != null && "AOTGA-BKK".equals(r.branch()))))
+                .thenReturn(new CasePartsSummary(
+                        "4G Module Cable", "รออะไหล่มือ 1 จาก Supplier RAASPAL", "Supplier RAASPAL",
+                        LocalDate.of(2026, 9, 5)));
+
+        CaseReportRow row = byId().get("7");
+
+        assertThat(row.requiredPart()).isEqualTo("4G Module Cable");
+        assertThat(row.waiting()).isEqualTo("รออะไหล่มือ 1 จาก Supplier RAASPAL");
+        assertThat(row.waitingFrom()).isEqualTo("Supplier RAASPAL");
+        assertThat(row.partReceived()).isEqualTo(LocalDate.of(2026, 9, 5));
+        assertThat(row.agingAfterReceived()).isEqualTo(5);
+    }
+
+    /** The model is given the thread oldest first, with the intake form dropped. */
+    @Test
+    void theModelSeesTheThreadOldestFirstWithoutTheIntakeForm() {
+        generator.generate(AS_OF);
+
+        verify(partsAi).extractParts(argThat(r -> r != null && "AOTGA-BKK".equals(r.branch())
+                && r.comments().size() == 2
+                && r.comments().get(0).body().startsWith("สั่งสาย")
+                && r.comments().get(1).body().startsWith("ได้รับ")
+                && r.asOf().equals(AS_OF)));
+    }
+
+    /** A model that settles nothing leaves dashes, not a failed report. */
+    @Test
+    void anEmptyAnswerLeavesTheCellsBlank() {
+        CaseReportRow row = byId().get("7");
+
+        assertThat(row.requiredPart()).isNull();
+        assertThat(row.waiting()).isNull();
+        assertThat(row.waitingFrom()).isNull();
+        assertThat(row.partReceived()).isNull();
+        assertThat(row.agingAfterReceived()).isNull();
+    }
+
     private Map<String, CaseReportRow> byId() {
         Map<String, CaseReportRow> byId = new HashMap<>();
         generator.generate(AS_OF).forEach(r -> byId.put(r.sourceItemId(), r));
@@ -213,6 +276,19 @@ class AotgaReportGeneratorTest {
         cells.add(new MondayColumnValue("text_mm3j1dbd", "text", waiting, null));
         cells.add(new MondayColumnValue("dropdown_mm1gmnst", "dropdown", waitingFrom, null));
         cells.add(new MondayColumnValue("date_mm3b365t", "date", received, null));
-        return new MondayItem(id, name, null, null, cells, List.of(), null);
+        return new MondayItem(id, name, null, null, cells, updatesFor(id), null);
+    }
+
+    /** Ticket 7's thread, newest first as monday returns it. Others have none. */
+    private static List<MondayUpdate> updatesFor(String id) {
+        if (!"7".equals(id)) return List.of();
+        return List.of(
+                update("u3", "2026-09-05T03:00:00Z", "ได้รับสายเสาโมดูล 4G จาก Supplier แล้ว"),
+                update("u2", "2026-07-10T08:00:00Z", "สั่งสายเสาโมดูล 4G กับ Supplier RAASPAL"),
+                update("u1", "2026-07-03T02:00:00Z", "Ticket ID 7 - intake form, not a step"));
+    }
+
+    private static MondayUpdate update(String id, String createdAt, String body) {
+        return new MondayUpdate(id, body, OffsetDateTime.parse(createdAt), null);
     }
 }
