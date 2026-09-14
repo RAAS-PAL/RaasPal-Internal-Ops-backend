@@ -78,6 +78,26 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ex.getMessage()));
     }
 
+    /**
+     * A request that is missing what the endpoint needs - a required query param, the
+     * body, or a value of the wrong type ("abc" where a UUID goes) - is a 400 the
+     * caller can fix, and Spring says exactly what is missing. Third time the same
+     * trap: Spring throws these instead of returning a status, so before this they
+     * fell through to the catch-all as 500 "unexpected error", and the caller went
+     * looking for a server fault. Found by the report-send security test, whose
+     * allowed-role check relies on being turned away for the missing params and not
+     * for anything else.
+     */
+    @ExceptionHandler({
+            org.springframework.web.bind.ServletRequestBindingException.class,
+            org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class
+    })
+    public ResponseEntity<ApiResponse<Void>> handleMalformedRequest(Exception ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGeneric(Exception ex) {
         log.error("Unhandled exception: {}", ex.getMessage(), ex);
