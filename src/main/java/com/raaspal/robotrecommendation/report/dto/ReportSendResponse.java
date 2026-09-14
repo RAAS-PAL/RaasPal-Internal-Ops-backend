@@ -12,6 +12,10 @@ public record ReportSendResponse(
         String customerName,
         String reportMonth,
         String status,
+        /** BUNDLE or ROBOT_REPORT — see {@link ReportSend.Kind}. */
+        String kind,
+        /** Set for ROBOT_REPORT rows only. */
+        String robotSerial,
         String recipientEmail,
         String errorMessage,
         LocalDateTime sentAt) {
@@ -23,6 +27,8 @@ public record ReportSendResponse(
                 customerName,
                 send.getReportMonth(),
                 send.getStatus().name(),
+                send.getKind().name(),
+                send.getRobotSerial(),
                 send.getRecipientEmail(),
                 send.getErrorMessage(),
                 send.getSentAt());
