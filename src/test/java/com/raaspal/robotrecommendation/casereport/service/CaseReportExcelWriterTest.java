@@ -114,8 +114,11 @@ class CaseReportExcelWriterTest {
         }
     }
 
+    /** Index of the SLA column on an MK sheet, which prints both site columns. */
+    private static final int SLA = 10;
+
     @Test
-    void tintsOverSlaRowsRedAndOnHoldAmber() throws IOException {
+    void tintsTheSlaCellRedAmberOrGreenByStatus() throws IOException {
         byte[] bytes = writer.write(definition(CaseReportDefinition.MK_PENDING, "MK pending cases"), AS_OF, List.of(
                 row(1, "MK", "A", AS_OF.minusDays(9), null, 8, SlaStatus.BREACHED),
                 row(2, "MK", "B", AS_OF.minusDays(2), null, 1, SlaStatus.ON_HOLD),
@@ -123,11 +126,33 @@ class CaseReportExcelWriterTest {
 
         try (Workbook wb = read(bytes)) {
             Sheet sheet = wb.getSheetAt(0);
-            assertThat(sheet.getRow(3).getCell(1).getCellStyle().getFillForegroundColor())
+            assertThat(sheet.getRow(3).getCell(SLA).getCellStyle().getFillForegroundColor())
                     .isEqualTo(IndexedColors.ROSE.getIndex());
-            assertThat(sheet.getRow(4).getCell(1).getCellStyle().getFillForegroundColor())
+            assertThat(sheet.getRow(4).getCell(SLA).getCellStyle().getFillForegroundColor())
                     .isEqualTo(IndexedColors.LEMON_CHIFFON.getIndex());
-            assertThat(sheet.getRow(5).getCell(1).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.NO_FILL);
+            assertThat(sheet.getRow(5).getCell(SLA).getCellStyle().getFillForegroundColor())
+                    .isEqualTo(IndexedColors.LIGHT_GREEN.getIndex());
+        }
+    }
+
+    /**
+     * The tint marks the status, not the row. A whole pink row put the Thai problem
+     * and solution prose on saturated colour - the hardest part of the sheet to read.
+     */
+    @Test
+    void leavesEveryOtherCellOfAnOverSlaRowUncoloured() throws IOException {
+        byte[] bytes = writer.write(definition(CaseReportDefinition.MK_PENDING, "MK pending cases"), AS_OF, List.of(
+                row(1, "MK", "M154", AS_OF.minusDays(30), AS_OF.minusDays(2), 30, SlaStatus.BREACHED)));
+
+        try (Workbook wb = read(bytes)) {
+            Row r = wb.getSheetAt(0).getRow(3);
+            for (int c = 0; c < SLA; c++) {
+                assertThat(r.getCell(c).getCellStyle().getFillPattern())
+                        .as("column %d must not be tinted", c)
+                        .isEqualTo(FillPatternType.NO_FILL);
+            }
+            assertThat(r.getCell(SLA).getCellStyle().getFillForegroundColor())
+                    .isEqualTo(IndexedColors.ROSE.getIndex());
         }
     }
 
