@@ -73,12 +73,15 @@ public class CaseReportExcelWriter {
             int r = 3;
             for (CaseReportRow row : rows) {
                 Row out = sheet.createRow(r++);
-                CellStyle text = tint(styles, row, styles.text, styles.textBreached, styles.textOnHold);
-                CellStyle wrap = tint(styles, row, styles.wrap, styles.wrapBreached, styles.wrapOnHold);
-                CellStyle date = tint(styles, row, styles.date, styles.dateBreached, styles.dateOnHold);
-                CellStyle number = tint(styles, row, styles.number, styles.numberBreached, styles.numberOnHold);
+                // The tint marks the SLA cell, not the row. Colouring all eleven cells
+                // put the Thai problem and solution prose on saturated pink, which is
+                // the hardest part of the sheet to read and the part people actually
+                // read; the status belongs to the SLA column, so the colour lives there.
+                CellStyle slaText = slaTint(styles, row);
                 for (int c = 0; c < columns.size(); c++) {
-                    columns.get(c).write(out.createCell(c), row, text, wrap, date, number);
+                    Column col = columns.get(c);
+                    col.write(out.createCell(c), row,
+                            col.tinted() ? slaText : styles.text, styles.wrap, styles.date, styles.number);
                 }
             }
 
@@ -127,10 +130,19 @@ public class CaseReportExcelWriter {
                 .collect(java.util.stream.Collectors.joining("\n"));
     }
 
-    private static CellStyle tint(Styles styles, CaseReportRow row, CellStyle plain, CellStyle breached, CellStyle onHold) {
-        if (row.sla() == SlaStatus.BREACHED) return breached;
-        if (row.sla() == SlaStatus.ON_HOLD) return onHold;
-        return plain;
+    /**
+     * Red over SLA, green within it, amber on hold - the same three the console uses.
+     * Unknown stays uncoloured on purpose: see {@link SlaStatus}, where a blank cell is
+     * the honest answer rather than a green one nobody can stand behind.
+     */
+    private static CellStyle slaTint(Styles styles, CaseReportRow row) {
+        if (row.sla() == null) return styles.text;
+        return switch (row.sla()) {
+            case BREACHED -> styles.textBreached;
+            case WITHIN -> styles.textWithin;
+            case ON_HOLD -> styles.textOnHold;
+            case UNKNOWN -> styles.text;
+        };
     }
 
     private static List<Column> columnsFor(String code) {
@@ -148,29 +160,38 @@ public class CaseReportExcelWriter {
         columns.add(Column.date("Open Date", 13, CaseReportRow::openDate));
         columns.add(Column.date("RE On Site", 13, CaseReportRow::reOnSite));
         columns.add(Column.number("Days", 7, r -> r.days() == null ? null : r.days().doubleValue()));
-        columns.add(Column.text("SLA", 12, CaseReportRow::slaLabel));
+        columns.add(Column.tintedText("SLA", 12, CaseReportRow::slaLabel));
         return columns;
     }
 
-    /** One column: its header, width, and how a row's value lands in the cell. */
-    private record Column(String header, int width, Kind kind, java.util.function.Function<CaseReportRow, Object> value) {
+    /**
+     * One column: its header, width, whether it carries the SLA tint, and how a row's
+     * value lands in the cell.
+     */
+    private record Column(String header, int width, Kind kind, boolean tinted,
+                          java.util.function.Function<CaseReportRow, Object> value) {
 
         enum Kind { TEXT, WRAP, DATE, NUMBER }
 
         static Column text(String header, int width, java.util.function.Function<CaseReportRow, String> value) {
-            return new Column(header, width, Kind.TEXT, value::apply);
+            return new Column(header, width, Kind.TEXT, false, value::apply);
+        }
+
+        /** Text that takes the row's SLA colour. Only the SLA column does. */
+        static Column tintedText(String header, int width, java.util.function.Function<CaseReportRow, String> value) {
+            return new Column(header, width, Kind.TEXT, true, value::apply);
         }
 
         static Column wrap(String header, int width, java.util.function.Function<CaseReportRow, String> value) {
-            return new Column(header, width, Kind.WRAP, value::apply);
+            return new Column(header, width, Kind.WRAP, false, value::apply);
         }
 
         static Column date(String header, int width, java.util.function.Function<CaseReportRow, LocalDate> value) {
-            return new Column(header, width, Kind.DATE, value::apply);
+            return new Column(header, width, Kind.DATE, false, value::apply);
         }
 
         static Column number(String header, int width, java.util.function.Function<CaseReportRow, Double> value) {
-            return new Column(header, width, Kind.NUMBER, value::apply);
+            return new Column(header, width, Kind.NUMBER, false, value::apply);
         }
 
         void write(Cell cell, CaseReportRow row, CellStyle text, CellStyle wrap, CellStyle date, CellStyle number) {
@@ -187,8 +208,9 @@ public class CaseReportExcelWriter {
     /**
      * Every style the sheet uses, built once per workbook. POI limits a workbook to
      * ~64k styles and each {@code createCellStyle} counts, so styles are never made
-     * per cell; the tinted variants exist because a fill cannot be layered onto a
-     * style after the fact.
+     * per cell; the two tinted variants exist because a fill cannot be layered onto a
+     * style after the fact. Only text is tinted - the SLA column is the only one that
+     * carries the colour.
      */
     private static final class Styles {
         final CellStyle title;
@@ -198,13 +220,8 @@ public class CaseReportExcelWriter {
         final CellStyle date;
         final CellStyle number;
         final CellStyle textBreached;
-        final CellStyle wrapBreached;
-        final CellStyle dateBreached;
-        final CellStyle numberBreached;
+        final CellStyle textWithin;
         final CellStyle textOnHold;
-        final CellStyle wrapOnHold;
-        final CellStyle dateOnHold;
-        final CellStyle numberOnHold;
 
         Styles(XSSFWorkbook wb) {
             Font bold = wb.createFont();
@@ -235,14 +252,8 @@ public class CaseReportExcelWriter {
             number.setAlignment(HorizontalAlignment.RIGHT);
 
             textBreached = tinted(wb, text, IndexedColors.ROSE);
-            wrapBreached = tinted(wb, wrap, IndexedColors.ROSE);
-            dateBreached = tinted(wb, date, IndexedColors.ROSE);
-            numberBreached = tinted(wb, number, IndexedColors.ROSE);
-
+            textWithin = tinted(wb, text, IndexedColors.LIGHT_GREEN);
             textOnHold = tinted(wb, text, IndexedColors.LEMON_CHIFFON);
-            wrapOnHold = tinted(wb, wrap, IndexedColors.LEMON_CHIFFON);
-            dateOnHold = tinted(wb, date, IndexedColors.LEMON_CHIFFON);
-            numberOnHold = tinted(wb, number, IndexedColors.LEMON_CHIFFON);
         }
 
         private static CellStyle base(XSSFWorkbook wb) {
