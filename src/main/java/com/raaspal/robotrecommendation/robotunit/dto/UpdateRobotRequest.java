@@ -22,5 +22,8 @@ public record UpdateRobotRequest(
         ReportCadence reportCadence,
 
         /** When this robot's contract starts; the first monthly report clips to it. */
-        LocalDate contractStartDate) {
+        LocalDate contractStartDate,
+
+        /** When it ends, inclusive; the last report clips to it. Not before the start. */
+        LocalDate contractEndDate) {
 }

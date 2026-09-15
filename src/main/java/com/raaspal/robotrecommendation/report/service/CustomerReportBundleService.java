@@ -49,6 +49,7 @@ public class CustomerReportBundleService {
 
         // Each robot's report is served from cache (computed once per robot+month).
         List<ReportPreviewResponse> robots = robotUnitService.listByCustomer(customerProfileId).stream()
+                .filter(robot -> underContract(robot, month))
                 .filter(robot -> !excluded.contains(robot.id()))
                 .map(robot -> reportCacheService.getRobotReport(robot.serialNumber(), month))
                 .toList();
@@ -66,6 +67,7 @@ public class CustomerReportBundleService {
         Set<UUID> excluded = excludedRobotUnitIds(customerProfileId, month);
 
         List<CustomerBundlePreviewResponse.Robot> robots = robotUnitService.listByCustomer(customerProfileId).stream()
+                .filter(robot -> underContract(robot, month))
                 .map(robot -> {
                     ReportPreviewResponse report = reportCacheService.getRobotReport(robot.serialNumber(), month);
                     return new CustomerBundlePreviewResponse.Robot(
@@ -96,6 +98,19 @@ public class CustomerReportBundleService {
 
     private static String site(RobotUnitResponse robot) {
         return robot.deployment() != null ? robot.deployment().site() : "—";
+    }
+
+    /**
+     * Whether the robot was the customer's at any point in the month. A robot whose
+     * contract ended before the month began is not on the bundle and not in the
+     * review list — it is no longer theirs, and a page of zeros for it would read as a
+     * fault rather than a fact. The final partial month is still sent, clipped to the
+     * end date by {@link ReportPreviewService}. Null dates are unbounded, as before.
+     */
+    private static boolean underContract(RobotUnitResponse robot, String month) {
+        if (robot.deployment() == null) return true;
+        return ReportPeriod.ofMonth(month).coversContract(
+                robot.deployment().contractStartDate(), robot.deployment().contractEndDate());
     }
 
     private Set<UUID> excludedRobotUnitIds(UUID customerProfileId, String month) {

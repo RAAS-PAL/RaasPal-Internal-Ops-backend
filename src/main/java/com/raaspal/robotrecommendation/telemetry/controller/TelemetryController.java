@@ -3,6 +3,8 @@ package com.raaspal.robotrecommendation.telemetry.controller;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService;
+import com.raaspal.robotrecommendation.telemetry.core.ZeroDataRobotService;
+import com.raaspal.robotrecommendation.telemetry.dto.ZeroDataRobotsResponse;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService.SyncResult;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService.SyncStatus;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ import java.util.UUID;
 public class TelemetryController {
 
     private final TelemetrySyncService telemetrySyncService;
+    private final ZeroDataRobotService zeroDataRobotService;
 
     /** Sync one robot (by serial number) for {@code [from, to]} (robot-local dates). */
     @PostMapping("/sync/{serialNumber}")
@@ -76,6 +79,19 @@ public class TelemetryController {
      * Progress of the running sync, or the outcome of the last finished one.
      * Polled by the UI while a fleet sync runs.
      */
+    /**
+     * Every in-contract robot that logged no task in the month. Defaults to last
+     * month — the one the nightly sync has just finished filling in.
+     */
+    @GetMapping("/zero-data")
+    public ApiResponse<ZeroDataRobotsResponse> zeroData(
+            @RequestParam(required = false) String month) {
+        String m = month != null && !month.isBlank()
+                ? month.trim()
+                : java.time.YearMonth.now(java.time.ZoneId.of("Asia/Bangkok")).minusMonths(1).toString();
+        return ApiResponse.success(zeroDataRobotService.forMonth(m));
+    }
+
     @GetMapping("/sync-status")
     public ApiResponse<SyncStatus> syncStatus() {
         return ApiResponse.success(telemetrySyncService.status());

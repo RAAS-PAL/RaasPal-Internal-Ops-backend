@@ -44,7 +44,10 @@ public record RobotUnitResponse(
             UUID partnerId,
 
             /** When the contract started; monthly reports clip to it. Null = whole month. */
-            LocalDate contractStartDate) {
+            LocalDate contractStartDate,
+
+            /** When it ends, inclusive; the last report clips to it. Null = no end known. */
+            LocalDate contractEndDate) {
     }
 
     /** Build a response from a robot and (optionally) its active deployment. */
@@ -59,7 +62,8 @@ public record RobotUnitResponse(
                     deployment.getReportCadence(),
                     Boolean.TRUE.equals(deployment.getIsActive()),
                     deployment.getPartnerId(),
-                    deployment.getContractStartDate());
+                    deployment.getContractStartDate(),
+                    deployment.getContractEndDate());
         }
         return new RobotUnitResponse(
                 robot.getId(),

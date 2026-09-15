@@ -67,6 +67,16 @@ public class Deployment {
     @Column(name = "contract_start_date")
     private LocalDate contractStartDate;
 
+    /**
+     * When this robot's contract with this customer ends, inclusive.
+     * <p>
+     * The final month's report clips to it, and a month that begins after it produces
+     * no report: the robot is no longer the customer's. Null means no end is known and
+     * reports as before. Never before {@link #contractStartDate}; the service refuses that.
+     */
+    @Column(name = "contract_end_date")
+    private LocalDate contractEndDate;
+
     @Column(name = "deployed_at", nullable = false)
     private LocalDateTime deployedAt;
 

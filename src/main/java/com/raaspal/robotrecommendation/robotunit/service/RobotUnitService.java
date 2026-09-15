@@ -23,6 +23,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -206,6 +207,8 @@ public class RobotUnitService {
                 ? request.reportCadence()
                 : ReportCadence.MONTHLY;
 
+        requireEndNotBeforeStart(request.contractStartDate(), request.contractEndDate());
+
         Deployment deployment = deploymentRepository.save(Deployment.builder()
                 .robotUnit(robot)
                 .customerProfile(customer)
@@ -214,6 +217,7 @@ public class RobotUnitService {
                 .reportCadence(cadence)
                 .deployedAt(LocalDateTime.now())
                 .contractStartDate(request.contractStartDate())
+                .contractEndDate(request.contractEndDate())
                 .build());
 
         return RobotUnitResponse.of(robot, deployment);
@@ -258,10 +262,13 @@ public class RobotUnitService {
                     .deployedAt(LocalDateTime.now())
                     .build();
         }
+        requireEndNotBeforeStart(request.contractStartDate(), request.contractEndDate());
+
         deployment.setCustomerProfile(customer);
         deployment.setSite(request.site());
         deployment.setReportCadence(cadence);
         deployment.setContractStartDate(request.contractStartDate());
+        deployment.setContractEndDate(request.contractEndDate());
         deploymentRepository.save(deployment);
 
         return RobotUnitResponse.of(robot, deployment);
@@ -400,5 +407,16 @@ public class RobotUnitService {
         return deploymentRepository.findByRobotUnitIdAndIsActiveTrue(robotUnitId).stream()
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * A contract that ends before it starts is a typo, and a silent one: the report
+     * would clip everything and print an empty month with no reason given.
+     */
+    private static void requireEndNotBeforeStart(LocalDate start, LocalDate end) {
+        if (start != null && end != null && end.isBefore(start)) {
+            throw new BadRequestException(
+                    "Contract end date " + end + " is before the start date " + start);
+        }
     }
 }
