@@ -3,8 +3,10 @@ package com.raaspal.robotrecommendation.ai.service;
 import com.raaspal.robotrecommendation.casereport.dto.CasePartsSummary;
 import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalRequest;
 import com.raaspal.robotrecommendation.ai.dto.AiProposalResult;
 import com.raaspal.robotrecommendation.ai.dto.AiRecommendationResult;
@@ -28,12 +30,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Service;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -61,22 +65,35 @@ public class ClaudeAiService
     private final Path         uploadDir;
     private final String       model;
     private final String       proposalModel;
+    private final int          maxTokens;
 
     public ClaudeAiService(
             @Value("${app.anthropic.api-key}") String apiKey,
             @Value("${app.file.upload-dir}") String uploadDir,
             @Value("${app.anthropic.model:claude-sonnet-4-6}") String model,
             @Value("${app.anthropic.proposal-model:claude-opus-4-8}") String proposalModel,
+            @Value("${app.anthropic.max-tokens:16000}") int maxTokens,
+            @Value("${app.anthropic.connect-timeout-seconds:15}") int connectTimeoutSeconds,
+            @Value("${app.anthropic.read-timeout-seconds:300}") int readTimeoutSeconds,
             ObjectMapper objectMapper) {
         this.uploadDir     = Path.of(uploadDir);
         this.model         = model;
         this.proposalModel = proposalModel;
+        this.maxTokens     = maxTokens;
         this.objectMapper  = objectMapper;
+        // Timeouts, for the reason the telemetry sync taught us: a request with none
+        // waits forever on a silent server, and the caller has no way to tell that from
+        // slow generation. The read timeout is generous because a long proposal
+        // legitimately takes minutes.
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(connectTimeoutSeconds));
+        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
         this.restClient   = RestClient.builder()
                 .baseUrl(ANTHROPIC_API_URL)
                 .defaultHeader("x-api-key", apiKey)
                 .defaultHeader("anthropic-version", ANTHROPIC_VERSION)
                 .defaultHeader("Content-Type", "application/json")
+                .requestFactory(requestFactory)
                 .build();
     }
 
@@ -582,7 +599,7 @@ public class ClaudeAiService
         List<Map<String, Object>> contentBlocks = buildContentBlocks(userPrompt, fileBytes, contentType);
         Map<String, Object> requestBody = Map.of(
                 "model", claudeModel,
-                "max_tokens", 4096,
+                "max_tokens", maxTokens,
                 "system", systemPrompt,
                 "messages", List.of(Map.of("role", "user", "content", contentBlocks))
         );
@@ -594,6 +611,20 @@ public class ClaudeAiService
 
         if (response == null || response.content() == null || response.content().isEmpty()) {
             throw new RuntimeException("Empty response received from Claude API");
+        }
+
+        // A response cut off at the token ceiling is not malformed JSON, it is an
+        // unfinished answer -- and it used to reach the parser as one, which reported
+        // "unreadable response" and sent whoever was waiting looking for a bug in the
+        // prompt. The recommendation is the worst case: extractJson takes the LAST
+        // closing brace, so a truncated reply yields a plausible-looking fragment
+        // ending inside a half-written option.
+        if ("max_tokens".equals(response.stopReason())) {
+            log.error("Claude response for model {} was truncated at the {}-token ceiling",
+                    claudeModel, maxTokens);
+            throw new BadRequestException(
+                    "The AI response was cut off before it finished (token limit reached). "
+                            + "Try again, or reduce the number of options requested.");
         }
 
         return response.content().stream()
@@ -694,7 +725,10 @@ public class ClaudeAiService
     // ─── Anthropic API response types ─────────────────────────────────────────
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record AnthropicResponse(List<AnthropicContentBlock> content) {}
+    private record AnthropicResponse(
+            List<AnthropicContentBlock> content,
+            /** "end_turn" when finished; "max_tokens" when cut off at the ceiling. */
+            @JsonProperty("stop_reason") String stopReason) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record AnthropicContentBlock(String type, String text) {}
