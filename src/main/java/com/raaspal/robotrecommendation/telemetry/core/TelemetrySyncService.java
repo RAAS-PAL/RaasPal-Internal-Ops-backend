@@ -21,6 +21,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -329,15 +330,30 @@ public class TelemetrySyncService {
         // A refresh needs the stored rows themselves to update; a normal sync only
         // needs to know which ids exist, which is the cheaper query.
         Map<String, RobotTaskReport> existingById = Map.of();
+        // Chunked, and not as an optimisation: an unchunked IN clause carrying one bind
+        // parameter per fetched task is what parked a whole fleet sync. A robot with a
+        // long history produces tens of thousands of ids; that query, sent through a
+        // cross-region pooler, never came back, and the run sat on it for half an hour
+        // with nothing in the log. PostgreSQL also refuses more than 65,535 parameters
+        // outright, so the unchunked version had a hard ceiling as well.
         Set<String> existingIds;
         if (externalIds.isEmpty()) {
             existingIds = Set.of();
         } else if (refresh) {
-            existingById = taskReportRepository.findByExternalTaskIdIn(externalIds).stream()
-                    .collect(Collectors.toMap(RobotTaskReport::getExternalTaskId, r -> r, (a, b) -> a));
-            existingIds = existingById.keySet();
+            Map<String, RobotTaskReport> found = new HashMap<>();
+            for (List<String> chunk : chunked(externalIds)) {
+                for (RobotTaskReport stored : taskReportRepository.findByExternalTaskIdIn(chunk)) {
+                    found.putIfAbsent(stored.getExternalTaskId(), stored);
+                }
+            }
+            existingById = found;
+            existingIds = found.keySet();
         } else {
-            existingIds = new HashSet<>(taskReportRepository.findExistingExternalTaskIds(externalIds));
+            Set<String> found = new HashSet<>();
+            for (List<String> chunk : chunked(externalIds)) {
+                found.addAll(taskReportRepository.findExistingExternalTaskIds(chunk));
+            }
+            existingIds = found;
         }
 
         List<RobotTaskReport> toSave = new ArrayList<>();
@@ -383,13 +399,39 @@ public class TelemetrySyncService {
             }
         }
 
-        if (!toSave.isEmpty()) {
-            taskReportRepository.saveAll(toSave);
+        // Written in chunks for the same reason, and so one robot's writes reach the
+        // database as several modest statements rather than one enormous flush.
+        for (List<RobotTaskReport> chunk : chunkedEntities(toSave)) {
+            taskReportRepository.saveAll(chunk);
         }
         int inserted = toSave.size() - updated;
         log.info("Synced robot unit {}: {} saved, {} updated, {} duplicate(s) skipped",
                 serialNumber, inserted, updated, skipped);
         return new SyncResult(serialNumber, inserted, updated, skipped);
+    }
+
+    /**
+     * How many ids or rows go into one statement. Small enough that a single query
+     * always returns, large enough that a busy robot is a handful of round trips
+     * rather than hundreds — the database is in another region, so each one costs
+     * about 100ms.
+     */
+    private static final int DB_CHUNK = 500;
+
+    private static List<List<String>> chunked(List<String> all) {
+        List<List<String>> out = new ArrayList<>();
+        for (int i = 0; i < all.size(); i += DB_CHUNK) {
+            out.add(all.subList(i, Math.min(all.size(), i + DB_CHUNK)));
+        }
+        return out;
+    }
+
+    private static List<List<RobotTaskReport>> chunkedEntities(List<RobotTaskReport> all) {
+        List<List<RobotTaskReport>> out = new ArrayList<>();
+        for (int i = 0; i < all.size(); i += DB_CHUNK) {
+            out.add(all.subList(i, Math.min(all.size(), i + DB_CHUNK)));
+        }
+        return out;
     }
 
     private static String truncate(String s) {
