@@ -9,11 +9,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -45,8 +47,19 @@ public class GausiumApiClient {
             @Value("${app.gausium.api.client-id:}") String clientId,
             @Value("${app.gausium.api.client-secret:}") String clientSecret,
             @Value("${app.gausium.api.open-access-key:}") String openAccessKey,
+            @Value("${app.gausium.api.connect-timeout-seconds:15}") int connectTimeoutSeconds,
+            @Value("${app.gausium.api.read-timeout-seconds:90}") int readTimeoutSeconds,
             ObjectMapper objectMapper) {
-        this.restClient = RestClient.builder().baseUrl(baseUrl).build();
+        // Timeouts are not optional here. The fleet sync runs on a single thread, so a
+        // Gausium response that never arrives parks every remaining robot behind it --
+        // no error, no progress, and nothing to see but a counter that stopped. With a
+        // read timeout the call fails, the per-robot catch isolates it, and the run
+        // moves on. A page of 200 task reports can legitimately take a while, hence 90s
+        // rather than something tighter.
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(connectTimeoutSeconds));
+        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
+        this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.openAccessKey = openAccessKey;

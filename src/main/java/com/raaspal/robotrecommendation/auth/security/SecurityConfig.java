@@ -62,6 +62,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login").permitAll()
                         // Public customer report links (the monthly email URL) — no account
                         .requestMatchers("/api/v1/reports/public/**").permitAll()
+                        // The container health check. Docker polls this every 30s with
+                        // no credentials; left authenticated it answered 401 and logged a
+                        // WARN each time -- roughly 2,900 lines a day, enough to bury the
+                        // sync and report lines somebody actually needs to read.
+                        .requestMatchers("/actuator/health").permitAll()
                         // Swagger UI
                         .requestMatchers(
                                 "/swagger-ui/**",
