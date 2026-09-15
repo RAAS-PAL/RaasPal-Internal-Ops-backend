@@ -6,12 +6,12 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableScheduling
-public class RobotRecommendationApiApplication {
+public class RaasPalOpsBackendApplication {
 
 	public static void main(String[] args) {
-		// Required for Apache POI font/graphics on headless Linux servers (e.g. Render)
+		// Required for Apache POI font/graphics on headless Linux servers
 		System.setProperty("java.awt.headless", "true");
-		SpringApplication.run(RobotRecommendationApiApplication.class, args);
+		SpringApplication.run(RaasPalOpsBackendApplication.class, args);
 	}
 
 }

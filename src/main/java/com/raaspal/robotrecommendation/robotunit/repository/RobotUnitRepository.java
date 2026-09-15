@@ -5,6 +5,9 @@ import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
+import java.time.Instant;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -46,4 +49,22 @@ public interface RobotUnitRepository extends JpaRepository<RobotUnit, UUID> {
     List<Object[]> countByRobotIdAndStatus(@Param("status") RobotUnitStatus status);
 
     long countByStatusAndRobotIdIsNull(RobotUnitStatus status);
+
+    /**
+     * Records a successful sync without loading the entity: the sync loop runs outside
+     * a transaction and holds detached robots, so a direct update is both cheaper and
+     * free of merge surprises. Clears the last error.
+     */
+    @Modifying
+    @Transactional
+    @Query("update RobotUnit r set r.lastSyncAttemptAt = :at, r.lastSyncSuccessAt = :at, "
+            + "r.lastSyncError = null where r.id = :id")
+    void recordSyncSuccess(@Param("id") UUID id, @Param("at") Instant at);
+
+    /** Records a failed attempt; the last success is left as it was. */
+    @Modifying
+    @Transactional
+    @Query("update RobotUnit r set r.lastSyncAttemptAt = :at, r.lastSyncError = :error "
+            + "where r.id = :id")
+    void recordSyncFailure(@Param("id") UUID id, @Param("at") Instant at, @Param("error") String error);
 }

@@ -2,11 +2,11 @@
 #
 # Redeploy the API from the current branch. Run on the server:
 #
-#     bash ~/robot-recommendation-api/deploy/deploy.sh
+#     bash ~/RaasPal-Internal-Ops-backend/deploy/deploy.sh
 #
 # Or, without opening a session, from your own machine:
 #
-#     ssh ubuntu@<ip> 'bash ~/robot-recommendation-api/deploy/deploy.sh'
+#     ssh ubuntu@<ip> 'bash ~/RaasPal-Internal-Ops-backend/deploy/deploy.sh'
 #
 # set -e stops at the first failure, so a broken build never gets as far as
 # replacing a container that is currently serving traffic.

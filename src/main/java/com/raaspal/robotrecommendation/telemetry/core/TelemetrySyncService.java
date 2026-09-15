@@ -237,11 +237,14 @@ public class TelemetrySyncService {
                 updated += result.updated();
                 duplicates += result.skipped();
                 synced++;
+                robotUnitRepository.recordSyncSuccess(robot.getId(), Instant.now());
             } catch (Exception e) {
                 // Isolate per robot: a single robot's API failure must not stop the fleet.
                 failed++;
                 log.error("Telemetry sync failed for robot {} ({}): {}",
                         robot.getSerialNumber(), brand, e.getMessage());
+                // Remembered per robot, so the "no data" list can say this was our side.
+                robotUnitRepository.recordSyncFailure(robot.getId(), Instant.now(), truncate(e.getMessage()));
             }
         }
 
@@ -387,5 +390,10 @@ public class TelemetrySyncService {
         log.info("Synced robot unit {}: {} saved, {} updated, {} duplicate(s) skipped",
                 serialNumber, inserted, updated, skipped);
         return new SyncResult(serialNumber, inserted, updated, skipped);
+    }
+
+    private static String truncate(String s) {
+        if (s == null) return "(no message)";
+        return s.length() > 1000 ? s.substring(0, 1000) : s;
     }
 }

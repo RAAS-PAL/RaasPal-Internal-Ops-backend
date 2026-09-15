@@ -6,6 +6,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -76,6 +77,14 @@ public class Deployment {
      */
     @Column(name = "contract_end_date")
     private LocalDate contractEndDate;
+
+    /**
+     * When the "contract ends soon" alert went out for this end date; null = not yet.
+     * Cleared whenever the end date changes, so an extended contract is alerted again
+     * as its new end approaches.
+     */
+    @Column(name = "contract_expiry_alerted_at")
+    private Instant contractExpiryAlertedAt;
 
     @Column(name = "deployed_at", nullable = false)
     private LocalDateTime deployedAt;

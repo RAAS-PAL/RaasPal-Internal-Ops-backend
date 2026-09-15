@@ -7,6 +7,8 @@ import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.time.ZoneId;
 import java.util.UUID;
 
 /**
@@ -47,7 +49,13 @@ public record RobotUnitResponse(
             LocalDate contractStartDate,
 
             /** When it ends, inclusive; the last report clips to it. Null = no end known. */
-            LocalDate contractEndDate) {
+            LocalDate contractEndDate,
+
+            /** NONE (no end date) / ACTIVE / ENDING_SOON (within 30 days) / ENDED, as of today. */
+            ContractExpiryResponse.Status contractStatus,
+
+            /** Days from today to the end date; negative once ended; null when no end date. */
+            Long daysToContractEnd) {
     }
 
     /** Build a response from a robot and (optionally) its active deployment. */
@@ -63,7 +71,11 @@ public record RobotUnitResponse(
                     Boolean.TRUE.equals(deployment.getIsActive()),
                     deployment.getPartnerId(),
                     deployment.getContractStartDate(),
-                    deployment.getContractEndDate());
+                    deployment.getContractEndDate(),
+                    contractStatus(deployment.getContractEndDate()),
+                    deployment.getContractEndDate() == null
+                            ? null
+                            : ChronoUnit.DAYS.between(LocalDate.now(BUSINESS_ZONE), deployment.getContractEndDate()));
         }
         return new RobotUnitResponse(
                 robot.getId(),
@@ -82,5 +94,17 @@ public record RobotUnitResponse(
     /** A unit sitting in the warehouse — no deployment, by definition. */
     public static RobotUnitResponse fromStock(RobotUnit robot) {
         return of(robot, null);
+    }
+
+    /** The zone the "today" in contract status is taken in — the customer's day, not UTC. */
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Bangkok");
+
+    /** Same rule as {@code ContractExpiryService}: a 30-day window. */
+    private static ContractExpiryResponse.Status contractStatus(LocalDate end) {
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        if (end == null) return ContractExpiryResponse.Status.NONE;
+        if (end.isBefore(today)) return ContractExpiryResponse.Status.ENDED;
+        if (!end.isAfter(today.plusDays(30))) return ContractExpiryResponse.Status.ENDING_SOON;
+        return ContractExpiryResponse.Status.ACTIVE;
     }
 }

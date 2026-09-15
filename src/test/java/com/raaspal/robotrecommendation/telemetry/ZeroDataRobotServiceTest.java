@@ -1,14 +1,19 @@
 package com.raaspal.robotrecommendation.telemetry;
 
+import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
 import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
+import com.raaspal.robotrecommendation.report.service.CustomerReportExclusionService;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
 import com.raaspal.robotrecommendation.robotunit.repository.RobotUnitRepository;
 import com.raaspal.robotrecommendation.telemetry.core.ZeroDataRobotService;
 import com.raaspal.robotrecommendation.telemetry.dto.ZeroDataRobotsResponse;
+import com.raaspal.robotrecommendation.telemetry.dto.ZeroDataRobotsResponse.ContractStatus;
+import com.raaspal.robotrecommendation.telemetry.dto.ZeroDataRobotsResponse.Reason;
 import com.raaspal.robotrecommendation.telemetry.entity.RobotTaskReport;
+import com.raaspal.robotrecommendation.telemetry.entity.ZeroDataFollowup;
 import com.raaspal.robotrecommendation.telemetry.repository.RobotTaskReportRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,15 +27,21 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Which robots the zero-data list names for a month, and which it leaves alone.
+ * The monthly worklist: which robots it names for a month, why, and what happens as
+ * the customer success team works through it.
  *
- * <p>Five robots, one month (July 2026): one that worked, one that went quiet in June,
- * one that has never synced anything, one whose contract ended in May, and one that is
- * deactivated. Only the quiet one and the never-synced one belong on the list.
+ * <p>Six robots, one month (July 2026): one that worked, one that went quiet in June,
+ * one that has never synced anything, one whose sync has been failing all July, one
+ * whose contract ended in May, and one that is deactivated. Only the quiet, the
+ * never-synced and the sync-failing belong on the list — and each for its own reason.
  */
 @SpringBootTest
 @Transactional
@@ -38,14 +49,19 @@ class ZeroDataRobotServiceTest {
 
     private static final String MONTH = "2026-07";
     private static final ZoneId BANGKOK = ZoneId.of("Asia/Bangkok");
+    private static final Instant IN_JULY = LocalDate.of(2026, 7, 20).atTime(0, 5).atZone(BANGKOK).toInstant();
 
     @Autowired private ZeroDataRobotService service;
+    @Autowired private CustomerReportExclusionService exclusions;
     @Autowired private CustomerProfileRepository customerProfileRepository;
     @Autowired private RobotUnitRepository robotUnitRepository;
     @Autowired private DeploymentRepository deploymentRepository;
     @Autowired private RobotTaskReportRepository taskReportRepository;
 
     private CustomerProfile customer;
+    private RobotUnit quiet;
+    private RobotUnit never;
+    private RobotUnit failing;
 
     @BeforeEach
     void setUp() {
@@ -56,12 +72,20 @@ class ZeroDataRobotServiceTest {
         deploy(worked, true, null, null);
         task(worked, LocalDate.of(2026, 7, 10), "2026-07");
 
-        RobotUnit quiet = robot("GS-ZD-QUIET");
-        deploy(quiet, true, null, null);
+        quiet = robot("GS-ZD-QUIET");
+        deploy(quiet, true, null, LocalDate.of(2026, 8, 10)); // ends soon-ish relative to July
         task(quiet, LocalDate.of(2026, 6, 14), "2026-06");   // last seen in June
 
-        RobotUnit never = robot("GS-ZD-NEVER");
+        never = robot("GS-ZD-NEVER");
         deploy(never, true, LocalDate.of(2026, 7, 1), null);
+
+        failing = robot("GS-ZD-FAILING");
+        failing.setLastSyncAttemptAt(IN_JULY);
+        failing.setLastSyncSuccessAt(LocalDate.of(2026, 6, 30).atStartOfDay(BANGKOK).toInstant());
+        failing.setLastSyncError("HTTP 401 token expired");
+        robotUnitRepository.save(failing);
+        deploy(failing, true, null, null);
+        task(failing, LocalDate.of(2026, 6, 28), "2026-06");
 
         RobotUnit ended = robot("GS-ZD-ENDED");
         deploy(ended, true, null, LocalDate.of(2026, 5, 31));   // not theirs in July
@@ -76,47 +100,108 @@ class ZeroDataRobotServiceTest {
 
         assertThat(r.monthLabel()).isEqualTo("July 2026");
         assertThat(r.robots()).extracting(ZeroDataRobotsResponse.Robot::serialNumber)
-                .containsExactlyInAnyOrder("GS-ZD-QUIET", "GS-ZD-NEVER");
-        assertThat(r.zeroData()).isEqualTo(2);
+                .containsExactlyInAnyOrder("GS-ZD-QUIET", "GS-ZD-NEVER", "GS-ZD-FAILING");
+        assertThat(r.zeroData()).isEqualTo(3);
+        // worked + quiet + never + failing; not ended-in-May, not inactive
+        assertThat(r.inScope()).isEqualTo(4);
     }
 
-    /** Worked, ended-before-the-month and deactivated are all left alone, for different reasons. */
+    /** The three reasons, told apart — the point of recording the sync outcome. */
     @Test
-    void scopeCountsOnlyRobotsUnderContractThatMonth() {
-        ZeroDataRobotsResponse r = service.forMonth(MONTH);
+    void tellsASyncFailureFromANeverSyncedRobotFromAnIdleOne() {
+        Map<String, ZeroDataRobotsResponse.Robot> byId = byId();
 
-        // worked + quiet + never; not the one whose contract ended in May, not the inactive one.
-        assertThat(r.inScope()).isEqualTo(3);
-        assertThat(r.robots()).extracting(ZeroDataRobotsResponse.Robot::serialNumber)
-                .doesNotContain("GS-ZD-WORKED", "GS-ZD-ENDED", "GS-ZD-INACTIVE");
+        assertThat(byId.get("GS-ZD-FAILING").reason()).isEqualTo(Reason.SYNC_FAILING);
+        assertThat(byId.get("GS-ZD-FAILING").lastSyncError()).contains("401");
+
+        assertThat(byId.get("GS-ZD-NEVER").reason()).isEqualTo(Reason.NEVER_SYNCED);
+        assertThat(byId.get("GS-ZD-NEVER").lastDataDate()).isNull();
+
+        assertThat(byId.get("GS-ZD-QUIET").reason()).isEqualTo(Reason.NO_TASKS);
+        assertThat(byId.get("GS-ZD-QUIET").lastDataDate()).isEqualTo(LocalDate.of(2026, 6, 14));
+        assertThat(byId.get("GS-ZD-QUIET").daysSinceLastData()).isPositive();
     }
 
-    /** The diagnostic: when it last logged anything, and whether it ever has. */
+    /** Ours-to-fix first, then registration questions, then the idle ones. */
     @Test
-    void saysWhenEachRobotLastLoggedAnything() {
+    void ordersOursFirst() {
         List<ZeroDataRobotsResponse.Robot> robots = service.forMonth(MONTH).robots();
 
-        ZeroDataRobotsResponse.Robot quiet = robots.stream()
-                .filter(x -> x.serialNumber().equals("GS-ZD-QUIET")).findFirst().orElseThrow();
-        assertThat(quiet.lastDataDate()).isEqualTo(LocalDate.of(2026, 6, 14));
-        assertThat(quiet.daysSinceLastData()).isNotNull().isPositive();
-        assertThat(quiet.reason()).isEqualTo("No tasks this month");
-
-        ZeroDataRobotsResponse.Robot never = robots.stream()
-                .filter(x -> x.serialNumber().equals("GS-ZD-NEVER")).findFirst().orElseThrow();
-        assertThat(never.lastDataDate()).isNull();
-        assertThat(never.daysSinceLastData()).isNull();
-        assertThat(never.reason()).isEqualTo("Never synced any task");
-        assertThat(never.contractStartDate()).isEqualTo(LocalDate.of(2026, 7, 1));
+        assertThat(robots).extracting(ZeroDataRobotsResponse.Robot::serialNumber)
+                .containsExactly("GS-ZD-FAILING", "GS-ZD-NEVER", "GS-ZD-QUIET");
     }
 
-    /** Never-synced robots come first — the likelier registration mistakes. */
+    /** A follow-up overlays the computed list and the counts move with it. */
     @Test
-    void neverSyncedRobotsAreListedFirst() {
-        List<ZeroDataRobotsResponse.Robot> robots = service.forMonth(MONTH).robots();
+    void followupsOverlayTheListAndCountUp() {
+        ZeroDataRobotsResponse before = service.forMonth(MONTH);
+        assertThat(before.toContact()).isEqualTo(3);
+        assertThat(before.contacted()).isZero();
+        assertThat(before.resolved()).isZero();
 
-        assertThat(robots.get(0).serialNumber()).isEqualTo("GS-ZD-NEVER");
-        assertThat(robots.get(1).serialNumber()).isEqualTo("GS-ZD-QUIET");
+        service.saveFollowup(quiet.getId(), MONTH, ZeroDataFollowup.Status.CONTACTED, null,
+                "Called Khun A, robot in storage since June", "cs.user");
+        service.saveFollowup(never.getId(), MONTH, ZeroDataFollowup.Status.RESOLVED,
+                ZeroDataFollowup.Outcome.REGISTRATION_ERROR, "Serial was typed wrong", "cs.user");
+
+        ZeroDataRobotsResponse after = service.forMonth(MONTH);
+        assertThat(after.toContact()).isEqualTo(1);
+        assertThat(after.contacted()).isEqualTo(1);
+        assertThat(after.resolved()).isEqualTo(1);
+
+        ZeroDataRobotsResponse.Robot q = byId().get("GS-ZD-QUIET");
+        assertThat(q.followupStatus()).isEqualTo(ZeroDataFollowup.Status.CONTACTED);
+        assertThat(q.followupNote()).contains("storage");
+        assertThat(q.followupUpdatedBy()).isEqualTo("cs.user");
+        assertThat(q.followupUpdatedAt()).isNotNull();
+
+        // Updating the same entry replaces it rather than adding a second row.
+        service.saveFollowup(quiet.getId(), MONTH, ZeroDataFollowup.Status.RESOLVED,
+                ZeroDataFollowup.Outcome.IN_STORAGE, "Confirmed", "cs.user");
+        assertThat(service.forMonth(MONTH).resolved()).isEqualTo(2);
+    }
+
+    @Test
+    void aResolutionNeedsAnOutcome() {
+        assertThatThrownBy(() -> service.saveFollowup(quiet.getId(), MONTH,
+                ZeroDataFollowup.Status.RESOLVED, null, null, "cs.user"))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("outcome");
+    }
+
+    /** The worklist's exclude action is the existing per-robot exclusion, made reachable. */
+    @Test
+    void excludeFromReportHoldsTheRobotBackAndShowsIt() {
+        assertThat(byId().get("GS-ZD-QUIET").excludedFromReport()).isFalse();
+
+        service.excludeFromReport(quiet.getId(), MONTH);
+
+        assertThat(byId().get("GS-ZD-QUIET").excludedFromReport()).isTrue();
+        assertThat(exclusions.get(customer.getId(), MONTH)).contains(quiet.getId());
+        // Idempotent, and does not disturb another robot's exclusion.
+        service.excludeFromReport(quiet.getId(), MONTH);
+        assertThat(exclusions.get(customer.getId(), MONTH)).hasSize(1);
+    }
+
+    /** Contract status rides along so the row can say "ends in N days" or "ended". */
+    @Test
+    void carriesContractStatus() {
+        Map<String, ZeroDataRobotsResponse.Robot> byId = byId();
+
+        assertThat(byId.get("GS-ZD-NEVER").contractStatus()).isEqualTo(ContractStatus.NONE);
+        assertThat(byId.get("GS-ZD-NEVER").daysToContractEnd()).isNull();
+        // GS-ZD-QUIET ends 2026-08-10 — in the past relative to today's date, so ENDED.
+        assertThat(byId.get("GS-ZD-QUIET").contractStatus()).isEqualTo(ContractStatus.ENDED);
+        assertThat(byId.get("GS-ZD-QUIET").daysToContractEnd()).isNegative();
+    }
+
+    @Test
+    void contractStatusRule() {
+        LocalDate today = LocalDate.of(2026, 9, 15);
+        assertThat(ZeroDataRobotService.contractStatus(null, today)).isEqualTo(ContractStatus.NONE);
+        assertThat(ZeroDataRobotService.contractStatus(LocalDate.of(2026, 9, 14), today)).isEqualTo(ContractStatus.ENDED);
+        assertThat(ZeroDataRobotService.contractStatus(LocalDate.of(2026, 9, 15), today)).isEqualTo(ContractStatus.ENDING_SOON);
+        assertThat(ZeroDataRobotService.contractStatus(LocalDate.of(2026, 10, 15), today)).isEqualTo(ContractStatus.ENDING_SOON);
+        assertThat(ZeroDataRobotService.contractStatus(LocalDate.of(2026, 10, 16), today)).isEqualTo(ContractStatus.ACTIVE);
     }
 
     /** The robot that went quiet in June was fine in June. */
@@ -125,6 +210,11 @@ class ZeroDataRobotServiceTest {
         assertThat(service.forMonth("2026-06").robots())
                 .extracting(ZeroDataRobotsResponse.Robot::serialNumber)
                 .doesNotContain("GS-ZD-QUIET");
+    }
+
+    private Map<String, ZeroDataRobotsResponse.Robot> byId() {
+        return service.forMonth(MONTH).robots().stream()
+                .collect(Collectors.toMap(ZeroDataRobotsResponse.Robot::serialNumber, Function.identity()));
     }
 
     private RobotUnit robot(String serial) {

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,4 +46,24 @@ public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
     boolean existsByCustomerProfileId(UUID customerProfileId);
 
     long countByCustomerProfileIdAndIsActiveTrue(UUID customerProfileId);
+
+    /** Active deployments whose contract ends on or before a date — ending soon and ended. */
+    @Query("select d from Deployment d "
+            + "join fetch d.robotUnit "
+            + "join fetch d.customerProfile "
+            + "where d.isActive = true and d.contractEndDate is not null "
+            + "and d.contractEndDate <= :onOrBefore")
+    List<Deployment> findActiveWithEndDateOnOrBefore(@Param("onOrBefore") LocalDate onOrBefore);
+
+    /**
+     * Active deployments ending inside {@code [from, to]} that have not been alerted.
+     * "Not yet alerted" rather than "ends exactly N days out", so a missed day is caught
+     * up the next morning.
+     */
+    @Query("select d from Deployment d "
+            + "join fetch d.robotUnit "
+            + "join fetch d.customerProfile "
+            + "where d.isActive = true and d.contractEndDate between :from and :to "
+            + "and d.contractExpiryAlertedAt is null")
+    List<Deployment> findActiveEndingBetweenNotAlerted(@Param("from") LocalDate from, @Param("to") LocalDate to);
 }

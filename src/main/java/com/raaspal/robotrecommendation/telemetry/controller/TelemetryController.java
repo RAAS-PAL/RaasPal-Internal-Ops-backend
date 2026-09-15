@@ -5,6 +5,11 @@ import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService;
 import com.raaspal.robotrecommendation.telemetry.core.ZeroDataRobotService;
 import com.raaspal.robotrecommendation.telemetry.dto.ZeroDataRobotsResponse;
+import com.raaspal.robotrecommendation.telemetry.entity.ZeroDataFollowup;
+import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService.SyncResult;
 import com.raaspal.robotrecommendation.telemetry.core.TelemetrySyncService.SyncStatus;
 import lombok.RequiredArgsConstructor;
@@ -90,6 +95,30 @@ public class TelemetryController {
                 ? month.trim()
                 : java.time.YearMonth.now(java.time.ZoneId.of("Asia/Bangkok")).minusMonths(1).toString();
         return ApiResponse.success(zeroDataRobotService.forMonth(m));
+    }
+
+    /** What the customer success team did about one zero-data entry. */
+    public record FollowupRequest(ZeroDataFollowup.Status status, ZeroDataFollowup.Outcome outcome, String note) {
+    }
+
+    @PutMapping("/zero-data/{robotUnitId}/followup")
+    public ApiResponse<ZeroDataRobotsResponse> saveFollowup(
+            @PathVariable UUID robotUnitId,
+            @RequestParam String month,
+            @RequestBody FollowupRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        zeroDataRobotService.saveFollowup(robotUnitId, month, request.status(), request.outcome(),
+                request.note(), principal == null ? null : principal.getUsername());
+        return ApiResponse.success("Follow-up saved", zeroDataRobotService.forMonth(month));
+    }
+
+    /** Holds the robot back from its customer's report for the month, from the worklist. */
+    @PostMapping("/zero-data/{robotUnitId}/exclude")
+    public ApiResponse<ZeroDataRobotsResponse> excludeFromReport(
+            @PathVariable UUID robotUnitId,
+            @RequestParam String month) {
+        zeroDataRobotService.excludeFromReport(robotUnitId, month);
+        return ApiResponse.success("Excluded from this month's report", zeroDataRobotService.forMonth(month));
     }
 
     @GetMapping("/sync-status")
