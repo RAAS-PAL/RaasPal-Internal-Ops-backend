@@ -23,7 +23,7 @@ import java.util.UUID;
  * stale numbers can be traced to a bad token or a hidden board.
  */
 @Entity
-@Table(name = "case_ticket_sync_run")
+@Table(name = "kpi_case_ticket_sync_run")
 @Getter
 @Setter
 @Builder

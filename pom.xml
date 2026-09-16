@@ -9,10 +9,10 @@
 		<relativePath/>
 	</parent>
 	<groupId>com.raaspal</groupId>
-	<artifactId>robot-recommendation-api</artifactId>
+	<artifactId>raaspal-ops-backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>robot-recommendation-api</name>
-	<description>RaasPal Robot Recommendation System API</description>
+	<name>raaspal-ops-backend</name>
+	<description>RAAS PAL internal operations backend</description>
 
 	<properties>
 		<java.version>21</java.version>

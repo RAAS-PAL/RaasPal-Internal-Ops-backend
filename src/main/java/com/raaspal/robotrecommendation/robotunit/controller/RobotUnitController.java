@@ -10,6 +10,8 @@ import com.raaspal.robotrecommendation.robotunit.dto.UpdateRobotRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.UpdateStockStatusRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.UpdateStockUnitRequest;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
+import com.raaspal.robotrecommendation.robotunit.dto.ContractExpiryResponse;
+import com.raaspal.robotrecommendation.robotunit.service.ContractExpiryService;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +47,7 @@ import java.util.UUID;
 public class RobotUnitController {
 
     private final RobotUnitService robotUnitService;
+    private final ContractExpiryService contractExpiryService;
 
     /** Register a robot by serial number and deploy it to a customer. */
     @PostMapping
@@ -72,6 +75,16 @@ public class RobotUnitController {
             return ApiResponse.success(robotUnitService.listByStatus(status));
         }
         return ApiResponse.success(robotUnitService.listAll());
+    }
+
+    /**
+     * Contracts ending within {@code withinDays} (default 30) and contracts already
+     * ended, for the console's Contracts view. Only active deployments with an end date.
+     */
+    @GetMapping("/contracts/expiring")
+    public ApiResponse<ContractExpiryResponse> expiringContracts(
+            @RequestParam(required = false, defaultValue = "30") int withinDays) {
+        return ApiResponse.success(contractExpiryService.list(Math.max(0, Math.min(withinDays, 365))));
     }
 
     /**

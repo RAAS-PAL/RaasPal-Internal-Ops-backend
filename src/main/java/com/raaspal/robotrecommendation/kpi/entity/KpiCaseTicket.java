@@ -33,13 +33,13 @@ import java.util.UUID;
  * {@code V45__add_case_ticket_sync.sql}.
  */
 @Entity
-@Table(name = "case_ticket")
+@Table(name = "kpi_case_ticket")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CaseTicket {
+public class KpiCaseTicket {
 
     /** The only source today. Named so a spreadsheet import can sit beside it. */
     public static final String SOURCE_MONDAY = "MONDAY";

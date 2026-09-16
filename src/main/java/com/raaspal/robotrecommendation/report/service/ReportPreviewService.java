@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -74,7 +75,7 @@ public class ReportPreviewService {
     private ReportPreviewResponse build(String serialNumber, ReportPeriod period) {
         RobotUnitResponse robot = robotUnitService.getBySerialNumber(serialNumber);
         List<RobotTaskReport> reports = load(robot, period);
-        reports = clipToContractStart(reports, robot, period);
+        reports = clipToContract(reports, robot, period);
 
         String customerName = robot.deployment() != null ? robot.deployment().customerName() : "Unassigned customer";
         String site = robot.deployment() != null ? robot.deployment().site() : "—";
@@ -230,26 +231,46 @@ public class ReportPreviewService {
     }
 
     /**
-     * Drops tasks performed before this robot's contract with the customer began.
+     * Drops tasks performed outside this robot's contract with the customer.
      * <p>
-     * Without this a robot deployed on the 15th reported a full "July" including two
-     * weeks of work done before the customer had it — real numbers, but not theirs.
-     * Only the period containing the start date is affected: every later one begins
-     * after the contract start and this is a no-op.
+     * Without the start clip a robot deployed on the 15th reported a full "July"
+     * including two weeks of work done before the customer had it — real numbers, but
+     * not theirs. The end clip is the mirror: a robot whose contract ended on the 15th
+     * must not report the fortnight it spent working for whoever had it next. Only the
+     * period containing a date is affected; a period wholly inside the contract passes
+     * through untouched, and one wholly outside it comes back empty.
      * <p>
      * Per deployment rather than per customer: one customer commonly takes on robots
      * at different times across different sites.
      * <p>
-     * A null contract start (the default for existing customers) reports the whole
-     * period, exactly as before.
+     * A null date on either side (the default for existing deployments) does not clip
+     * that side, exactly as before.
      */
-    private List<RobotTaskReport> clipToContractStart(
+    private List<RobotTaskReport> clipToContract(
             List<RobotTaskReport> reports, RobotUnitResponse robot, ReportPeriod period) {
         Instant from = contractStartInstant(robot, period);
-        if (from == null) return reports;
+        Instant until = contractEndInstant(robot, period);
+        if (from == null && until == null) return reports;
         return reports.stream()
-                .filter(r -> r.getStartTime() != null && !r.getStartTime().isBefore(from))
+                .filter(r -> r.getStartTime() != null)
+                .filter(r -> from == null || !r.getStartTime().isBefore(from))
+                .filter(r -> until == null || !r.getStartTime().isAfter(until))
                 .toList();
+    }
+
+    /**
+     * The last instant of this deployment's contract, or null when no clipping applies —
+     * either because no end date is recorded, or because it falls after the period.
+     * Inclusive: the end date is the customer's last day, so 23:59:59 on it counts.
+     */
+    private Instant contractEndInstant(RobotUnitResponse robot, ReportPeriod period) {
+        if (robot.deployment() == null) return null;
+        LocalDate contractEnd = robot.deployment().contractEndDate();
+        if (contractEnd == null) return null;
+        if (period.endDate() == null) return null;
+        // An end on or after the last day of the period clips nothing.
+        if (!contractEnd.isBefore(period.endDate())) return null;
+        return contractEnd.atTime(LocalTime.MAX).atZone(zone()).toInstant();
     }
 
     /**

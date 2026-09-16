@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Refreshes {@code case_ticket} from monday on a schedule so the KPI dashboard
+ * Refreshes {@code kpi_case_ticket} from monday on a schedule so the KPI dashboard
  * is current each morning without anyone pressing the button.
  *
  * <p><strong>Disabled unless {@code KPI_MONDAY_SYNC_ENABLED=true}</strong>, the

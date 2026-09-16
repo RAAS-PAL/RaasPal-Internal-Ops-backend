@@ -1,7 +1,7 @@
 -- =============================================================================
 -- V47 - A ticket may not say which kind of robot it is about
 --
--- V45 made case_ticket.service_line NOT NULL on the assumption that the board a
+-- V45 made kpi_case_ticket.service_line NOT NULL on the assumption that the board a
 -- ticket came from determines it: Cleaning Tickets and Delivery Tickets do.
 --
 -- The Installation Tickets board (3109668017) does not. It carries both robot
@@ -22,8 +22,8 @@
 -- never writes a null here, so it is unaffected.
 -- =============================================================================
 
-ALTER TABLE case_ticket ALTER COLUMN service_line DROP NOT NULL;
+ALTER TABLE kpi_case_ticket ALTER COLUMN service_line DROP NOT NULL;
 
-COMMENT ON COLUMN case_ticket.service_line IS
+COMMENT ON COLUMN kpi_case_ticket.service_line IS
     'CLEANING | DELIVERY, or null when the source board does not say which and the '
     'robot model did not resolve it. Null rows count in fleet totals but not in the split.';

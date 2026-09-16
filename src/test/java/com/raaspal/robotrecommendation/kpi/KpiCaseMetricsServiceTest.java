@@ -5,10 +5,10 @@ import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.CmCounts;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.InstallCounts;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.MonthMetrics;
-import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
+import com.raaspal.robotrecommendation.kpi.entity.KpiCaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
 import com.raaspal.robotrecommendation.kpi.entity.TicketType;
-import com.raaspal.robotrecommendation.kpi.repository.CaseTicketRepository;
+import com.raaspal.robotrecommendation.kpi.repository.KpiCaseTicketRepository;
 import com.raaspal.robotrecommendation.kpi.service.KpiCaseMetricsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +41,7 @@ class KpiCaseMetricsServiceTest {
     private static final YearMonth MAR = YearMonth.of(2026, 3);
 
     @Autowired private KpiCaseMetricsService service;
-    @Autowired private CaseTicketRepository repository;
+    @Autowired private KpiCaseTicketRepository repository;
 
     @BeforeEach
     void clean() {
@@ -53,12 +53,12 @@ class KpiCaseMetricsServiceTest {
     }
 
     /** A CM case: reported on {@code open}, first acted on {@code action} (nullable). */
-    private CaseTicket cm(ServiceLine line, String id, LocalDate open, LocalDate action, String serial) {
+    private KpiCaseTicket cm(ServiceLine line, String id, LocalDate open, LocalDate action, String serial) {
         return cm(line, id, open, action, serial, "Incident case");
     }
 
-    private CaseTicket cm(ServiceLine line, String id, LocalDate open, LocalDate action, String serial, String category) {
-        return save(CaseTicket.builder()
+    private KpiCaseTicket cm(ServiceLine line, String id, LocalDate open, LocalDate action, String serial, String category) {
+        return save(KpiCaseTicket.builder()
                 .sourceBoardId(line == ServiceLine.CLEANING ? CLEANING_BOARD : DELIVERY_BOARD)
                 .sourceItemId(id)
                 .serviceLine(line)
@@ -73,12 +73,12 @@ class KpiCaseMetricsServiceTest {
      * An installation finishing on {@code installDate}. Its service line is left
      * null, like the real board, so it can only be classified by serial.
      */
-    private CaseTicket install(String id, LocalDate installDate, String serial) {
+    private KpiCaseTicket install(String id, LocalDate installDate, String serial) {
         return install(id, installDate, serial, "Installation");
     }
 
-    private CaseTicket install(String id, LocalDate installDate, String serial, String jobType) {
-        return save(CaseTicket.builder()
+    private KpiCaseTicket install(String id, LocalDate installDate, String serial, String jobType) {
+        return save(KpiCaseTicket.builder()
                 .sourceBoardId(INSTALL_BOARD)
                 .sourceItemId(id)
                 .ticketType(TicketType.INSTALLATION)
@@ -87,9 +87,9 @@ class KpiCaseMetricsServiceTest {
                 .category(jobType));
     }
 
-    private CaseTicket save(CaseTicket.CaseTicketBuilder builder) {
+    private KpiCaseTicket save(KpiCaseTicket.KpiCaseTicketBuilder builder) {
         return repository.save(builder
-                .source(CaseTicket.SOURCE_MONDAY)
+                .source(KpiCaseTicket.SOURCE_MONDAY)
                 .firstSeenAt(LocalDateTime.of(2026, 9, 1, 0, 0))
                 .lastSyncedAt(LocalDateTime.of(2026, 9, 8, 1, 30))
                 .present(true)
@@ -283,7 +283,7 @@ class KpiCaseMetricsServiceTest {
     /** A ticket the board no longer returns must not move a past month's number. */
     @Test
     void absentTicketsAreExcluded() {
-        CaseTicket gone = cm(ServiceLine.CLEANING, "C1", d(1, 5), d(1, 6), "S1");
+        KpiCaseTicket gone = cm(ServiceLine.CLEANING, "C1", d(1, 5), d(1, 6), "S1");
         gone.setPresent(false);
         repository.save(gone);
 

@@ -7,10 +7,10 @@ import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.CmCounts;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.InstallCounts;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.MonthMetrics;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse.Segment;
-import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
+import com.raaspal.robotrecommendation.kpi.entity.KpiCaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
 import com.raaspal.robotrecommendation.kpi.entity.TicketType;
-import com.raaspal.robotrecommendation.kpi.repository.CaseTicketRepository;
+import com.raaspal.robotrecommendation.kpi.repository.KpiCaseTicketRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,10 +61,10 @@ public class KpiCaseMetricsService {
     /** The widest range one request may ask for; the console asks for six months. */
     public static final int MAX_MONTHS = 24;
 
-    private final CaseTicketRepository ticketRepository;
+    private final KpiCaseTicketRepository ticketRepository;
     private final KpiMondayProperties properties;
 
-    public KpiCaseMetricsService(CaseTicketRepository ticketRepository, KpiMondayProperties properties) {
+    public KpiCaseMetricsService(KpiCaseTicketRepository ticketRepository, KpiMondayProperties properties) {
         this.ticketRepository = ticketRepository;
         this.properties = properties;
     }
@@ -86,11 +86,11 @@ public class KpiCaseMetricsService {
         // Read past the end by the longer window, so a ticket in the final month
         // can still see the follow-up that disqualifies it.
         LocalDate lookAheadTo = end.plusDays(Math.max(repeatWindow, installWindow));
-        List<CaseTicket> tickets = ticketRepository.findAllPresentInWindow(start, lookAheadTo);
+        List<KpiCaseTicket> tickets = ticketRepository.findAllPresentInWindow(start, lookAheadTo);
 
         // Every CM in the window, indexed by serial: the follow-up both formulas hunt for.
-        Map<String, List<CaseTicket>> cmBySerial = new HashMap<>();
-        for (CaseTicket ticket : tickets) {
+        Map<String, List<KpiCaseTicket>> cmBySerial = new HashMap<>();
+        for (KpiCaseTicket ticket : tickets) {
             if (ticket.getTicketType() == TicketType.CM && ticket.getOpenDate() != null) {
                 for (String serial : CaseTicketMapper.splitSerials(ticket.getSerialsNormalised())) {
                     cmBySerial.computeIfAbsent(serial, k -> new ArrayList<>()).add(ticket);
@@ -112,7 +112,7 @@ public class KpiCaseMetricsService {
         long counted = 0;
         long unclassified = 0;
         long excludedByCategory = 0;
-        for (CaseTicket ticket : tickets) {
+        for (KpiCaseTicket ticket : tickets) {
             LocalDate keyDate = keyDate(ticket);
             if (keyDate == null || keyDate.isBefore(start) || keyDate.isAfter(end)) {
                 continue; // outside the range, or unusable — look-ahead rows land here
@@ -164,7 +164,7 @@ public class KpiCaseMetricsService {
      * naming the same serial. Null when neither answers, which is reported rather
      * than guessed.
      */
-    private static ServiceLine resolveLine(CaseTicket ticket, Map<String, ServiceLine> lineBySerial) {
+    private static ServiceLine resolveLine(KpiCaseTicket ticket, Map<String, ServiceLine> lineBySerial) {
         if (ticket.getServiceLine() != null) {
             return ticket.getServiceLine();
         }
@@ -210,14 +210,14 @@ public class KpiCaseMetricsService {
      * {@link #hasFollowUpCm} deliberately does NOT apply this: a parts-shipping
      * row for the same serial is still evidence that the robot came back.
      */
-    private boolean countsCategory(CaseTicket ticket) {
+    private boolean countsCategory(KpiCaseTicket ticket) {
         return properties.board(ticket.getSourceBoardId())
                 .map(board -> board.countsCategory(ticket.getCategory()))
                 .orElse(true);
     }
 
     /** The date a ticket's KPI is keyed on: install finished, or case reported. */
-    private static LocalDate keyDate(CaseTicket ticket) {
+    private static LocalDate keyDate(KpiCaseTicket ticket) {
         return ticket.getTicketType() == TicketType.INSTALLATION ? ticket.getInstallDate() : ticket.getOpenDate();
     }
 
@@ -230,11 +230,11 @@ public class KpiCaseMetricsService {
      * failed. It is closed at the end, so a follow-up exactly on the limit still
      * counts against it.
      */
-    private static boolean hasFollowUpCm(CaseTicket ticket, LocalDate anchor, int windowDays,
-                                         Map<String, List<CaseTicket>> cmBySerial) {
+    private static boolean hasFollowUpCm(KpiCaseTicket ticket, LocalDate anchor, int windowDays,
+                                         Map<String, List<KpiCaseTicket>> cmBySerial) {
         LocalDate limit = anchor.plusDays(windowDays);
         for (String serial : CaseTicketMapper.splitSerials(ticket.getSerialsNormalised())) {
-            for (CaseTicket other : cmBySerial.getOrDefault(serial, List.of())) {
+            for (KpiCaseTicket other : cmBySerial.getOrDefault(serial, List.of())) {
                 if (other == ticket) {
                     continue;
                 }
@@ -254,7 +254,7 @@ public class KpiCaseMetricsService {
      * unknown, never a breach: an unrecorded action and a late action are
      * different claims and only one of them is evidence.
      */
-    private SlaOutcome slaOutcome(CaseTicket ticket) {
+    private SlaOutcome slaOutcome(KpiCaseTicket ticket) {
         if (ticket.getOpenDate() == null || ticket.getActionDate() == null) {
             return SlaOutcome.UNKNOWN;
         }
@@ -309,13 +309,13 @@ public class KpiCaseMetricsService {
         final Counter cleaning = new Counter();
         final Counter delivery = new Counter();
 
-        void addInstall(CaseTicket ticket, ServiceLine line, boolean success) {
+        void addInstall(KpiCaseTicket ticket, ServiceLine line, boolean success) {
             for (Counter c : forLine(line)) {
                 c.addInstall(success, ticket.getSerialsNormalised() == null);
             }
         }
 
-        void addCm(CaseTicket ticket, ServiceLine line, boolean fixedFirstTime, SlaOutcome sla) {
+        void addCm(KpiCaseTicket ticket, ServiceLine line, boolean fixedFirstTime, SlaOutcome sla) {
             for (Counter c : forLine(line)) {
                 c.addCm(fixedFirstTime, sla, ticket.getSerialsNormalised() == null);
             }

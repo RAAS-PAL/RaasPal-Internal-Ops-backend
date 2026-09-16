@@ -26,6 +26,19 @@ public interface RobotTaskReportRepository extends JpaRepository<RobotTaskReport
     List<String> findExistingExternalTaskIds(@Param("ids") Collection<String> ids);
 
     /**
+     * One row per robot that logged anything in the month: {@code [robotUnitId, count]}.
+     * A robot with no rows is absent, which is the whole point — see
+     * {@code ZeroDataRobotService}.
+     */
+    @Query("select r.robotUnit.id, count(r) from RobotTaskReport r "
+            + "where r.reportMonth = :month group by r.robotUnit.id")
+    List<Object[]> countByRobotForMonth(@Param("month") String month);
+
+    /** One row per robot that has ever logged a task: {@code [robotUnitId, max(startTime)]}. */
+    @Query("select r.robotUnit.id, max(r.startTime) from RobotTaskReport r group by r.robotUnit.id")
+    List<Object[]> lastStartTimeByRobot();
+
+    /**
      * The already-stored rows for a fetched batch — loaded only by a refresh sync,
      * which updates them in place instead of skipping them.
      */

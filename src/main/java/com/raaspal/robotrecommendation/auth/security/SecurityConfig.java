@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -61,6 +62,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login").permitAll()
                         // Public customer report links (the monthly email URL) — no account
                         .requestMatchers("/api/v1/reports/public/**").permitAll()
+                        // The container health check. Docker polls this every 30s with
+                        // no credentials; left authenticated it answered 401 and logged a
+                        // WARN each time -- roughly 2,900 lines a day, enough to bury the
+                        // sync and report lines somebody actually needs to read.
+                        .requestMatchers("/actuator/health").permitAll()
                         // Swagger UI
                         .requestMatchers(
                                 "/swagger-ui/**",
@@ -73,6 +79,21 @@ public class SecurityConfig {
                         // with @PreAuthorize on InventoryController, since reads and
                         // writes share a path and differ only by HTTP verb.
                         .requestMatchers("/api/v1/inventory/**").authenticated()
+                        // Anything that emails a customer is for the RE team and
+                        // admins only. A warehouse (INVENTORY_STAFF) login carries a
+                        // valid JWT like any other, and before this rule that was
+                        // enough to start the monthly delivery run. Enforced here by
+                        // URL rather than with @PreAuthorize on the methods: method
+                        // security runs after Spring has already resolved the
+                        // request params and body, so a denial and a missing param
+                        // are indistinguishable without actually triggering a send -
+                        // which is also why the filter-level rule is the testable one.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/reports/delivery/run",
+                                "/api/v1/reports/delivery/send",
+                                "/api/v1/reports/email",
+                                "/api/v1/customers/announcements"
+                        ).hasAnyRole("ADMIN", "RAASPAL_TEAM")
                         // Everything else requires a valid JWT
                         .anyRequest().authenticated()
                 )

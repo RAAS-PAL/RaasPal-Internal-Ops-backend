@@ -7,13 +7,23 @@
 -- row per board ticket, refreshed by a scheduled sync and readable at
 -- /api/v1/kpi/cm-cases.
 --
--- case_ticket is table 1 of the parked V34 design
--- (V34__add_case_report_tables.sql.txt), kept column-for-column so the Daily
--- Pending Case Report can build on the same mirror later instead of syncing the
+-- kpi_case_ticket began as table 1 of the parked V34 design
+-- (V34__add_case_report_tables.sql.txt), kept column-for-column in the hope that
+-- the Daily Pending Case Report could share one mirror rather than sync the
 -- boards twice. Six columns are added for the KPI maths: service_line, ticket_no,
--- issue_level, close_date, is_closed and serials_normalised. The other eight V34
--- tables (comments, status history, overrides, report definitions, ...) stay
--- parked and arrive with that feature as V46+.
+-- issue_level, close_date, is_closed and serials_normalised.
+--
+-- That sharing is off the table, hence the kpi_ prefix. V38 shipped the case
+-- report with its own case_ticket, and the two syncs cannot agree on one row set:
+-- the case report reads a single pending group per board and marks every other
+-- row on that board absent, while this one reads every group because the KPI
+-- maths need the whole history. Sharing a table would have each run flip
+-- is_present on thousands of the other's rows. The two also need different
+-- columns - re_action_date and solution there, the six above here.
+--
+-- The cost is that both sync the same two boards. That is a duplicated read, not
+-- a correctness problem; one mirror serving both would mean one sync with both
+-- lifecycles in it, which is the change to make deliberately, not inside a merge.
 --
 -- Purely additive: nothing existing references these tables and nothing here
 -- references anything existing, so the deployed backend is unaffected. That
@@ -23,14 +33,14 @@
 
 
 -- -----------------------------------------------------------------------------
--- 1. case_ticket - current state of one ticket
+-- 1. kpi_case_ticket - current state of one ticket
 --
 -- One row per ticket, updated in place on each sync: this table answers "what is
 -- true right now". Column ids differ per board (`text` is Main Issue on Cleaning
 -- but Solution on Delivery), so which board column feeds which field is
 -- configuration (app.kpi.monday.boards[n].columns), not schema.
 -- -----------------------------------------------------------------------------
-CREATE TABLE case_ticket (
+CREATE TABLE kpi_case_ticket (
     id                  UUID         PRIMARY KEY,
 
     source              VARCHAR(20)  NOT NULL,   -- MONDAY (GOOGLE_SHEET / EXCEL later)
@@ -94,22 +104,22 @@ CREATE TABLE case_ticket (
     -- month should not change because someone tidied the board.
     is_present          BOOLEAN      NOT NULL DEFAULT TRUE,
 
-    CONSTRAINT uq_case_ticket_source_item UNIQUE (source, source_item_id)
+    CONSTRAINT uq_kpi_case_ticket_source_item UNIQUE (source, source_item_id)
 );
 
-CREATE INDEX idx_case_ticket_board_present ON case_ticket (source_board_id, is_present);
-CREATE INDEX idx_case_ticket_open_date     ON case_ticket (open_date);
-CREATE INDEX idx_case_ticket_line_open     ON case_ticket (service_line, open_date);
+CREATE INDEX idx_kpi_case_ticket_board_present ON kpi_case_ticket (source_board_id, is_present);
+CREATE INDEX idx_kpi_case_ticket_open_date     ON kpi_case_ticket (open_date);
+CREATE INDEX idx_kpi_case_ticket_line_open     ON kpi_case_ticket (service_line, open_date);
 
 
 -- -----------------------------------------------------------------------------
--- 2. case_ticket_sync_run - one sync of one board, and what it did
+-- 2. kpi_case_ticket_sync_run - one sync of one board, and what it did
 --
 -- The audit trail the console shows next to the "last synced" stamp. A run that
 -- fails leaves a FAILED row with the monday error, so a dashboard showing stale
 -- numbers can be traced to a bad token or a hidden board rather than guessed at.
 -- -----------------------------------------------------------------------------
-CREATE TABLE case_ticket_sync_run (
+CREATE TABLE kpi_case_ticket_sync_run (
     id                   UUID         PRIMARY KEY,
     source_board_id      TEXT         NOT NULL,
     service_line         VARCHAR(16)  NOT NULL,
@@ -130,4 +140,4 @@ CREATE TABLE case_ticket_sync_run (
     error_message        TEXT
 );
 
-CREATE INDEX idx_case_ticket_sync_run_started ON case_ticket_sync_run (started_at DESC);
+CREATE INDEX idx_kpi_case_ticket_sync_run_started ON kpi_case_ticket_sync_run (started_at DESC);

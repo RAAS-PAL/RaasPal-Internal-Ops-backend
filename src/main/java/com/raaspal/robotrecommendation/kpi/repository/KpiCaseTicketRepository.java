@@ -1,6 +1,6 @@
 package com.raaspal.robotrecommendation.kpi.repository;
 
-import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
+import com.raaspal.robotrecommendation.kpi.entity.KpiCaseTicket;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,19 +13,19 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public interface CaseTicketRepository extends JpaRepository<CaseTicket, UUID> {
+public interface KpiCaseTicketRepository extends JpaRepository<KpiCaseTicket, UUID> {
 
     /** Every row ever synced from one board, present or not — the sync merges against this. */
-    List<CaseTicket> findAllBySourceAndSourceBoardId(String source, String sourceBoardId);
+    List<KpiCaseTicket> findAllBySourceAndSourceBoardId(String source, String sourceBoardId);
 
     /**
      * Every live ticket whose KPI date falls in the window — CMs by open date,
      * installations by the TimeLine end. One query rather than two so the
      * follow-up matching sees both families in the same list.
      */
-    @Query("select t from CaseTicket t where t.present = true and ("
+    @Query("select t from KpiCaseTicket t where t.present = true and ("
             + "(t.openDate between :from and :to) or (t.installDate between :from and :to))")
-    List<CaseTicket> findAllPresentInWindow(@Param("from") LocalDate from, @Param("to") LocalDate to);
+    List<KpiCaseTicket> findAllPresentInWindow(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
     long countByPresentTrue();
 
@@ -41,12 +41,12 @@ public interface CaseTicketRepository extends JpaRepository<CaseTicket, UUID> {
      * January may not be serviced until November, and the January figure should
      * still know what kind of robot it was.
      */
-    @Query("select t.serialsNormalised, t.serviceLine from CaseTicket t "
+    @Query("select t.serialsNormalised, t.serviceLine from KpiCaseTicket t "
             + "where t.present = true and t.ticketType = com.raaspal.robotrecommendation.kpi.entity.TicketType.CM "
             + "and t.serialsNormalised is not null and t.serviceLine is not null")
     List<Object[]> findSerialServiceLines();
 
     /** When any ticket was last refreshed — the "data as of" stamp on the dashboard. */
-    @Query("select max(t.lastSyncedAt) from CaseTicket t")
+    @Query("select max(t.lastSyncedAt) from KpiCaseTicket t")
     Optional<LocalDateTime> findLastSyncedAt();
 }

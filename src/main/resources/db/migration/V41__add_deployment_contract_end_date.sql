@@ -1,0 +1,14 @@
+-- The other end of the contract.
+--
+-- contract_start_date (V33) lets a robot's first month clip to when the customer
+-- actually had it. This is its counterpart: a robot whose contract has ended stops
+-- reporting after that day -- the final month is clipped to it, and months that
+-- begin after it produce no report at all and drop out of the customer bundle.
+--
+-- Same grain as the start date, per deployment, for the same reason: one customer
+-- rents or buys different robots at different times, so the date belongs on the
+-- robot-to-customer link, not on the customer.
+--
+-- Nullable, and null means "no end known", which reports as before. Additive, so
+-- it is safe against the running backend.
+ALTER TABLE deployments ADD COLUMN contract_end_date DATE;

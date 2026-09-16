@@ -6,6 +6,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -66,6 +67,24 @@ public class Deployment {
      */
     @Column(name = "contract_start_date")
     private LocalDate contractStartDate;
+
+    /**
+     * When this robot's contract with this customer ends, inclusive.
+     * <p>
+     * The final month's report clips to it, and a month that begins after it produces
+     * no report: the robot is no longer the customer's. Null means no end is known and
+     * reports as before. Never before {@link #contractStartDate}; the service refuses that.
+     */
+    @Column(name = "contract_end_date")
+    private LocalDate contractEndDate;
+
+    /**
+     * When the "contract ends soon" alert went out for this end date; null = not yet.
+     * Cleared whenever the end date changes, so an extended contract is alerted again
+     * as its new end approaches.
+     */
+    @Column(name = "contract_expiry_alerted_at")
+    private Instant contractExpiryAlertedAt;
 
     @Column(name = "deployed_at", nullable = false)
     private LocalDateTime deployedAt;

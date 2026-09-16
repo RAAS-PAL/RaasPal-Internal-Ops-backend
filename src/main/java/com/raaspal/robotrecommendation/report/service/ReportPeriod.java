@@ -112,6 +112,25 @@ public record ReportPeriod(Type type, String key, LocalDate startDate, LocalDate
     }
 
     /**
+     * Whether a contract running {@code [start, end]} overlaps this period at all —
+     * the test for "does this robot get a report for this period".
+     *
+     * <p>Either date may be null, meaning unbounded on that side: no start recorded is
+     * "always was", no end recorded is "still is". A contract that ends the day before
+     * the period begins does not overlap; one that ends on the period's first day does,
+     * and that period's report is then clipped to that one day.
+     *
+     * <p>An unparseable period (null dates) is said to be covered, so a bad month key
+     * fails later with its own message rather than as a silent empty list.
+     */
+    public boolean coversContract(LocalDate contractStart, LocalDate contractEnd) {
+        if (startDate == null || endDate == null) return true;
+        if (contractStart != null && contractStart.isAfter(endDate)) return false;
+        if (contractEnd != null && contractEnd.isBefore(startDate)) return false;
+        return true;
+    }
+
+    /**
      * "17 – 23 August 2026", collapsing whatever the two ends share — a week
      * inside one month names the month once, one spanning two months names both,
      * one spanning new year names both years.

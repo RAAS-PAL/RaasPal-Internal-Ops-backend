@@ -33,5 +33,11 @@ public record RegisterRobotRequest(
          * report clips to it, so a robot deployed mid-month does not report work done
          * before the customer had it. Null reports whole months.
          */
-        LocalDate contractStartDate) {
+        LocalDate contractStartDate,
+
+        /**
+         * When the contract ends, inclusive. The last monthly report clips to it and
+         * later months produce none. Null = no end known. Not before the start date.
+         */
+        LocalDate contractEndDate) {
 }

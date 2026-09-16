@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayColumnValue;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
 import com.raaspal.robotrecommendation.kpi.config.KpiMondayProperties;
-import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
+import com.raaspal.robotrecommendation.kpi.entity.KpiCaseTicket;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -24,7 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Turns a monday board row into a {@link CaseTicket} using one board's column
+ * Turns a monday board row into a {@link KpiCaseTicket} using one board's column
  * mapping. Pure: no I/O, so the mapping rules are unit-tested directly.
  *
  * <p>The rules that are not obvious:
@@ -47,7 +47,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class CaseTicketMapper {
 
-    /** Joins the normalised serials in {@link CaseTicket#getSerialsNormalised()}. */
+    /** Joins the normalised serials in {@link KpiCaseTicket#getSerialsNormalised()}. */
     public static final String SERIAL_JOIN = "|";
 
     private static final Pattern SERIAL_SPLIT = Pattern.compile("\\s*(?:/|,|;|&|\\R|และ)\\s*");
@@ -56,9 +56,9 @@ public class CaseTicketMapper {
     private final ObjectMapper objectMapper;
 
     /** A ticket seen for the first time. */
-    public CaseTicket newTicket(MondayItem item, KpiMondayProperties.Board board, LocalDateTime now) {
-        CaseTicket ticket = CaseTicket.builder()
-                .source(CaseTicket.SOURCE_MONDAY)
+    public KpiCaseTicket newTicket(MondayItem item, KpiMondayProperties.Board board, LocalDateTime now) {
+        KpiCaseTicket ticket = KpiCaseTicket.builder()
+                .source(KpiCaseTicket.SOURCE_MONDAY)
                 .sourceBoardId(board.getId())
                 .sourceItemId(item.id())
                 .serviceLine(board.getServiceLine())
@@ -69,7 +69,7 @@ public class CaseTicketMapper {
     }
 
     /** Re-reads every mapped field from the row onto an existing ticket. */
-    public void apply(MondayItem item, KpiMondayProperties.Board board, CaseTicket ticket, LocalDateTime now) {
+    public void apply(MondayItem item, KpiMondayProperties.Board board, KpiCaseTicket ticket, LocalDateTime now) {
         KpiMondayProperties.Columns columns = board.getColumns();
 
         ticket.setSourceGroupId(item.group() == null ? null : item.group().id());

@@ -7,7 +7,7 @@ import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayColu
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayGroup;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
 import com.raaspal.robotrecommendation.kpi.config.KpiMondayProperties;
-import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
+import com.raaspal.robotrecommendation.kpi.entity.KpiCaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
 import com.raaspal.robotrecommendation.kpi.entity.TicketType;
 import com.raaspal.robotrecommendation.kpi.service.CaseTicketMapper;
@@ -24,7 +24,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Pins how a monday row becomes a {@link CaseTicket} under one board's column
+ * Pins how a monday row becomes a {@link KpiCaseTicket} under one board's column
  * mapping — the rules the KPI maths then depends on. Pure, no Spring.
  */
 class CaseTicketMapperTest {
@@ -57,8 +57,8 @@ class CaseTicketMapperTest {
     private static MondayItem item(String id, OffsetDateTime updatedAt, Map<String, String> cells) {
         List<MondayColumnValue> values = new ArrayList<>();
         cells.forEach((columnId, text) ->
-                values.add(new MondayColumnValue(columnId, "text", text, new MondayColumnRef(columnId, "Title of " + columnId))));
-        return new MondayItem(id, "Ticket " + id, updatedAt, new MondayGroup("new_group96592__1", "All Case"), values, List.of());
+                values.add(new MondayColumnValue(columnId, "text", text, null, new MondayColumnRef(columnId, "Title of " + columnId))));
+        return new MondayItem(id, "Ticket " + id, updatedAt, new MondayGroup("new_group96592__1", "All Case"), values, List.of(), null);
     }
 
     private static Map<String, String> cells(String... keyValues) {
@@ -80,9 +80,9 @@ class CaseTicketMapperTest {
                 "text0", "GS438-6260-B9R-V300",
                 "text_unmapped", "ignored"));
 
-        CaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
+        KpiCaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
 
-        assertThat(ticket.getSource()).isEqualTo(CaseTicket.SOURCE_MONDAY);
+        assertThat(ticket.getSource()).isEqualTo(KpiCaseTicket.SOURCE_MONDAY);
         assertThat(ticket.getSourceBoardId()).isEqualTo("3451717331");
         assertThat(ticket.getSourceItemId()).isEqualTo("1");
         assertThat(ticket.getServiceLine()).isEqualTo(ServiceLine.CLEANING);
@@ -114,7 +114,7 @@ class CaseTicketMapperTest {
     void updatedAtIsStoredInUtc() {
         MondayItem item = item("1", OffsetDateTime.parse("2026-08-24T10:00:00+07:00"), cells());
 
-        CaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
+        KpiCaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
 
         assertThat(ticket.getSourceUpdatedAt()).isEqualTo(LocalDateTime.of(2026, 8, 24, 3, 0));
     }
@@ -124,7 +124,7 @@ class CaseTicketMapperTest {
     void serialsAreSplitStrippedAndUpperCased() {
         MondayItem item = item("1", null, cells("text0", "#GS438-6260-H7R-J000 / L352507605060zK และ Pudu 1"));
 
-        CaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
+        KpiCaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
 
         assertThat(ticket.getSerialNumbers()).isEqualTo("#GS438-6260-H7R-J000 / L352507605060zK และ Pudu 1");
         assertThat(ticket.getSerialsNormalised()).isEqualTo("GS438-6260-H7R-J000|L352507605060ZK|PUDU1");
@@ -146,7 +146,7 @@ class CaseTicketMapperTest {
     void closedByFinishedStatusWhenThereIsNoCloseDate() {
         MondayItem item = item("1", null, cells("date8", "2026-08-20", "status", "ปิดงาน"));
 
-        CaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
+        KpiCaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
 
         assertThat(ticket.isClosed()).isTrue();
         assertThat(ticket.getCloseDate()).isNull();
@@ -163,7 +163,7 @@ class CaseTicketMapperTest {
     void closedByCloseDateWhateverTheStatusSays() {
         MondayItem item = item("1", null, cells("date8", "2026-08-20", "date_done", "2026-08-22", "status", "Working on it"));
 
-        CaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
+        KpiCaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
 
         assertThat(ticket.isClosed()).isTrue();
         assertThat(ticket.getCloseDate()).isEqualTo(LocalDate.of(2026, 8, 22));
@@ -188,7 +188,7 @@ class CaseTicketMapperTest {
     void everyCellIsArchivedWithItsTitle() throws Exception {
         MondayItem item = item("1", null, cells("date8", "2026-08-20", "text_unmapped", "kept anyway"));
 
-        CaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
+        KpiCaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
 
         JsonNode archive = objectMapper.readTree(ticket.getRawColumns());
         assertThat(archive.isArray()).isTrue();
@@ -202,7 +202,7 @@ class CaseTicketMapperTest {
     void applyRefreshesAnExistingTicketWithoutTouchingFirstSeen() {
         KpiMondayProperties.Board board = cleaningBoard();
         LocalDateTime firstSeen = NOW.minusDays(3);
-        CaseTicket ticket = mapper.newTicket(item("1", null, cells("status", "Working on it")), board, firstSeen);
+        KpiCaseTicket ticket = mapper.newTicket(item("1", null, cells("status", "Working on it")), board, firstSeen);
         ticket.setPresent(false);
 
         mapper.apply(item("1", null, cells("status", "Done")), board, ticket, NOW);
@@ -224,7 +224,7 @@ class CaseTicketMapperTest {
         MondayColumnValue value = objectMapper.readValue(json, MondayColumnValue.class);
 
         assertThat(value.title()).isEqualTo("Open Date");
-        assertThat(new MondayColumnValue("x", "text", "v", null).title()).isNull();
+        assertThat(new MondayColumnValue("x", "text", "v", null, null).title()).isNull();
     }
 
     /** The TimeLine column holds a range; the 30-day window starts at its LATER date. */
@@ -245,7 +245,7 @@ class CaseTicketMapperTest {
     void actionDateIsMapped() {
         MondayItem item = item("1", null, cells("date8", "2026-08-20", "date_1", "2026-08-24"));
 
-        CaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
+        KpiCaseTicket ticket = mapper.newTicket(item, cleaningBoard(), NOW);
 
         assertThat(ticket.getOpenDate()).isEqualTo(LocalDate.of(2026, 8, 20));
         assertThat(ticket.getActionDate()).isEqualTo(LocalDate.of(2026, 8, 24));
@@ -260,9 +260,9 @@ class CaseTicketMapperTest {
         board.setServiceLineColumn("robot_type");
         board.getColumns().setInstallDate("timeline");
 
-        CaseTicket cleaning = mapper.newTicket(
+        KpiCaseTicket cleaning = mapper.newTicket(
                 item("1", null, cells("robot_type", "Cleaning Robot", "timeline", "2026-08-01 - 2026-08-05")), board, NOW);
-        CaseTicket delivery = mapper.newTicket(
+        KpiCaseTicket delivery = mapper.newTicket(
                 item("2", null, cells("robot_type", "Delivery", "timeline", "2026-08-01")), board, NOW);
 
         assertThat(cleaning.getServiceLine()).isEqualTo(ServiceLine.CLEANING);

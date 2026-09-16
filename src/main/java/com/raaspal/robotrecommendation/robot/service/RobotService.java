@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -42,9 +43,32 @@ public class RobotService {
     private final RobotSpecRepository robotSpecRepository;
     private final RecommendationItemRepository recommendationItemRepository;
 
+    /**
+     * A page of the catalogue.
+     *
+     * <p>The specs for the whole page are fetched in one query and matched up in memory,
+     * rather than asked for a robot at a time. The per-robot version cost one round trip
+     * to the database per row — invisible at nineteen models, seconds of blank screen at
+     * seventy.
+     */
     @Transactional(readOnly = true)
     public Page<RobotResponse> getAll(Pageable pageable) {
-        return robotRepository.findAll(pageable).map(this::toResponse);
+        Page<Robot> page = robotRepository.findAll(pageable);
+        if (page.isEmpty()) {
+            return page.map(RobotResponse::from);
+        }
+
+        Map<UUID, RobotSpec> specs = robotSpecRepository
+                .findByRobot_IdIn(page.getContent().stream().map(Robot::getId).toList())
+                .stream()
+                .collect(Collectors.toMap(spec -> spec.getRobot().getId(), spec -> spec));
+
+        return page.map(robot -> {
+            RobotSpec spec = specs.get(robot.getId());
+            return spec == null
+                    ? RobotResponse.from(robot)
+                    : RobotResponse.from(robot, RobotSpecResponse.from(spec));
+        });
     }
 
     /**

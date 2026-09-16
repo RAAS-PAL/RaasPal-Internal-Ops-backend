@@ -25,7 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Pulls every configured monday board into {@code case_ticket}. One run reads
+ * Pulls every configured monday board into {@code kpi_case_ticket}. One run reads
  * each board's groups in full and hands the rows to {@link CaseTicketWriter},
  * recording a {@link CaseTicketSyncRun} per board either way.
  *

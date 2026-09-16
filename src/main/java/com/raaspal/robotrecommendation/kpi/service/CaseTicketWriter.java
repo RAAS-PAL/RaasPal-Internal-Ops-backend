@@ -2,8 +2,8 @@ package com.raaspal.robotrecommendation.kpi.service;
 
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
 import com.raaspal.robotrecommendation.kpi.config.KpiMondayProperties;
-import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
-import com.raaspal.robotrecommendation.kpi.repository.CaseTicketRepository;
+import com.raaspal.robotrecommendation.kpi.entity.KpiCaseTicket;
+import com.raaspal.robotrecommendation.kpi.repository.KpiCaseTicketRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,7 +20,7 @@ import java.util.Set;
 
 /**
  * The database half of a board sync: merges a full read of a board into
- * {@code case_ticket} in one transaction. Kept apart from
+ * {@code kpi_case_ticket} in one transaction. Kept apart from
  * {@link MondayCaseSyncService} so the monday round-trips happen outside any
  * transaction — a slow board must not hold a pooled connection open, and the
  * Supabase session pooler only allows fifteen.
@@ -33,7 +33,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class CaseTicketWriter {
 
-    private final CaseTicketRepository ticketRepository;
+    private final KpiCaseTicketRepository ticketRepository;
     private final CaseTicketMapper mapper;
 
     /** What one merge did. {@code updated} counts only rows whose monday {@code updated_at} moved. */
@@ -50,8 +50,8 @@ public class CaseTicketWriter {
     @Transactional
     public WriteResult upsert(KpiMondayProperties.Board board, List<MondayItem> items,
                               boolean markMissingAbsent, LocalDateTime now) {
-        Map<String, CaseTicket> existing = new HashMap<>();
-        for (CaseTicket ticket : ticketRepository.findAllBySourceAndSourceBoardId(CaseTicket.SOURCE_MONDAY, board.getId())) {
+        Map<String, KpiCaseTicket> existing = new HashMap<>();
+        for (KpiCaseTicket ticket : ticketRepository.findAllBySourceAndSourceBoardId(KpiCaseTicket.SOURCE_MONDAY, board.getId())) {
             existing.put(ticket.getSourceItemId(), ticket);
         }
 
@@ -59,13 +59,13 @@ public class CaseTicketWriter {
         int updated = 0;
         int unchanged = 0;
         Set<String> seen = new HashSet<>();
-        List<CaseTicket> toSave = new ArrayList<>();
+        List<KpiCaseTicket> toSave = new ArrayList<>();
 
         for (MondayItem item : items) {
             if (item.id() == null || !seen.add(item.id())) {
                 continue;
             }
-            CaseTicket ticket = existing.get(item.id());
+            KpiCaseTicket ticket = existing.get(item.id());
             if (ticket == null) {
                 toSave.add(mapper.newTicket(item, board, now));
                 inserted++;
@@ -86,7 +86,7 @@ public class CaseTicketWriter {
 
         int markedAbsent = 0;
         if (markMissingAbsent) {
-            for (CaseTicket ticket : existing.values()) {
+            for (KpiCaseTicket ticket : existing.values()) {
                 if (ticket.isPresent() && !seen.contains(ticket.getSourceItemId())) {
                     ticket.setPresent(false);
                     ticket.setLastSyncedAt(now);

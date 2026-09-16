@@ -6,6 +6,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -87,6 +88,20 @@ public class RobotUnit {
     /** Which of our own premises the unit sits in. Only meaningful while IN_STOCK. */
     @Column(length = 128)
     private String location;
+
+    /**
+     * The last time a telemetry sync tried this robot, succeeded, and the error if the
+     * last try failed (null after a success). Written by the sync loop, read by the
+     * "robots with no data" list so a failing sync is never mistaken for an idle robot.
+     */
+    @Column(name = "last_sync_attempt_at")
+    private Instant lastSyncAttemptAt;
+
+    @Column(name = "last_sync_success_at")
+    private Instant lastSyncSuccessAt;
+
+    @Column(name = "last_sync_error", columnDefinition = "TEXT")
+    private String lastSyncError;
 
 
     @CreationTimestamp

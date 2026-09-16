@@ -10,11 +10,11 @@ import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayGrou
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayGroupRead;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
-import com.raaspal.robotrecommendation.kpi.entity.CaseTicket;
+import com.raaspal.robotrecommendation.kpi.entity.KpiCaseTicket;
 import com.raaspal.robotrecommendation.kpi.entity.CaseTicketSyncRun;
 import com.raaspal.robotrecommendation.kpi.entity.ServiceLine;
 import com.raaspal.robotrecommendation.kpi.entity.TicketType;
-import com.raaspal.robotrecommendation.kpi.repository.CaseTicketRepository;
+import com.raaspal.robotrecommendation.kpi.repository.KpiCaseTicketRepository;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketSyncRunRepository;
 import com.raaspal.robotrecommendation.kpi.service.MondayCaseSyncService;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +54,7 @@ class MondayCaseSyncServiceTest {
     private static final OffsetDateTime T2 = OffsetDateTime.parse("2026-09-07T10:00:00+07:00");
 
     @Autowired private MondayCaseSyncService service;
-    @Autowired private CaseTicketRepository ticketRepository;
+    @Autowired private KpiCaseTicketRepository ticketRepository;
     @Autowired private CaseTicketSyncRunRepository runRepository;
 
     @MockitoBean private MondayApiClient apiClient;
@@ -78,17 +78,17 @@ class MondayCaseSyncServiceTest {
 
     private static MondayItem cleaningItem(String id, OffsetDateTime updatedAt, String status, String open) {
         return new MondayItem(id, "Ticket " + id, updatedAt, new MondayGroup("g1", "All Case"), List.of(
-                new MondayColumnValue("status", "status", status, new MondayColumnRef("status", "Status")),
-                new MondayColumnValue("date8", "date", open, new MondayColumnRef("date8", "Open Date")),
-                new MondayColumnValue("text0", "text", "GS-" + id, new MondayColumnRef("text0", "Serial"))),
-                List.of());
+                new MondayColumnValue("status", "status", status, null, new MondayColumnRef("status", "Status")),
+                new MondayColumnValue("date8", "date", open, null, new MondayColumnRef("date8", "Open Date")),
+                new MondayColumnValue("text0", "text", "GS-" + id, null, new MondayColumnRef("text0", "Serial"))),
+                List.of(), null);
     }
 
     private static MondayItem deliveryItem(String id, OffsetDateTime updatedAt) {
         return new MondayItem(id, "Ticket " + id, updatedAt, new MondayGroup("g2", "All Case"), List.of(
-                new MondayColumnValue("status", "status", "Working on it", new MondayColumnRef("status", "Status")),
-                new MondayColumnValue("date5", "date", "2026-08-30", new MondayColumnRef("date5", "Date"))),
-                List.of());
+                new MondayColumnValue("status", "status", "Working on it", null, new MondayColumnRef("status", "Status")),
+                new MondayColumnValue("date5", "date", "2026-08-30", null, new MondayColumnRef("date5", "Date"))),
+                List.of(), null);
     }
 
     private void cleaningReturns(boolean complete, MondayItem... items) {
@@ -103,10 +103,10 @@ class MondayCaseSyncServiceTest {
      */
     private static MondayItem installItem(String id, String robotType, String timeline) {
         return new MondayItem(id, "Install " + id, T1, new MondayGroup("g3", "All"), List.of(
-                new MondayColumnValue("robot_type", "status", robotType, new MondayColumnRef("robot_type", "Type of Robot")),
-                new MondayColumnValue("timeline", "timeline", timeline, new MondayColumnRef("timeline", "TimeLine")),
-                new MondayColumnValue("text0", "text", "GS-" + id, new MondayColumnRef("text0", "Serial"))),
-                List.of());
+                new MondayColumnValue("robot_type", "status", robotType, null, new MondayColumnRef("robot_type", "Type of Robot")),
+                new MondayColumnValue("timeline", "timeline", timeline, null, new MondayColumnRef("timeline", "TimeLine")),
+                new MondayColumnValue("text0", "text", "GS-" + id, null, new MondayColumnRef("text0", "Serial"))),
+                List.of(), null);
     }
 
     private void installReturns(MondayItem... items) {
@@ -119,7 +119,7 @@ class MondayCaseSyncServiceTest {
                 .thenReturn(new MondayGroupRead(List.of(items), true));
     }
 
-    private CaseTicket find(String itemId) {
+    private KpiCaseTicket find(String itemId) {
         return ticketRepository.findAll().stream()
                 .filter(t -> t.getSourceItemId().equals(itemId))
                 .findFirst()
@@ -141,7 +141,7 @@ class MondayCaseSyncServiceTest {
         assertThat(summary.boards().get(2).inserted()).isEqualTo(1);
         assertThat(ticketRepository.count()).isEqualTo(4);
 
-        CaseTicket x = find("X");
+        KpiCaseTicket x = find("X");
         assertThat(x.getServiceLine()).isEqualTo(ServiceLine.CLEANING);
         assertThat(x.getOpenDate()).isEqualTo(LocalDate.of(2026, 8, 20));
         assertThat(x.getSerialsNormalised()).isEqualTo("GS-X");
@@ -154,7 +154,7 @@ class MondayCaseSyncServiceTest {
         // leaves it null: classification happens later, by matching the serial
         // against the single-line CM boards. The install date is the LATER end of
         // the TimeLine, and the run row carries no service line either.
-        CaseTicket install = find("I");
+        KpiCaseTicket install = find("I");
         assertThat(install.getTicketType()).isEqualTo(TicketType.INSTALLATION);
         assertThat(install.getServiceLine()).isNull();
         assertThat(install.getInstallDate()).isEqualTo(LocalDate.of(2026, 8, 5));

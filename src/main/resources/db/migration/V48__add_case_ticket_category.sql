@@ -18,9 +18,9 @@
 -- Additive: nullable, no rewrite, no lock; the deployed backend never reads it.
 -- =============================================================================
 
-ALTER TABLE case_ticket ADD COLUMN category TEXT;
+ALTER TABLE kpi_case_ticket ADD COLUMN category TEXT;
 
-COMMENT ON COLUMN case_ticket.category IS
+COMMENT ON COLUMN kpi_case_ticket.category IS
     'Text of the board''s configured category column (Job Type, Type of case). '
     'Null when the board maps none. The KPI counts only rows whose category is in '
     'the board''s include-categories list, or every row when that list is empty.';

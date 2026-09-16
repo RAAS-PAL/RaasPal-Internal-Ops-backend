@@ -28,6 +28,14 @@ public class ReportSend {
 
     public enum Status { SENT, FAILED, SKIPPED }
 
+    /**
+     * Which email this row records. Only BUNDLE counts as the month's delivery: the
+     * monthly run skips a customer on a SENT bundle, never on a single robot's
+     * report sent by hand from the preview tab, because one machine's report is not
+     * the deliverable the customer is promised.
+     */
+    public enum Kind { BUNDLE, ROBOT_REPORT }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -41,6 +49,15 @@ public class ReportSend {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private Status status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private Kind kind = Kind.BUNDLE;
+
+    /** The machine whose report went out; null for a bundle, which covers them all. */
+    @Column(name = "robot_serial", length = 100)
+    private String robotSerial;
 
     @Column(name = "recipient_email", length = 255)
     private String recipientEmail;
