@@ -25,6 +25,7 @@ if grep -q '^MONDAY_API_TOKEN=TODO' preview.env; then
 fi
 
 docker compose up -d --build
+echo "== api port binding: $(grep -s '^PREVIEW_BIND' .env || echo 'PREVIEW_BIND unset -> 127.0.0.1 (tunnel only)')"
 echo "== waiting for the api to boot"
 for i in $(seq 1 60); do
   if curl -fs localhost:8081/actuator/health >/dev/null 2>&1; then break; fi

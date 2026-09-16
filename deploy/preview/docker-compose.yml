@@ -57,8 +57,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Loopback by default: the preview is reached through an SSH tunnel. Set
+    # PREVIEW_BIND=0.0.0.0 in deploy/preview/.env (and open TCP 8081 in the
+    # Lightsail firewall) only while a Vercel preview needs to reach it over the
+    # public IP without a DNS name -- and close the port again afterwards: it is
+    # plain HTTP, so a login sends the admin password in the clear.
     ports:
-      - "127.0.0.1:8081:8080"
+      - "${PREVIEW_BIND:-127.0.0.1}:8081:8080"
     mem_limit: 1200m
     environment:
       # 70% of 1200m is about 840m of heap. Ample — the year grid query
