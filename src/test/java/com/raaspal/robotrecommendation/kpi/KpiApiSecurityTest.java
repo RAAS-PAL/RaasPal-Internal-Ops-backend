@@ -106,16 +106,19 @@ class KpiApiSecurityTest {
                 .andExpect(jsonPath("$.message").value(containsString("MONDAY_API_TOKEN")));
     }
 
-    /** No folder in the test profile: CSAT says so, naming the variable, rather than 500. */
+    /**
+     * Nothing uploaded and no folder set: CSAT says what to do about it rather
+     * than 500. This is the first thing a new deployment sees.
+     */
     @Test
     @WithMockUser(roles = "ADMIN")
-    void csatWithoutAFolderIsA400ThatNamesTheEnvVar() throws Exception {
+    void csatWithNoWorkbooksIsA400ThatSaysToUploadThem() throws Exception {
         mockMvc.perform(get(BASE + "/csat").param("from", "2026-01").param("to", "2026-06"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(containsString("KPI_CSAT_FOLDER")));
+                .andExpect(jsonPath("$.message").value(containsString("have been uploaded")));
         mockMvc.perform(post(BASE + "/csat/reload"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(containsString("KPI_CSAT_FOLDER")));
+                .andExpect(jsonPath("$.message").value(containsString("have been uploaded")));
     }
 
     @Test

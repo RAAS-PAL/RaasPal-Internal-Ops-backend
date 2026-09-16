@@ -18,9 +18,10 @@ import java.util.stream.Stream;
  * team drops the month's four workbooks there, overwriting last month's, so the
  * folder is always the current set and nothing older.
  *
- * <p>A developer's source. The deployed console reads a bucket instead: Render
- * gives a process a disk that is wiped on every deploy and that nobody outside
- * it can write to. {@link com.raaspal.robotrecommendation.kpi.config.CsatWorkbookSourceConfig}
+ * <p>A local escape hatch, used only when {@code app.kpi.csat.folder} is set.
+ * Every deployment leaves it blank and reads the workbooks uploaded in the
+ * console instead ({@link DatabaseCsatWorkbookSource});
+ * {@link com.raaspal.robotrecommendation.kpi.config.CsatWorkbookSourceConfig}
  * picks between the two.
  *
  * <p>Only {@code .xlsx} files count, and never Excel's {@code ~$} lock files:
@@ -42,13 +43,11 @@ public class FolderCsatWorkbookSource implements CsatWorkbookSource {
     public List<WorkbookFile> list() {
         String folder = properties.getFolder();
         if (folder == null || folder.isBlank()) {
-            // This is the message the deployed console shows when nobody has set
-            // CSAT up, so it names the deployed answer first: on Render there is
-            // no folder worth pointing at.
-            throw new BadRequestException("CSAT survey workbooks are not configured: set the bucket holding "
-                    + "them (KPI_CSAT_BUCKET, KPI_CSAT_BUCKET_ACCESS_KEY, KPI_CSAT_BUCKET_SECRET_KEY, and "
-                    + "KPI_CSAT_BUCKET_ENDPOINT for a Supabase bucket) — or, to work on this locally, "
-                    + "KPI_CSAT_FOLDER (app.kpi.csat.folder) to the folder holding the four workbooks");
+            // Only reachable if this source was built without a folder, which the
+            // config does not do — it picks the database source instead.
+            throw new BadRequestException("app.kpi.csat.folder is not set. Leave it unset to read the "
+                    + "workbooks uploaded in the console, or point it at a folder of .xlsx workbooks "
+                    + "to read those instead.");
         }
         Path dir = Path.of(folder);
         if (!Files.isDirectory(dir)) {
