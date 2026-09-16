@@ -8,6 +8,8 @@ import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.kpi.config.KpiMondayProperties;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCaseMetricsResponse;
+import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
+import com.raaspal.robotrecommendation.kpi.dto.CsatWorkbookHistoryEntry;
 import com.raaspal.robotrecommendation.kpi.dto.KpiCsatResponse;
 import com.raaspal.robotrecommendation.kpi.dto.MondaySyncConfigResponse;
 import com.raaspal.robotrecommendation.kpi.dto.MondaySyncRunResponse;
@@ -16,26 +18,32 @@ import com.raaspal.robotrecommendation.kpi.export.KpiCaseXlsxExporter;
 import com.raaspal.robotrecommendation.kpi.export.KpiCsatXlsxExporter;
 import com.raaspal.robotrecommendation.kpi.repository.CaseTicketSyncRunRepository;
 import com.raaspal.robotrecommendation.kpi.service.KpiCaseMetricsService;
+import com.raaspal.robotrecommendation.kpi.service.CsatWorkbookUploadService;
 import com.raaspal.robotrecommendation.kpi.service.KpiCsatService;
 import com.raaspal.robotrecommendation.kpi.service.MondayCaseSyncService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * The RE KPI dashboard's API. Internal-only: the deck these numbers replace is
@@ -57,6 +65,7 @@ public class KpiController {
 
     private final KpiCaseMetricsService metricsService;
     private final KpiCsatService csatService;
+    private final CsatWorkbookUploadService csatUploads;
     private final KpiCaseXlsxExporter caseExporter;
     private final KpiCsatXlsxExporter csatExporter;
     private final MondayCaseSyncService syncService;
@@ -131,6 +140,55 @@ public class KpiController {
     @PostMapping("/csat/reload")
     public ApiResponse<KpiCsatService.SourceStatus> reloadCsat() {
         return ApiResponse.success("csat workbooks reloaded", csatService.reload());
+    }
+
+    /**
+     * Uploads one survey workbook, making it the current one for its survey.
+     *
+     * <p>Parsed before it is stored, so a file whose survey cannot be told, or
+     * that holds no readable month sheet, is refused here rather than accepted
+     * and then silently ignored by every later read. Re-uploading the file that
+     * is already current is answered {@code duplicate} instead of adding a row
+     * indistinguishable from the one above it.
+     */
+    @PostMapping(value = "/csat/workbooks", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<CsatWorkbookUploadService.UploadResult> uploadCsatWorkbook(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) String note,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        CsatWorkbookUploadService.UploadResult result =
+                csatUploads.upload(file, principal == null ? null : principal.getId(), note);
+        return ApiResponse.success(result.duplicate()
+                ? "That file is already the current " + result.stream() + " workbook"
+                : "Uploaded " + result.fileName(), result);
+    }
+
+    /** Every upload, newest first, with the current one per survey marked. */
+    @GetMapping("/csat/workbooks")
+    public ApiResponse<List<CsatWorkbookHistoryEntry>> csatWorkbooks() {
+        return ApiResponse.success(csatUploads.history());
+    }
+
+    /** The stored file itself — what was uploaded, byte for byte. */
+    @GetMapping("/csat/workbooks/{id}/download")
+    public ResponseEntity<byte[]> downloadCsatWorkbook(@PathVariable UUID id) {
+        CsatWorkbookUploadService.Download download = csatUploads.download(id);
+        return ResponseEntity.ok()
+                .contentType(XLSX)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(download.fileName()).build().toString())
+                .body(download.content());
+    }
+
+    /**
+     * Removes one upload. Deleting the current workbook for a survey is how a
+     * wrong upload is undone: the one before it becomes current again and CSAT
+     * goes back to what it said before.
+     */
+    @DeleteMapping("/csat/workbooks/{id}")
+    public ApiResponse<CsatWorkbookHistoryEntry> deleteCsatWorkbook(@PathVariable UUID id) {
+        return ApiResponse.success("Deleted", csatUploads.delete(id));
     }
 
     /** Starts a full sync of every configured board in the background; poll {@code /monday/sync/status}. */
