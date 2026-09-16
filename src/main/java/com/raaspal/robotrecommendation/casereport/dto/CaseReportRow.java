@@ -108,7 +108,15 @@ public record CaseReportRow(
          * kept as it is when the report is regenerated from the board; the rest are
          * rebuilt.
          */
-        boolean edited
+        boolean edited,
+
+        /**
+         * Not printed, and not on the sheet at all. True once a person has taken this
+         * board row off the report. The row is kept, hidden, so a regeneration knows
+         * not to bring it back and so the removal can be undone. Numbered 0 while hidden.
+         * A row added by hand is deleted outright instead — nothing would bring it back.
+         */
+        boolean removed
 ) {
 
     /** Id prefix of a row added by hand rather than read from the board. */
@@ -146,7 +154,7 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, branch, robot, serialNumber, problem, solution,
                 openDate, reOnSite, days, sla, sla == null ? "" : sla.label(),
                 null, null, null, null, null,
-                province, null, sourceItemId, false);
+                province, null, sourceItemId, false, false);
     }
 
     /**
@@ -170,7 +178,7 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, null, robot, serialNumber, problem, null,
                 openDate, null, days, sla, sla == null ? "" : sla.label(),
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                null, null, sourceItemId, false);
+                null, null, sourceItemId, false, false);
     }
 
     /** The same row under a different number, for renumbering after rows come and go. */
@@ -178,7 +186,7 @@ public record CaseReportRow(
         return new CaseReportRow(newNo, project, branch, robot, serialNumber, problem,
                 solution, openDate, reOnSite, days, sla, slaLabel,
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                province, board, sourceItemId, edited);
+                province, board, sourceItemId, edited, removed);
     }
 
     /** The same row stamped with the board it came from, for the On Hold sheet. */
@@ -186,6 +194,14 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, branch, robot, serialNumber, problem,
                 solution, openDate, reOnSite, days, sla, slaLabel,
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                province, newBoard, sourceItemId, edited);
+                province, newBoard, sourceItemId, edited, removed);
+    }
+
+    /** The same row, taken off the sheet or put back on it. */
+    public CaseReportRow withRemoved(boolean nowRemoved) {
+        return new CaseReportRow(no, project, branch, robot, serialNumber, problem,
+                solution, openDate, reOnSite, days, sla, slaLabel,
+                requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
+                province, board, sourceItemId, edited, nowRemoved);
     }
 }

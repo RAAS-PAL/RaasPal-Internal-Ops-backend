@@ -200,20 +200,51 @@ class CaseReportRunServiceEditTest {
         assertThat(regenerated).extracting(CaseReportRow::no).containsExactly(1, 2);
     }
 
+    /** A row added by hand is deleted outright: there is nothing that would bring it back. */
     @Test
-    void onlyARowAddedByHandCanBeRemoved() {
+    void aRowAddedByHandIsDeletedOutright() {
         CaseReportRow added = service.addRow(CaseReportDefinition.MK_PENDING, TODAY,
                 edit("M057 ศรีราชานคร", TODAY.minusDays(7), null, null));
-
-        assertThatThrownBy(() -> service.removeRow(CaseReportDefinition.MK_PENDING, TODAY, "1001"))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("comes from the monday board");
 
         service.removeRow(CaseReportDefinition.MK_PENDING, TODAY, added.sourceItemId());
 
         assertThat(rows()).extracting(CaseReportRow::sourceItemId).containsExactly("1001", "1002");
         assertThat(rows()).extracting(CaseReportRow::no).containsExactly(1, 2);
         assertThat(run.getTicketCount()).isEqualTo(2);
+    }
+
+    /**
+     * A board row is kept hidden — numbered 0, off the count — so the sheet renumbers
+     * around it, a regeneration leaves it hidden, and it can be put back.
+     */
+    @Test
+    void aBoardRowIsHiddenNotDeletedAndStaysHiddenThroughRegeneration() {
+        service.removeRow(CaseReportDefinition.MK_PENDING, TODAY, "1001");
+
+        assertThat(rows()).extracting(CaseReportRow::sourceItemId).containsExactly("1001", "1002");
+        assertThat(rows()).extracting(CaseReportRow::removed).containsExactly(true, false);
+        assertThat(rows()).extracting(CaseReportRow::no).containsExactly(0, 1);
+        assertThat(run.getTicketCount()).isEqualTo(1);
+
+        // The board still lists it, with fresher content; the sheet must still not.
+        when(generator.generate(MkPendingReportGenerator.Scope.MK, TODAY)).thenReturn(List.of(
+                row(1, "1001", "โลตัส จันทบุรี (updated)", TODAY.minusDays(6), SlaStatus.BREACHED),
+                row(2, "1002", "บิ๊กซี-กัลปพฤกษ์", TODAY.minusDays(2), SlaStatus.WITHIN)));
+        List<CaseReportRow> regenerated =
+                service.rowsFor(CaseReportDefinition.MK_PENDING, TODAY, true);
+
+        assertThat(regenerated).extracting(CaseReportRow::removed).containsExactly(true, false);
+        assertThat(regenerated).extracting(CaseReportRow::no).containsExactly(0, 1);
+        assertThat(regenerated.get(0).branch()).isEqualTo("โลตัส จันทบุรี (updated)");
+
+        CaseReportRow back = service.restoreRow(CaseReportDefinition.MK_PENDING, TODAY, "1001");
+
+        assertThat(back.removed()).isFalse();
+        assertThat(rows()).extracting(CaseReportRow::no).containsExactly(1, 2);
+        assertThat(run.getTicketCount()).isEqualTo(2);
+        assertThatThrownBy(() -> service.restoreRow(CaseReportDefinition.MK_PENDING, TODAY, "1001"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("no removed row");
     }
 
     /** Editing a board row can fill in a province the ticket lacked, and the verdict follows. */

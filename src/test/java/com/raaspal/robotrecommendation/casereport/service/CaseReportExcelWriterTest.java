@@ -39,7 +39,7 @@ class CaseReportExcelWriterTest {
         return new CaseReportRow(no, project, branch, "Pudu 1", "PD9112214736023",
                 "แบตลดลงเร็ว", "รอ QT", open, onSite, days, sla, sla == null ? null : sla.label(),
                 null, null, null, null, null,
-                "กรุงเทพมหานคร", null, "item-" + no, false);
+                "กรุงเทพมหานคร", null, "item-" + no, false, false);
     }
 
     private static Workbook read(byte[] bytes) throws IOException {
