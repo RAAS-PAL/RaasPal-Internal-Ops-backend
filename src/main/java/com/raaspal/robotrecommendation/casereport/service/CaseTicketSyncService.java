@@ -48,7 +48,7 @@ public class CaseTicketSyncService {
     private static final String CLEANING_GROUP = "new_group96592__1";
 
     /** Delivery Tickets / All Case. */
-    private static final String DELIVERY_BOARD = "1647612496";
+    public static final String DELIVERY_BOARD = "1647612496";
     private static final String DELIVERY_GROUP = "group_title";
 
     /**
@@ -69,10 +69,20 @@ public class CaseTicketSyncService {
             "asset_owner3__1", "text6", "status_17", "text0", "text", "long_text",
             "date8", "date_1", "status", "status7", "status_1");
 
-    private static final List<String> DELIVERY_COLUMNS = List.of(
+    /**
+     * The last row is unmapped and lands only in {@code raw_columns}: Root Cause, RE
+     * owner, Type of Case, Level, Under Warranty, Channel. The brand analytics read them
+     * from there. Requested by both the open-group sync and the brand sync so whichever
+     * ran last leaves the same raw payload behind.
+     */
+    public static final List<String> DELIVERY_COLUMNS = List.of(
             "asset_owner", "text6", "tags2", "status_139", "tags42",
             "main_issue_key_word3", "text", "date5", "date_18",
-            "color_mm6mwh74", "status", "status_1");
+            "color_mm6mwh74", "status", "status_1",
+            "status_10", "color_mksn4t14", "color_mkyh88bs", "status_136", "text23", "status_169");
+
+    /** The open group on the delivery board; a ticket anywhere else has left it. */
+    public static final String DELIVERY_OPEN_GROUP = DELIVERY_GROUP;
 
     private final MondayBoardReader boardReader;
     private final CaseTicketRepository tickets;
@@ -141,63 +151,120 @@ public class CaseTicketSyncService {
 
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
-
-        int created = 0;
-        int updated = 0;
-        int newComments = 0;
-        int statusChanges = 0;
+        Counters counters = new Counters();
         Set<String> seenItemIds = new HashSet<>();
 
         for (MondayItem item : items) {
             seenItemIds.add(item.id());
-
-            CaseTicket ticket = tickets
-                    .findBySourceAndSourceItemId(CaseSource.MONDAY, item.id())
-                    .orElse(null);
-
-            boolean isNew = ticket == null;
-            if (isNew) {
-                ticket = CaseTicket.builder()
-                        .source(CaseSource.MONDAY)
-                        .sourceBoardId(boardId)
-                        .sourceItemId(item.id())
-                        .build();
-            }
-
-            String status = item.columnText(statusColumn);
-            String supStatus = item.columnText(supStatusColumn);
-
-            ticket.setSourceGroupId(groupId);
-            ticket.setSourceGroupTitle(item.groupTitle());
-            ticket.setItemName(item.name());
-            ticket.setStatus(status);
-            ticket.setSupStatus(supStatus);
-            ticket.setOpenDate(parseDate(item.columnText(openDateColumn)));
-            ticket.setRawColumns(writeRawColumns(item));
-            ticket.setLastSyncedAt(now);
-
-            // A ticket that left the group and came back is open again.
-            ticket.setPresent(true);
-
-            applyBoardSpecificFields(ticket, item, boardId);
-
-            tickets.save(ticket);
-            if (isNew) created++; else updated++;
-
-            newComments += storeNewComments(ticket, item);
-            if (recordStatus(ticket, status, supStatus, today)) statusChanges++;
+            // Everything the group read returns is, by definition, in the open group.
+            upsert(item, boardId, groupId, true, statusColumn, supStatusColumn, openDateColumn,
+                    now, today, counters);
         }
 
         int closed = closeAbsent(boardId, seenItemIds, now);
 
-        SyncResult result = new SyncResult(
-                boardId, items.size(), created, updated, closed, newComments, statusChanges);
+        SyncResult result = counters.result(boardId, items.size(), closed);
 
         log.info("Synced board {}: {} seen, {} new, {} updated, {} closed, "
                         + "{} new comments, {} status changes",
-                boardId, result.seen(), created, updated, closed, newComments, statusChanges);
+                boardId, result.seen(), result.created(), result.updated(), closed,
+                result.newComments(), result.statusChanges());
 
         return result;
+    }
+
+    /**
+     * A filtered slice of one board - every group, only the rows matching the rules.
+     *
+     * <p>Written for the per-brand analytics, which need a robot brand's whole history
+     * and not just its open cases. The rows land in the same table as the group sync
+     * above, keyed on the same item id, so a ticket both syncs see is one row; what
+     * differs is that <em>nothing is closed by absence here</em>. The filter returns a
+     * subset of the board, so a row it did not return has not necessarily left the
+     * board - it just did not match. {@code is_present} is instead set from the group
+     * the row is in: true in the open group, false anywhere else.
+     */
+    @Transactional
+    public SyncResult syncFiltered(String boardId,
+                                   String openGroupId,
+                                   List<MondayBoardReader.FilterRule> rules,
+                                   List<String> columnIds,
+                                   String statusColumn,
+                                   String supStatusColumn,
+                                   String openDateColumn) {
+
+        List<MondayItem> items = boardReader.readFilteredItems(boardId, rules, columnIds);
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        Counters counters = new Counters();
+
+        for (MondayItem item : items) {
+            String groupId = item.group() == null ? null : item.group().id();
+            boolean open = openGroupId.equals(groupId);
+            upsert(item, boardId, groupId, open, statusColumn, supStatusColumn, openDateColumn,
+                    now, today, counters);
+        }
+
+        SyncResult result = counters.result(boardId, items.size(), 0);
+        log.info("Synced filtered board {}: {} seen, {} new, {} updated, {} new comments, {} status changes",
+                boardId, result.seen(), result.created(), result.updated(),
+                result.newComments(), result.statusChanges());
+        return result;
+    }
+
+    /** Running totals for one sync, so the two entry points share the loop body. */
+    private static final class Counters {
+        int created, updated, newComments, statusChanges;
+
+        SyncResult result(String boardId, int seen, int closed) {
+            return new SyncResult(boardId, seen, created, updated, closed, newComments, statusChanges);
+        }
+    }
+
+    /** One row: create or update the ticket, then store its new comments and status move. */
+    private void upsert(MondayItem item, String boardId, String groupId, boolean present,
+                        String statusColumn, String supStatusColumn, String openDateColumn,
+                        LocalDateTime now, LocalDate today, Counters counters) {
+
+        CaseTicket ticket = tickets
+                .findBySourceAndSourceItemId(CaseSource.MONDAY, item.id())
+                .orElse(null);
+
+        boolean isNew = ticket == null;
+        if (isNew) {
+            ticket = CaseTicket.builder()
+                    .source(CaseSource.MONDAY)
+                    .sourceBoardId(boardId)
+                    .sourceItemId(item.id())
+                    .build();
+        }
+
+        String status = item.columnText(statusColumn);
+        String supStatus = item.columnText(supStatusColumn);
+
+        ticket.setSourceGroupId(groupId);
+        ticket.setSourceGroupTitle(item.groupTitle());
+        ticket.setItemName(item.name());
+        ticket.setStatus(status);
+        ticket.setSupStatus(supStatus);
+        ticket.setOpenDate(parseDate(item.columnText(openDateColumn)));
+        ticket.setRawColumns(writeRawColumns(item));
+        ticket.setSourceUpdatedAt(item.updatedAt() == null
+                ? null
+                : item.updatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime());
+        ticket.setLastSyncedAt(now);
+
+        // A ticket that left the group and came back is open again.
+        ticket.setPresent(present);
+
+        applyBoardSpecificFields(ticket, item, boardId);
+
+        tickets.save(ticket);
+        if (isNew) counters.created++; else counters.updated++;
+
+        counters.newComments += storeNewComments(ticket, item);
+        if (recordStatus(ticket, status, supStatus, today)) counters.statusChanges++;
     }
 
     /**
@@ -247,26 +314,39 @@ public class CaseTicketSyncService {
         int stored = 0;
 
         for (MondayUpdate update : item.updates()) {
-            if (update.id() == null || known.contains(update.id())) continue;
-
-            updates.save(CaseTicketUpdate.builder()
-                    .caseTicketId(ticket.getId())
-                    .sourceUpdateId(update.id())
-                    .body(update.textBody())
-                    // The record has a helper for this: it returns "unknown" rather than
-                    // null when monday omits the author, and the author matters here --
-                    // the *status* marker convention is one person's habit.
-                    .creatorName(update.creatorName())
-                    // UTC, pinned here rather than inherited from whatever offset the JSON
-                    // happened to be parsed with. See CaseTicketUpdate#postedAt.
-                    .postedAt(update.createdAt() == null
-                            ? null
-                            : update.createdAt().withOffsetSameInstant(ZoneOffset.UTC)
-                                    .toLocalDateTime())
-                    .build());
-            stored++;
+            if (storeComment(ticket, update, null, known)) stored++;
+            // Replies arrive only on the filtered read; the group read leaves them null.
+            if (update.replies() != null) {
+                for (MondayUpdate reply : update.replies()) {
+                    if (storeComment(ticket, reply, update.id(), known)) stored++;
+                }
+            }
         }
         return stored;
+    }
+
+    private boolean storeComment(CaseTicket ticket, MondayUpdate update, String parentUpdateId,
+                                 Set<String> known) {
+        if (update.id() == null || known.contains(update.id())) return false;
+
+        updates.save(CaseTicketUpdate.builder()
+                .caseTicketId(ticket.getId())
+                .sourceUpdateId(update.id())
+                .parentUpdateId(parentUpdateId)
+                .body(update.textBody())
+                // The record has a helper for this: it returns "unknown" rather than
+                // null when monday omits the author, and the author matters here --
+                // the *status* marker convention is one person's habit.
+                .creatorName(update.creatorName())
+                // UTC, pinned here rather than inherited from whatever offset the JSON
+                // happened to be parsed with. See CaseTicketUpdate#postedAt.
+                .postedAt(update.createdAt() == null
+                        ? null
+                        : update.createdAt().withOffsetSameInstant(ZoneOffset.UTC)
+                                .toLocalDateTime())
+                .build());
+        known.add(update.id());
+        return true;
     }
 
     /**

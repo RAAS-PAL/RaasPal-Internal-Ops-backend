@@ -13,6 +13,9 @@ public interface CaseTicketUpdateRepository extends JpaRepository<CaseTicketUpda
     /** Newest first, which is the order a prompt wants and the order monday returns. */
     List<CaseTicketUpdate> findByCaseTicketIdOrderByPostedAtDesc(UUID caseTicketId);
 
+    /** Whole threads for a set of tickets in one query, oldest first as a thread reads. */
+    List<CaseTicketUpdate> findByCaseTicketIdInOrderByPostedAtAsc(java.util.Collection<UUID> caseTicketIds);
+
     /**
      * The update ids already stored for a ticket.
      *

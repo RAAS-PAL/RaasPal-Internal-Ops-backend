@@ -43,7 +43,7 @@ class MkPendingReportGeneratorTest {
                 List.of(new MondayColumnValue("asset_owner", "status", "#MK", null),
                         new MondayColumnValue("date5", "date", "2026-09-08", null)),
                 List.of(new MondayUpdate("u1", "เจ้าหน้าที่เข้าซ่อมหน้างาน",
-                        OffsetDateTime.parse("2026-09-10T23:30:00Z"), null)),
+                        OffsetDateTime.parse("2026-09-10T23:30:00Z"), null, null)),
                 null);
         when(boardReader.readGroupItems(any(), any(), any())).thenReturn(List.of(ticket));
 

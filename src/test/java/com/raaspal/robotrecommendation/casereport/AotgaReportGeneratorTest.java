@@ -289,6 +289,6 @@ class AotgaReportGeneratorTest {
     }
 
     private static MondayUpdate update(String id, String createdAt, String body) {
-        return new MondayUpdate(id, body, OffsetDateTime.parse(createdAt), null);
+        return new MondayUpdate(id, body, OffsetDateTime.parse(createdAt), null, null);
     }
 }
