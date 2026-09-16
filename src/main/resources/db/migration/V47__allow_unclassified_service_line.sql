@@ -1,7 +1,7 @@
 -- =============================================================================
--- V40 - A ticket may not say which kind of robot it is about
+-- V47 - A ticket may not say which kind of robot it is about
 --
--- V38 made case_ticket.service_line NOT NULL on the assumption that the board a
+-- V45 made case_ticket.service_line NOT NULL on the assumption that the board a
 -- ticket came from determines it: Cleaning Tickets and Delivery Tickets do.
 --
 -- The Installation Tickets board (3109668017) does not. It carries both robot

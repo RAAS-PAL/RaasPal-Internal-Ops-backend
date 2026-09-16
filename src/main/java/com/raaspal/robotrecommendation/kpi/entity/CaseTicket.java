@@ -30,7 +30,7 @@ import java.util.UUID;
  * later is already here for history.
  *
  * <p>Table 1 of the parked V34 case-report design plus the KPI columns; see
- * {@code V38__add_case_ticket_sync.sql}.
+ * {@code V45__add_case_ticket_sync.sql}.
  */
 @Entity
 @Table(name = "case_ticket")

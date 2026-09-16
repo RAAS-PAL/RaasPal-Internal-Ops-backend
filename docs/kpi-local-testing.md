@@ -2,7 +2,7 @@
 
 Everything below runs against a **throwaway docker Postgres**, never Supabase.
 That matters: local dev and production share one Supabase database, so starting
-the backend against it would apply **V38–V40** to production.
+the backend against it would apply **V45–V48** to production.
 
 ## One-time setup (already done on this Mac; listed so it can be rebuilt)
 

@@ -1,7 +1,7 @@
 -- =============================================================================
--- V39 - Installation tickets, and the dates the RE KPI formulas actually use
+-- V46 - Installation tickets, and the dates the RE KPI formulas actually use
 --
--- V38 assumed one kind of ticket (CM) and that closure came from a close date.
+-- V45 assumed one kind of ticket (CM) and that closure came from a close date.
 -- Neither holds. The RE team's formulas, given 2026-09-08:
 --
 --   1st Time Install - from the installation ticket's TimeLine (the LATER date),
@@ -13,16 +13,16 @@
 --
 -- So a third board (Installation) joins the two CM boards, and "checked" is the
 -- board's RE Action date, not a close date - neither ticket board has a close
--- date column at all, which is why V38's close_date is almost always null.
+-- date column at all, which is why V45's close_date is almost always null.
 --
 -- Additive only, and every column is nullable or defaulted, so the currently
--- deployed backend keeps reading these tables unchanged. V38 has not reached
+-- deployed backend keeps reading these tables unchanged. V45 has not reached
 -- production yet; it is left untouched rather than edited, because a committed
 -- migration is checksummed and editing one breaks the next start with no local
 -- symptom.
 -- =============================================================================
 
--- INSTALLATION | CM. Defaulted so every row V38 already wrote stays valid: at the
+-- INSTALLATION | CM. Defaulted so every row V45 already wrote stays valid: at the
 -- time only CM boards were synced.
 ALTER TABLE case_ticket ADD COLUMN ticket_type VARCHAR(16) NOT NULL DEFAULT 'CM';
 
@@ -51,7 +51,7 @@ CREATE INDEX idx_case_ticket_type_open    ON case_ticket (ticket_type, open_date
 -- A sync run covers a BOARD, and a board need not be one service line.
 --
 -- The installation board carries both robot types on one board and says which in
--- a column, so there is no single line to stamp on its run row. V38 made this
+-- a column, so there is no single line to stamp on its run row. V45 made this
 -- column NOT NULL, which would have failed every installation sync outright.
 -- Nullable now, with the board's ticket type recorded instead - that is a
 -- property of the board and always known.

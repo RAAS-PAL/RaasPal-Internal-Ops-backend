@@ -1,5 +1,5 @@
 -- =============================================================================
--- V38 - Case tickets mirrored from monday.com, for the RE KPI dashboard
+-- V45 - Case tickets mirrored from monday.com, for the RE KPI dashboard
 --
 -- The Robot Engineering KPI deck (Total CM Cases, SLA, First Time Fix) is built
 -- today by hand from the monday.com Cleaning Tickets and Delivery Tickets boards
@@ -13,7 +13,7 @@
 -- boards twice. Six columns are added for the KPI maths: service_line, ticket_no,
 -- issue_level, close_date, is_closed and serials_normalised. The other eight V34
 -- tables (comments, status history, overrides, report definitions, ...) stay
--- parked and arrive with that feature as V39+.
+-- parked and arrive with that feature as V46+.
 --
 -- Purely additive: nothing existing references these tables and nothing here
 -- references anything existing, so the deployed backend is unaffected. That

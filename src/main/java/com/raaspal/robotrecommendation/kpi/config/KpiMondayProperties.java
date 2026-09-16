@@ -180,7 +180,7 @@ public class KpiMondayProperties {
          * one, else read out of {@link #serviceLineColumn} by keyword.
          *
          * <p>Returns null when nothing matches. That is deliberate — see
-         * {@code V40__allow_unclassified_service_line.sql}. Guessing would inflate
+         * {@code V47__allow_unclassified_service_line.sql}. Guessing would inflate
          * one side of every split with an error that looks exactly like data.
          */
         public ServiceLine resolveServiceLine(String columnText) {

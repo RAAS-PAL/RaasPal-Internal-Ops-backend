@@ -1,5 +1,5 @@
 -- =============================================================================
--- V41 - Not every row on a KPI board is a KPI case
+-- V48 - Not every row on a KPI board is a KPI case
 --
 -- The "Installation Tickets" board (3109668017) turned out to be the RE team's
 -- job board: its "Job Type" column has 25 labels - Survey Site, Demo, Training,
