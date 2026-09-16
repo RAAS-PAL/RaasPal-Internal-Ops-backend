@@ -14,6 +14,7 @@ import com.raaspal.robotrecommendation.casereport.service.CaseReportRunService;
 import com.raaspal.robotrecommendation.casereport.service.AotgaReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.CleaningPendingReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.MkPendingReportGenerator;
+import com.raaspal.robotrecommendation.casereport.service.OnHoldReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.SlaCalculator;
 import com.raaspal.robotrecommendation.casereport.service.SlaStatus;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
@@ -73,6 +74,7 @@ class CaseReportRunServiceEditTest {
 
         service = new CaseReportRunService(definitions, runs, generator,
                 mock(CleaningPendingReportGenerator.class), mock(AotgaReportGenerator.class),
+                mock(OnHoldReportGenerator.class),
                 new SlaCalculator(List.of("Bangkok")), json, new CaseReportExcelWriter());
     }
 
@@ -128,7 +130,7 @@ class CaseReportRunServiceEditTest {
 
         // The board now lists the same two tickets in the other order, plus a new one,
         // and its value for 1001 is still the uncorrected one.
-        when(generator.generate(TODAY)).thenReturn(List.of(
+        when(generator.generate(MkPendingReportGenerator.Scope.MK, TODAY)).thenReturn(List.of(
                 row(1, "1002", "บิ๊กซี-กัลปพฤกษ์", TODAY.minusDays(2), SlaStatus.WITHIN),
                 row(2, "1001", "โลตัส จันทบุรี", TODAY.minusDays(6), SlaStatus.BREACHED),
                 row(3, "1003", "โลตัสเพชรบูรณ์", TODAY, SlaStatus.WITHIN)));
@@ -187,7 +189,7 @@ class CaseReportRunServiceEditTest {
         assertThat(added.sla()).isEqualTo(SlaStatus.BREACHED); // upcountry, 7 > 5
         assertThat(run.getTicketCount()).isEqualTo(3);
 
-        when(generator.generate(TODAY)).thenReturn(List.of(
+        when(generator.generate(MkPendingReportGenerator.Scope.MK, TODAY)).thenReturn(List.of(
                 row(1, "1002", "บิ๊กซี-กัลปพฤกษ์", TODAY.minusDays(2), SlaStatus.WITHIN)));
 
         List<CaseReportRow> regenerated =

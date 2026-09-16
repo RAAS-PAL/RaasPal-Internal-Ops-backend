@@ -24,7 +24,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * How the cleaning board is split into the Cleaning and Makro sheets.
+ * How the cleaning board is split into the Cleaning, Makro and On Hold sheets.
  *
  * <p>The tickets are shaped like the live board on 2026-09-13: the Project tag blank on
  * half of them, "Makro" spelled three ways, the airports tagged on one ticket and not the
@@ -60,43 +60,67 @@ class CleaningPendingReportGeneratorTest {
                 ticket("12", "Delta", "เดลต้าอิเล็กทรอนิกส์", "M40", "2026-09-14", null, "New", "ปรับแผนงาน")));
     }
 
-    /** Makro's tickets, whether the tag says so or only the branch name does. */
+    /** Makro's tickets, whether the tag says so or only the branch name does — minus the held one. */
     @Test
     void theMakroSheetIsMakrosTicketsHoweverTheyAreSpelled() {
         List<CaseReportRow> rows = generator.generate(Scope.MAKRO, AS_OF);
 
-        assertThat(rows).extracting(CaseReportRow::sourceItemId).containsExactly("4", "3", "5", "6");
+        assertThat(rows).extracting(CaseReportRow::sourceItemId).containsExactly("4", "5", "6");
         assertThat(rows).extracting(CaseReportRow::project).containsOnly("Makro");
         assertThat(rows).extracting(CaseReportRow::branch)
-                .containsExactly("Makro สาขา : หนองคาย", "Makro ทุ่งสง", "MaKro สาขา:  ขอนแก่น 3", "Makro หาดใหญ่");
+                .containsExactly("Makro สาขา : หนองคาย", "MaKro สาขา:  ขอนแก่น 3", "Makro หาดใหญ่");
     }
 
-    /** Everything else, minus the airports, which have their own sheet. */
+    /** Everything else, minus the airports, which have their own sheet, and minus the held. */
     @Test
-    void theCleaningSheetIsTheRestWithoutTheAirports() {
+    void theCleaningSheetIsTheRestWithoutTheAirportsOrTheHeld() {
         List<CaseReportRow> rows = generator.generate(Scope.CLEANING, AS_OF);
 
-        assertThat(rows).extracting(CaseReportRow::sourceItemId).containsExactly("1", "2", "11");
+        assertThat(rows).extracting(CaseReportRow::sourceItemId).containsExactly("1", "11");
         // The customer is printed under Project, from the branch name, and Branch is empty.
         assertThat(rows).extracting(CaseReportRow::project)
-                .containsExactly("One Bangkok", "โรงพยาบาลเซนต์หลุยส์", "MK CK5");
+                .containsExactly("One Bangkok", "MK CK5");
         assertThat(rows).extracting(CaseReportRow::branch).containsOnlyNulls();
     }
 
-    /** Neither sheet loses a ticket to the other, and none is on both. */
+    /**
+     * The held cases, Makro's included, the airports' not: an airport case is on RAW_AOTGA
+     * whatever its status. Both site columns are filled, since two boards share the sheet.
+     */
     @Test
-    void theTwoSheetsDoNotOverlap() {
+    void theOnHoldSheetIsEveryHeldCaseExceptTheAirports() {
+        List<CaseReportRow> rows = generator.generate(Scope.ON_HOLD, AS_OF);
+
+        assertThat(rows).extracting(CaseReportRow::sourceItemId).containsExactly("2", "3");
+        assertThat(rows).extracting(CaseReportRow::sla).containsOnly(SlaStatus.ON_HOLD);
+        assertThat(rows).extracting(CaseReportRow::project)
+                .containsExactly("โรงพยาบาลเซนต์หลุยส์", "Makro");
+        assertThat(rows).extracting(CaseReportRow::branch)
+                .containsExactly("โรงพยาบาลเซนต์หลุยส์", "Makro ทุ่งสง");
+        // The generator does not know which board it is; the combiner stamps that.
+        assertThat(rows).extracting(CaseReportRow::board).containsOnlyNulls();
+    }
+
+    /** No sheet loses a ticket to another, and no ticket is on two. */
+    @Test
+    void theThreeSheetsDoNotOverlap() {
         List<String> cleaning = generator.generate(Scope.CLEANING, AS_OF).stream()
                 .map(CaseReportRow::sourceItemId).toList();
         List<String> makro = generator.generate(Scope.MAKRO, AS_OF).stream()
                 .map(CaseReportRow::sourceItemId).toList();
+        List<String> onHold = generator.generate(Scope.ON_HOLD, AS_OF).stream()
+                .map(CaseReportRow::sourceItemId).toList();
 
-        assertThat(cleaning).doesNotContainAnyElementsOf(makro);
+        assertThat(cleaning).doesNotContainAnyElementsOf(makro).doesNotContainAnyElementsOf(onHold);
+        assertThat(makro).doesNotContainAnyElementsOf(onHold);
+        // Every non-airport ticket open on the date is on exactly one of them.
+        assertThat(List.of(cleaning, makro, onHold).stream().flatMap(List::stream).sorted().toList())
+                .containsExactly("1", "11", "2", "3", "4", "5", "6");
     }
 
-    /** 3 days everywhere, no province; On Hold outranks the arithmetic; exclusive count. */
+    /** 3 days everywhere, no province; exclusive count. */
     @Test
-    void slaIsThreeDaysEverywhereAndOnHoldOutranksIt() {
+    void slaIsThreeDaysEverywhere() {
         Map<String, CaseReportRow> byId = new java.util.HashMap<>();
         generator.generate(Scope.CLEANING, AS_OF).forEach(r -> byId.put(r.sourceItemId(), r));
 
@@ -104,9 +128,6 @@ class CleaningPendingReportGeneratorTest {
         assertThat(oneBangkok.days()).isEqualTo(59);
         assertThat(oneBangkok.sla()).isEqualTo(SlaStatus.BREACHED);
         assertThat(oneBangkok.province()).isNull();
-
-        CaseReportRow stLouis = byId.get("2");        // On Hold
-        assertThat(stLouis.sla()).isEqualTo(SlaStatus.ON_HOLD);
 
         CaseReportRow mkCk5 = byId.get("11");         // opened 10 Sep, 3 days: at the limit
         assertThat(mkCk5.days()).isEqualTo(3);

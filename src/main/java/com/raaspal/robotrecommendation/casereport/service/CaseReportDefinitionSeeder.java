@@ -70,7 +70,8 @@ public class CaseReportDefinitionSeeder implements ApplicationRunner {
                         .code(CaseReportDefinition.CLEANING_PENDING)
                         .name("Cleaning pending cases")
                         .description("Every open cleaning case except Makro's and the "
-                                + "airports', which have their own sheets. 3-day SLA "
+                                + "airports', which have their own sheets, and except "
+                                + "held cases, which are on the On Hold sheet. 3-day SLA "
                                 + "everywhere.")
                         .generatorKey("CLEANING_PENDING")
                         .source(CaseSource.MONDAY)
@@ -89,7 +90,8 @@ public class CaseReportDefinitionSeeder implements ApplicationRunner {
                         .code(CaseReportDefinition.MAKRO_PENDING)
                         .name("Makro pending cases")
                         .description("Makro's cleaning cases, on their own sheet as the RE "
-                                + "team sends them. 3-day SLA everywhere.")
+                                + "team sends them; held cases are on the On Hold sheet. "
+                                + "3-day SLA everywhere.")
                         .generatorKey("MAKRO_PENDING")
                         .source(CaseSource.MONDAY)
                         .sourceBoardId(CleaningPendingReportGenerator.BOARD_ID)
@@ -113,6 +115,42 @@ public class CaseReportDefinitionSeeder implements ApplicationRunner {
                         .source(CaseSource.MONDAY)
                         .sourceBoardId(AotgaReportGenerator.BOARD_ID)
                         .sourceGroupId(AotgaReportGenerator.GROUP_ID)
+                        .deliveryMode("MANUAL")
+                        .scheduleZone("Asia/Bangkok")
+                        .slaDaysMetro(3)
+                        .slaDaysUpcountry(3)
+                        .isActive(true)
+                        .build(),
+
+                CaseReportDefinition.builder()
+                        .code(CaseReportDefinition.DELIVERY_PENDING)
+                        .name("Delivery pending cases")
+                        .description("Every open delivery case that is not MK's, under "
+                                + "MK's rule: 3 days in greater Bangkok, 5 elsewhere. "
+                                + "Held cases are on the On Hold sheet.")
+                        .generatorKey("DELIVERY_PENDING")
+                        .source(CaseSource.MONDAY)
+                        .sourceBoardId(MkPendingReportGenerator.BOARD_ID)
+                        .sourceGroupId(MkPendingReportGenerator.GROUP_ID)
+                        .deliveryMode("MANUAL")
+                        .scheduleZone("Asia/Bangkok")
+                        .slaDaysMetro(3)
+                        .slaDaysUpcountry(5)
+                        .isActive(true)
+                        .build(),
+
+                CaseReportDefinition.builder()
+                        .code(CaseReportDefinition.ON_HOLD_PENDING)
+                        .name("On Hold cases")
+                        .description("Every held case on the cleaning and delivery "
+                                + "boards, except the airports'. No SLA: a held clock "
+                                + "is not RAASPAL's to run.")
+                        .generatorKey("ON_HOLD_PENDING")
+                        .source(CaseSource.MONDAY)
+                        // Two boards; the cleaning one is recorded here and the
+                        // delivery one is MK's. The generators hold the truth.
+                        .sourceBoardId(CleaningPendingReportGenerator.BOARD_ID)
+                        .sourceGroupId(CleaningPendingReportGenerator.GROUP_ID)
                         .deliveryMode("MANUAL")
                         .scheduleZone("Asia/Bangkok")
                         .slaDaysMetro(3)

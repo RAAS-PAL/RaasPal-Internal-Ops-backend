@@ -63,10 +63,12 @@ public class CaseReportController {
             "mk", CaseReportDefinition.MK_PENDING,
             "cleaning", CaseReportDefinition.CLEANING_PENDING,
             "makro", CaseReportDefinition.MAKRO_PENDING,
-            "aotga", CaseReportDefinition.AOTGA_PENDING);
+            "aotga", CaseReportDefinition.AOTGA_PENDING,
+            "delivery", CaseReportDefinition.DELIVERY_PENDING,
+            "on-hold", CaseReportDefinition.ON_HOLD_PENDING);
 
     /** Only these slugs reach the handlers below; anything else falls through to a 404. */
-    private static final String REPORT = "{report:mk|cleaning|makro|aotga}";
+    private static final String REPORT = "{report:mk|cleaning|makro|aotga|delivery|on-hold}";
 
     /**
      * A pending-case sheet: {@code mk} (MK, Yayoi and Bonus Suki delivery cases),
