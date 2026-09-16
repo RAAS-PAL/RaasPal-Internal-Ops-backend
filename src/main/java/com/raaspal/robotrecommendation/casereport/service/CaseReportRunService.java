@@ -20,6 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -61,6 +64,18 @@ public class CaseReportRunService {
     private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
     private final CaseReportExcelWriter excelWriter;
+
+    /**
+     * The generations running right now, by sheet and date.
+     *
+     * <p>A generation is minutes of monday and model calls. When a second request for the
+     * same sheet and date arrives while one is running — a client that gave up and asked
+     * again, two reviewers opening the same tab — it waits for the first and gets its rows,
+     * rather than starting another that reads the same board, pays for the same model
+     * calls, and then overwrites the same run. In-memory, because there is one instance.
+     */
+    private final ConcurrentHashMap<String, CompletableFuture<List<CaseReportRow>>> inFlight =
+            new ConcurrentHashMap<>();
 
     /** A built workbook and the name it should download as. */
     public record Export(byte[] bytes, String filename) {
@@ -146,12 +161,34 @@ public class CaseReportRunService {
                             + "frozen on the day they are generated.");
         }
 
-        List<CaseReportRow> rows = generate(definitionCode, definition, asOf);
-        if (existing != null) {
-            rows = keepEditedRows(parse(existing.getRowsJson()), rows);
+        String key = definitionCode + '|' + asOf;
+        CompletableFuture<List<CaseReportRow>> mine = new CompletableFuture<>();
+        CompletableFuture<List<CaseReportRow>> running = inFlight.putIfAbsent(key, mine);
+        if (running != null) {
+            log.info("A {} generation for {} is already running; waiting for its rows",
+                    definitionCode, asOf);
+            try {
+                return running.join();
+            } catch (CompletionException e) {
+                // The same failure the first request saw, with its message intact.
+                if (e.getCause() instanceof RuntimeException re) throw re;
+                throw e;
+            }
         }
-        freeze(definition, asOf, existing, rows);
-        return rows;
+        try {
+            List<CaseReportRow> rows = generate(definitionCode, definition, asOf);
+            if (existing != null) {
+                rows = keepEditedRows(parse(existing.getRowsJson()), rows);
+            }
+            freeze(definition, asOf, existing, rows);
+            mine.complete(rows);
+            return rows;
+        } catch (RuntimeException e) {
+            mine.completeExceptionally(e);
+            throw e;
+        } finally {
+            inFlight.remove(key, mine);
+        }
     }
 
     /**

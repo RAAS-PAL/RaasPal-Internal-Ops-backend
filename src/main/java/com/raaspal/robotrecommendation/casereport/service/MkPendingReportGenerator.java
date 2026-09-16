@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -124,7 +125,8 @@ public class MkPendingReportGenerator {
     public List<CaseReportRow> generate(Scope scope, LocalDate asOf) {
         List<MondayItem> items = boardReader.readGroupItems(BOARD_ID, GROUP_ID, COLUMN_IDS);
 
-        List<CaseReportRow> unordered = new ArrayList<>();
+        // See CleaningPendingReportGenerator: decide in series, build together.
+        List<Supplier<CaseReportRow>> pending = new ArrayList<>();
         int otherCustomers = 0;
         int notYetOpen = 0;
         int notHeld = 0;
@@ -171,7 +173,7 @@ public class MkPendingReportGenerator {
                 continue;
             }
 
-            unordered.add(CaseReportRow.of(
+            pending.add(() -> CaseReportRow.of(
                     0,
                     project,
                     branchLabel(item),
@@ -188,6 +190,8 @@ public class MkPendingReportGenerator {
                     province,
                     item.id()));
         }
+
+        List<CaseReportRow> unordered = new ArrayList<>(solutions.buildAll(pending));
 
         // Oldest case first, as the team's own sheet is ordered: the rows most overdue are
         // the ones the reader wants at the top. A case with no open date goes last, where

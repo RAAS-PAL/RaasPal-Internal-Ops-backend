@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 /**
  * Builds the pending-case sheets that come from the cleaning board: Cleaning, Makro, and
@@ -94,7 +95,9 @@ public class CleaningPendingReportGenerator {
     public List<CaseReportRow> generate(Scope scope, LocalDate asOf) {
         List<MondayItem> items = boardReader.readGroupItems(BOARD_ID, GROUP_ID, COLUMN_IDS);
 
-        List<CaseReportRow> unordered = new ArrayList<>();
+        // What belongs on the sheet is decided here, in series; the rows are then built
+        // together, because each one carries a model call.
+        List<Supplier<CaseReportRow>> pending = new ArrayList<>();
         int otherSheets = 0;
         int notYetOpen = 0;
         int heldElsewhere = 0;
@@ -148,7 +151,7 @@ public class CleaningPendingReportGenerator {
                 }
             }
 
-            unordered.add(CaseReportRow.of(
+            pending.add(() -> CaseReportRow.of(
                     0,
                     project,
                     branch,
@@ -166,6 +169,7 @@ public class CleaningPendingReportGenerator {
                     item.id()));
         }
 
+        List<CaseReportRow> unordered = new ArrayList<>(solutions.buildAll(pending));
         unordered.sort(Comparator.comparing(CaseReportRow::openDate,
                 Comparator.nullsLast(Comparator.naturalOrder())));
 

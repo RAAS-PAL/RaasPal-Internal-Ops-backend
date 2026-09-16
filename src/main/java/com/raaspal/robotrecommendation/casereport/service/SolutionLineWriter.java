@@ -4,13 +4,20 @@ import com.raaspal.robotrecommendation.ai.service.CaseSolutionAiService;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayUpdate;
 import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Locale;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.function.Supplier;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,7 +30,6 @@ import java.util.List;
  * the column ids differ, and those stay with each generator.
  */
 @Service
-@RequiredArgsConstructor
 public class SolutionLineWriter {
 
     /**
@@ -44,6 +50,59 @@ public class SolutionLineWriter {
     private static final DateTimeFormatter ENTRY_DATE = DateTimeFormatter.ofPattern("dd-MMM", Locale.ENGLISH);
 
     private final CaseSolutionAiService solutionAi;
+
+    /**
+     * Where the model calls run. One call per ticket, and a sheet has dozens of tickets:
+     * in series that was three minutes for On Hold, which is longer than any client waits.
+     * Bounded, because the API has rate limits and the box has two cores; daemon, so a
+     * stuck call cannot keep the JVM from shutting down.
+     */
+    private final ExecutorService pool;
+
+    @Autowired
+    public SolutionLineWriter(CaseSolutionAiService solutionAi,
+                              @Value("${app.casereport.solution-concurrency:6}") int concurrency) {
+        this.solutionAi = solutionAi;
+        this.pool = Executors.newFixedThreadPool(Math.max(1, concurrency), r -> {
+            Thread t = new Thread(r, "solution-writer");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /** Tests: the default concurrency. */
+    public SolutionLineWriter(CaseSolutionAiService solutionAi) {
+        this(solutionAi, 6);
+    }
+
+    /**
+     * Build every row at once, on the pool, and return them in the order given.
+     *
+     * <p>Each task is one row's construction with its {@link #write} call inside, so the
+     * generator's loop stays a loop that decides what belongs on the sheet, and only the
+     * slow part moves off the request thread. A task that fails fails the sheet — the
+     * same as it did in series — with the original exception rather than a wrapped one,
+     * so the message that reaches the reviewer is unchanged.
+     */
+    public <T> java.util.List<T> buildAll(java.util.List<Supplier<T>> tasks) {
+        java.util.List<Future<T>> futures = new ArrayList<>(tasks.size());
+        for (Supplier<T> task : tasks) {
+            futures.add(pool.submit(task::get));
+        }
+        java.util.List<T> out = new ArrayList<>(futures.size());
+        for (Future<T> f : futures) {
+            try {
+                out.add(f.get());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while writing Solution cells", e);
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof RuntimeException re) throw re;
+                throw new IllegalStateException(e.getCause());
+            }
+        }
+        return out;
+    }
 
     /**
      * @param typed     the board's Solution cell, used as-is when not blank
