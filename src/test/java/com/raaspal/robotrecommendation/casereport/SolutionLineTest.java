@@ -14,6 +14,36 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SolutionLineTest {
 
     /** The case that prompted this: a state running from 25 August to 11 September. */
+    /** The 16 September 2026 workbook: every Solution cell is a stack of dated lines. */
+    @Test
+    void oneEntryPerLineBreaksBeforeEveryDatedEntry() {
+        String line = "01-Sep อยู่ระหว่างตรวจสอบและเบิกอะไหล่เบ้าชาร์จ 02-Sep เจ้าหน้าที่เข้าดำเนินการเปลี่ยนเบ้าชาร์จ "
+                + "15-16 Sep รอเบิกอะไหล่ให้ 25-26-Aug รออะไหล่แบตเตอรี่";
+        assertThat(SolutionLine.oneEntryPerLine(line)).isEqualTo(
+                "01-Sep อยู่ระหว่างตรวจสอบและเบิกอะไหล่เบ้าชาร์จ\n"
+                        + "02-Sep เจ้าหน้าที่เข้าดำเนินการเปลี่ยนเบ้าชาร์จ\n"
+                        + "15-16 Sep รอเบิกอะไหล่ให้\n"
+                        + "25-26-Aug รออะไหล่แบตเตอรี่");
+    }
+
+    /** "เข้า PM 21-Sep" closes an entry; a date with no phrase after it is not a new one. */
+    @Test
+    void aDateThatEndsAPhraseDoesNotStartALine() {
+        String line = "15-Sep รอคลิปประกอบเคลม 16-Sep อยู่ระหว่างประสานงานติดตั้ง Clip Lock เข้า PM 21-Sep";
+        assertThat(SolutionLine.oneEntryPerLine(line)).isEqualTo(
+                "15-Sep รอคลิปประกอบเคลม\n16-Sep อยู่ระหว่างประสานงานติดตั้ง Clip Lock เข้า PM 21-Sep");
+    }
+
+    /** The model's own newlines, or a mix, come out the same as spaces would. */
+    @Test
+    void whitespaceFromTheModelIsFoldedBeforeTheBreaksGoIn() {
+        assertThat(SolutionLine.oneEntryPerLine("12-Sep เบิกอะไหล่\n\n14-Sep  จัดส่งอะไหล่ \n 17-Sep เจ้าหน้าที่เข้าดำเนินการ"))
+                .isEqualTo("12-Sep เบิกอะไหล่\n14-Sep จัดส่งอะไหล่\n17-Sep เจ้าหน้าที่เข้าดำเนินการ");
+        assertThat(SolutionLine.oneEntryPerLine("16-Sep อยู่ระหว่างตรวจสอบ")).isEqualTo("16-Sep อยู่ระหว่างตรวจสอบ");
+        assertThat(SolutionLine.oneEntryPerLine(null)).isNull();
+        assertThat(SolutionLine.oneEntryPerLine("  ")).isEqualTo("  ");
+    }
+
     @Test
     void aRangeThatCrossesIntoTheNextMonthIsSplitAtTheMonthEnd() {
         String fixed = SolutionLine.splitCrossMonthRanges(

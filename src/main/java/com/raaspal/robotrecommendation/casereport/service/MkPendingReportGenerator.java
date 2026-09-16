@@ -180,7 +180,7 @@ public class MkPendingReportGenerator {
                     item.columnText(C_PROBLEM),
                     solutions.write(item, item.columnText(C_SOLUTION), branchLabel(item),
                             item.columnText(C_PROBLEM), item.columnText(C_STATUS),
-                            item.columnText(C_SUP_STATUS), asOf),
+                            item.columnText(C_SUP_STATUS), openDate, asOf),
                     openDate,
                     MondayCells.date(item.columnText(C_RE_ON_SITE)),
                     openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf),

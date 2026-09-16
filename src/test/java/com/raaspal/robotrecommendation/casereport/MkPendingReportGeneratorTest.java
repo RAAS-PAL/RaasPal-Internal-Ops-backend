@@ -20,6 +20,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -86,6 +87,22 @@ class MkPendingReportGeneratorTest {
                 .extracting(CaseReportRow::sourceItemId).containsExactly("3", "5");
         assertThat(generator.generate(MkPendingReportGenerator.Scope.ON_HOLD, asOf))
                 .extracting(CaseReportRow::sourceItemId).containsExactly("2", "4");
+    }
+
+    /** A ticket nobody has commented on gets the RE team's opener, dated the day it opened. */
+    @Test
+    void aSilentTicketGetsTheOpenerDatedTheOpenDate() {
+        MondayBoardReader boardReader = mock(MondayBoardReader.class);
+        CaseSolutionAiService solutionAi = mock(CaseSolutionAiService.class);
+        when(boardReader.readGroupItems(any(), any(), any())).thenReturn(List.of(ticket("1", "#Yayoi", "New")));
+
+        List<CaseReportRow> rows = new MkPendingReportGenerator(
+                boardReader, new SlaCalculator(List.of("Bangkok")), new SolutionLineWriter(solutionAi))
+                .generate(MkPendingReportGenerator.Scope.MK, LocalDate.of(2026, 9, 16));
+
+        assertThat(rows).singleElement().extracting(CaseReportRow::solution)
+                .isEqualTo("10-Sep " + SolutionLineWriter.OPENER);
+        verify(solutionAi, never()).summariseProgress(any());
     }
 
     private static MondayItem ticket(String id, String project, String status) {

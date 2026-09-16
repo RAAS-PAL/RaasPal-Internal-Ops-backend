@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,6 +34,15 @@ public class SolutionLineWriter {
      */
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Bangkok");
 
+    /**
+     * What the RE team writes on a ticket nobody has commented on yet: the case has been
+     * received and is being looked at. Dated the day it opened.
+     */
+    public static final String OPENER = "อยู่ระหว่างตรวจสอบและประเมินอาการหุ่นยนต์";
+
+    /** {@code 16-Sep}, the entry date form the workbook uses. */
+    private static final DateTimeFormatter ENTRY_DATE = DateTimeFormatter.ofPattern("dd-MMM", Locale.ENGLISH);
+
     private final CaseSolutionAiService solutionAi;
 
     /**
@@ -40,7 +51,9 @@ public class SolutionLineWriter {
      * @param problem   the Main Issue cell
      * @param status    the Status cell, so the model can finish with the current state
      * @param supStatus the Sup Status cell
-     * @return the line, or null when there is nothing to say
+     * @param openDate  when the case opened, which dates the opener on a silent ticket;
+     *                  null falls back to the report date
+     * @return the cell, one dated entry per line; never blank on a board row
      */
     public String write(MondayItem item,
                         String typed,
@@ -48,20 +61,27 @@ public class SolutionLineWriter {
                         String problem,
                         String status,
                         String supStatus,
+                        LocalDate openDate,
                         LocalDate asOf) {
         if (typed != null && !typed.isBlank()) {
-            return typed;
+            return SolutionLine.oneEntryPerLine(typed);
         }
         List<CaseProgressRequest.Comment> comments = commentsOf(item);
-        if (comments.isEmpty()) {
-            return null;
-        }
+        String line = comments.isEmpty() ? null : solutionAi.summariseProgress(
+                new CaseProgressRequest(branch, problem, status, supStatus, asOf, comments));
 
-        String line = solutionAi.summariseProgress(new CaseProgressRequest(
-                branch, problem, status, supStatus, asOf, comments));
-        if (line == null || line.isBlank()) return null;
-        // The one rule the model is allowed to break and the report is not.
-        return SolutionLine.splitCrossMonthRanges(line, asOf.getYear());
+        // A blank cell used to be the honest answer for a ticket with nothing in it. The
+        // RE team's sheet never leaves one blank: a case just opened is "being assessed",
+        // and they write that. So does this, dated the day the case opened, which is what
+        // the reviewer would have typed.
+        if (line == null || line.isBlank()) {
+            LocalDate on = openDate != null ? openDate : asOf;
+            return on.format(ENTRY_DATE) + ' ' + OPENER;
+        }
+        // The one rule the model is allowed to break and the report is not — then the
+        // layout, which the model is not asked for at all.
+        return SolutionLine.oneEntryPerLine(
+                SolutionLine.splitCrossMonthRanges(line, asOf.getYear()));
     }
 
     /**

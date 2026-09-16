@@ -157,7 +157,7 @@ public class CleaningPendingReportGenerator {
                     item.columnText(C_PROBLEM),
                     solutions.write(item, item.columnText(C_SOLUTION), site,
                             item.columnText(C_PROBLEM), item.columnText(C_STATUS),
-                            item.columnText(C_SUP_STATUS), asOf),
+                            item.columnText(C_SUP_STATUS), openDate, asOf),
                     openDate,
                     MondayCells.date(item.columnText(C_RE_ACTION)),
                     openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf),
