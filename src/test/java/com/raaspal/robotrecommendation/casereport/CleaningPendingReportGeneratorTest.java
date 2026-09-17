@@ -146,15 +146,15 @@ class CleaningPendingReportGeneratorTest {
     private static MondayItem ticket(String id, String project, String branch, String robot,
                                      String open, String re, String status, String supStatus) {
         List<MondayColumnValue> cells = new ArrayList<>();
-        cells.add(new MondayColumnValue("asset_owner3__1", "tags", project, null));
-        cells.add(new MondayColumnValue("text6", "text", branch, null));
-        cells.add(new MondayColumnValue("status_17", "status", robot, null));
-        cells.add(new MondayColumnValue("text0", "text", "GS-" + id, null));
-        cells.add(new MondayColumnValue("text", "text", "ปัญหา " + id, null));
-        cells.add(new MondayColumnValue("date8", "date", open, null));
-        cells.add(new MondayColumnValue("date_1", "date", re, null));
-        cells.add(new MondayColumnValue("status", "status", status, null));
-        cells.add(new MondayColumnValue("status7", "status", supStatus, null));
+        cells.add(new MondayColumnValue("asset_owner3__1", "tags", project, null, null));
+        cells.add(new MondayColumnValue("text6", "text", branch, null, null));
+        cells.add(new MondayColumnValue("status_17", "status", robot, null, null));
+        cells.add(new MondayColumnValue("text0", "text", "GS-" + id, null, null));
+        cells.add(new MondayColumnValue("text", "text", "ปัญหา " + id, null, null));
+        cells.add(new MondayColumnValue("date8", "date", open, null, null));
+        cells.add(new MondayColumnValue("date_1", "date", re, null, null));
+        cells.add(new MondayColumnValue("status", "status", status, null, null));
+        cells.add(new MondayColumnValue("status7", "status", supStatus, null, null));
         return new MondayItem(id, branch, null, null, cells, List.of(), null);
     }
 }

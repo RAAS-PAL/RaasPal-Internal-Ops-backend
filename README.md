@@ -249,6 +249,7 @@ exchange, and signed customer report links.
 | `/api/v1/autoxing/report` | AutoXing-sourced reporting |
 | `/api/v1/cm-reports` | Corrective maintenance reports |
 | `/api/v1/case-reports/monday` | Monday.com case preview |
+| `/api/v1/kpi` | RE KPI dashboard: CM cases, SLA, first-time fix, CSAT, monday sync |
 | `/api/v1/cvte/devices` | CVTE C3 device tracking and polling |
 | `/api/v1/translate` | Translation for the bilingual frontend |
 | `/api/v1/ai` | Direct AI utility endpoints |
@@ -279,12 +280,16 @@ exchange, and signed customer report links.
 | `CVTE_KAVA_SIGN_TYPE` | Signing algorithm, `md5` or `hmac` (default `hmac`) |
 | `CVTE_KAVA_POLLING_ENABLED` | Enable background device refresh (default `false`) |
 | `CVTE_KAVA_POLLING_INTERVAL_MS` | Scheduled poll interval (default `60000`) |
-| `MONDAY_API_TOKEN` | monday.com API token for the pending-case reports. **Required** wherever those reports run: the default is empty, so without it the report reaches monday unauthenticated and fails |
+| `MONDAY_API_TOKEN` | monday.com API token for the pending-case reports and the RE KPI case sync. **Required** wherever those reports run: the default is empty, so without it the report reaches monday unauthenticated and fails |
 | `MONDAY_API_VERSION` | monday.com API version (default `2026-07`). Pinned because unpinned requests roll forward each quarter |
 | `MONDAY_UPDATES_PER_ITEM` | Comments read per ticket (default `50`). The Solution column is written from the whole thread |
 | `CASE_REPORT_SYNC_ENABLED` | Daily snapshot of both boards, then freeze the day report (default `false`). A day it does not run cannot be reported on later |
 | `CASE_REPORT_SYNC_CRON` | When that runs (default `0 15 6 * * *`, Asia/Bangkok) |
 | `CASE_REPORT_METRO_PROVINCES` | Provinces on the 3-day SLA; everywhere else is 5 (default: the six greater-Bangkok provinces, in Thai and English) |
+| `KPI_MONDAY_SYNC_ENABLED` | `true` to run the nightly monday → `case_ticket` sync (default `false`; `POST /api/v1/kpi/monday/sync` works either way) |
+| `KPI_MONDAY_SYNC_CRON` / `KPI_MONDAY_SYNC_ZONE` | When it runs (default `0 30 1 * * *` in `Asia/Bangkok`) |
+| `KPI_REPEAT_WINDOW_DAYS` | Days after a ticket closes within which a new ticket for the same serial counts as a repeat (default `7`) |
+| `APP_KPI_MONDAY_BOARDS_<n>_COLUMNS_<FIELD>` | Override a board's column mapping without a deploy, e.g. `APP_KPI_MONDAY_BOARDS_0_COLUMNS_CLOSEDATE=date_xxxx`; see the `app.kpi.monday` block in `application.properties` |
 
 ---
 

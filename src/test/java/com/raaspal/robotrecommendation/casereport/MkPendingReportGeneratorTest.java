@@ -43,8 +43,8 @@ class MkPendingReportGeneratorTest {
 
         MondayItem ticket = new MondayItem(
                 "1", "M154", null, null,
-                List.of(new MondayColumnValue("asset_owner", "status", "#MK", null),
-                        new MondayColumnValue("date5", "date", "2026-09-08", null)),
+                List.of(new MondayColumnValue("asset_owner", "status", "#MK", null, null),
+                        new MondayColumnValue("date5", "date", "2026-09-08", null, null)),
                 List.of(new MondayUpdate("u1", "เจ้าหน้าที่เข้าซ่อมหน้างาน",
                         OffsetDateTime.parse("2026-09-10T23:30:00Z"), null, null)),
                 null);
@@ -107,9 +107,11 @@ class MkPendingReportGeneratorTest {
 
     private static MondayItem ticket(String id, String project, String status) {
         return new MondayItem(id, "ticket " + id, null, null,
-                List.of(new MondayColumnValue("asset_owner", "status", project, null),
-                        new MondayColumnValue("date5", "date", "2026-09-10", null),
-                        new MondayColumnValue("status", "status", status, null)),
+                // Five components since this branch: main's fourth is the raw
+                // value, and the column ref it carries is the fifth.
+                List.of(new MondayColumnValue("asset_owner", "status", project, null, null),
+                        new MondayColumnValue("date5", "date", "2026-09-10", null, null),
+                        new MondayColumnValue("status", "status", status, null, null)),
                 List.of(), null);
     }
 }

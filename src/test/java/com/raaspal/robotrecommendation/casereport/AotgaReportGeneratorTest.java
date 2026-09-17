@@ -264,18 +264,18 @@ class AotgaReportGeneratorTest {
                                      String robot, String open, String part, String waiting,
                                      String waitingFrom, String received) {
         List<MondayColumnValue> cells = new ArrayList<>();
-        cells.add(new MondayColumnValue("asset_owner3__1", "tags", project, null));
-        cells.add(new MondayColumnValue("text6", "text", branch, null));
-        cells.add(new MondayColumnValue("status_17", "status", robot, null));
-        cells.add(new MondayColumnValue("text0", "text", "GS-" + id, null));
-        cells.add(new MondayColumnValue("text", "text", "ปัญหา " + id, null));
-        cells.add(new MondayColumnValue("date8", "date", open, null));
-        cells.add(new MondayColumnValue("status", "status", "Pending", null));
-        cells.add(new MondayColumnValue("status7", "status", "รออะไหล่", null));
-        cells.add(new MondayColumnValue("dropdown_mknqq9fm", "dropdown", part, null));
-        cells.add(new MondayColumnValue("text_mm3j1dbd", "text", waiting, null));
-        cells.add(new MondayColumnValue("dropdown_mm1gmnst", "dropdown", waitingFrom, null));
-        cells.add(new MondayColumnValue("date_mm3b365t", "date", received, null));
+        cells.add(new MondayColumnValue("asset_owner3__1", "tags", project, null, null));
+        cells.add(new MondayColumnValue("text6", "text", branch, null, null));
+        cells.add(new MondayColumnValue("status_17", "status", robot, null, null));
+        cells.add(new MondayColumnValue("text0", "text", "GS-" + id, null, null));
+        cells.add(new MondayColumnValue("text", "text", "ปัญหา " + id, null, null));
+        cells.add(new MondayColumnValue("date8", "date", open, null, null));
+        cells.add(new MondayColumnValue("status", "status", "Pending", null, null));
+        cells.add(new MondayColumnValue("status7", "status", "รออะไหล่", null, null));
+        cells.add(new MondayColumnValue("dropdown_mknqq9fm", "dropdown", part, null, null));
+        cells.add(new MondayColumnValue("text_mm3j1dbd", "text", waiting, null, null));
+        cells.add(new MondayColumnValue("dropdown_mm1gmnst", "dropdown", waitingFrom, null, null));
+        cells.add(new MondayColumnValue("date_mm3b365t", "date", received, null, null));
         return new MondayItem(id, name, null, null, cells, updatesFor(id), null);
     }
 

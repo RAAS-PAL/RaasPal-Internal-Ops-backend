@@ -4,10 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -33,8 +36,27 @@ public class MondayApiClient {
     public MondayApiClient(
             @Value("${app.monday.api.base-url:https://api.monday.com/v2}") String baseUrl,
             @Value("${app.monday.api.token:}") String token,
-            @Value("${app.monday.api.version:2026-07}") String apiVersion) {
-        this.restClient = RestClient.builder().baseUrl(baseUrl).build();
+            @Value("${app.monday.api.version:2026-07}") String apiVersion,
+            @Value("${app.monday.api.connect-timeout-seconds:15}") int connectTimeoutSeconds,
+            @Value("${app.monday.api.read-timeout-seconds:90}") int readTimeoutSeconds) {
+
+        // Timeouts are not optional here. Without a read timeout the underlying JDK
+        // HttpClient waits on the socket forever, so one unanswered request parks the
+        // sync thread permanently — and because scheduled and manual runs share one
+        // lock, every later run is refused as "already running" until the process is
+        // restarted. Observed in the wild: a board read sat parked for 29 minutes
+        // having used 1.8 seconds of CPU.
+        //
+        // 90 seconds is generous for a page of 50 board items but still finite, and a
+        // timeout surfaces as a MondayApiException, which fails only that board and
+        // records the reason on its run row.
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
+                        .build());
+        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
+
+        this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
         this.token = token;
         this.apiVersion = apiVersion;
     }
@@ -60,23 +82,42 @@ public class MondayApiClient {
         body.put("query", query);
         body.put("variables", variables == null ? Map.of() : variables);
 
-        JsonNode response;
+        // One retry, for timeouts and dropped connections only. A board sync is
+        // dozens of sequential calls, so a single flaky page would otherwise lose the
+        // whole board's read. NOT retried on a GraphQL error or an HTTP error status:
+        // those are deterministic, and repeating them just spends the daily API budget
+        // twice for the same failure.
         try {
-            response = restClient.post()
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .header("Authorization", token)
-                    .header("API-Version", apiVersion)
-                    .body(body)
-                    .retrieve()
-                    .body(JsonNode.class);
+            return unwrap(post(body));
         } catch (RestClientResponseException e) {
             throw new MondayApiException(
                     "monday API call failed: " + e.getStatusCode() + " " + e.getResponseBodyAsString(), e);
+        } catch (MondayApiException e) {
+            throw e;
         } catch (Exception e) {
-            throw new MondayApiException("monday API call failed: " + e.getMessage(), e);
+            log.warn("monday API call failed ({}), retrying once", e.getMessage());
+            try {
+                return unwrap(post(body));
+            } catch (RestClientResponseException retryError) {
+                throw new MondayApiException("monday API call failed on retry: " + retryError.getStatusCode()
+                        + " " + retryError.getResponseBodyAsString(), retryError);
+            } catch (MondayApiException retryError) {
+                throw retryError;
+            } catch (Exception retryError) {
+                throw new MondayApiException(
+                        "monday API call failed twice: " + retryError.getMessage(), retryError);
+            }
         }
+    }
 
-        return unwrap(response);
+    private JsonNode post(Map<String, Object> body) {
+        return restClient.post()
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", token)
+                .header("API-Version", apiVersion)
+                .body(body)
+                .retrieve()
+                .body(JsonNode.class);
     }
 
     /** Returns the {@code data} node, failing loudly on GraphQL errors. */

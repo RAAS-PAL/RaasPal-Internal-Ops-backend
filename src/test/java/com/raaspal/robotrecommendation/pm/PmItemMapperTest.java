@@ -59,11 +59,11 @@ class PmItemMapperTest {
     }
 
     private static MondayColumnValue text(String id, String text) {
-        return new MondayColumnValue(id, "text", text, null);
+        return new MondayColumnValue(id, "text", text, null, null);
     }
 
     private static MondayColumnValue json(String id, String text, String value) {
-        return new MondayColumnValue(id, "location", text, value);
+        return new MondayColumnValue(id, "location", text, value, null);
     }
 
     @Test
