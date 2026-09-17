@@ -46,13 +46,15 @@ public class PmPlanningController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String q,
-            @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany) {
+            @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
+            @RequestParam(name = "company", required = false) List<String> company) {
 
         int resolvedYear = year != null ? year : LocalDate.now().getYear();
         if (resolvedYear < 2000 || resolvedYear > 2100) {
             throw new BadRequestException("year must be between 2000 and 2100");
         }
-        PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q, excludeCompany);
+        PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
+                excludeCompany, company);
         return ResponseEntity.ok(ApiResponse.success(planningService.year(resolvedYear, filter)));
     }
 
@@ -76,7 +78,8 @@ public class PmPlanningController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String q,
-            @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany) {
+            @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
+            @RequestParam(name = "company", required = false) List<String> company) {
 
         LocalDate rangeFrom;
         LocalDate rangeTo;
@@ -95,7 +98,8 @@ public class PmPlanningController {
             rangeTo = target.atEndOfMonth();
         }
 
-        PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q, excludeCompany);
+        PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
+                excludeCompany, company);
         return ResponseEntity.ok(ApiResponse.success(
                 planningService.range(rangeFrom, rangeTo, includeUndated, filter)));
     }

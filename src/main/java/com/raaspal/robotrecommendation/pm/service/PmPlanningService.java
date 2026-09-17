@@ -108,7 +108,7 @@ public class PmPlanningService {
         // variable-length list needs either an array function (Postgres-only, so the
         // H2 tests could not run it) or a rebuilt statement per request, and this
         // filter usually removes a handful of chains from a few thousand rows.
-        if (filter.excludedCompanies() == null || filter.excludedCompanies().isEmpty()) {
+        if (!filter.filtersCompanies()) {
             return rows;
         }
         return rows.stream().filter(row -> !filter.excludes(row.getCompany())).toList();
