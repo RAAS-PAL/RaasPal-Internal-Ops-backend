@@ -94,6 +94,16 @@ public class RobotUnitController {
     }
 
     /**
+     * Every active deployment as a contract row, for the Contracts page's "All" view.
+     * {@code withinDays} decides which rows count as ending soon.
+     */
+    @GetMapping("/contracts")
+    public ApiResponse<ContractExpiryResponse.All> allContracts(
+            @RequestParam(required = false, defaultValue = "30") int withinDays) {
+        return ApiResponse.success(contractExpiryService.all(Math.max(0, Math.min(withinDays, 365))));
+    }
+
+    /**
      * Receive robots into the warehouse — stock, with no customer attached.
      *
      * <p>Restricted to warehouse staff and admins: this creates fleet records, and a

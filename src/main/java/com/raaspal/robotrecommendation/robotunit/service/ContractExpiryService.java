@@ -68,6 +68,25 @@ public class ContractExpiryService {
     }
 
     /**
+     * Every active deployment, soonest end date first; those with no end date last.
+     * The Contracts page's "All" view — the same rows the ending-soon list is cut
+     * from, so a contract can have its PDF attached long before it is nearly over.
+     */
+    @Transactional(readOnly = true)
+    public ContractExpiryResponse.All all(int withinDays) {
+        LocalDate today = today();
+        List<ContractExpiryResponse.Contract> rows = new ArrayList<>();
+        for (Deployment d : deploymentRepository.findActiveWithRobotAndCustomer()) {
+            rows.add(toContract(d, today, withinDays));
+        }
+        rows.sort(Comparator.comparing(ContractExpiryResponse.Contract::contractEndDate,
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(ContractExpiryResponse.Contract::customerName, Comparator.nullsLast(String::compareToIgnoreCase))
+                .thenComparing(ContractExpiryResponse.Contract::serialNumber, Comparator.nullsLast(String::compareTo)));
+        return new ContractExpiryResponse.All(today, withinDays, rows);
+    }
+
+    /**
      * The deployments to alert today: ending within the window and not yet alerted.
      * The caller sends the alert and then calls {@link #markAlerted}.
      */
@@ -99,6 +118,11 @@ public class ContractExpiryService {
     }
 
     public ContractExpiryResponse.Contract toContract(Deployment d, LocalDate today) {
+        return toContract(d, today, DEFAULT_WINDOW_DAYS);
+    }
+
+    public ContractExpiryResponse.Contract toContract(Deployment d, LocalDate today, int windowDays) {
+        LocalDate end = d.getContractEndDate();
         return new ContractExpiryResponse.Contract(
                 d.getRobotUnit().getId(),
                 d.getRobotUnit().getSerialNumber(),
@@ -109,9 +133,9 @@ public class ContractExpiryService {
                 d.getCustomerProfile().getCompanyName(),
                 d.getSite(),
                 d.getContractStartDate(),
-                d.getContractEndDate(),
-                ChronoUnit.DAYS.between(today, d.getContractEndDate()),
-                statusOf(d.getContractEndDate(), today, DEFAULT_WINDOW_DAYS),
+                end,
+                end == null ? null : ChronoUnit.DAYS.between(today, end),
+                statusOf(end, today, windowDays),
                 d.getContractExpiryAlertedAt(),
                 d.getContractDocument() == null ? null : ContractDocumentInfo.of(
                         d.getContractDocument(),

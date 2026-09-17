@@ -21,7 +21,15 @@ public record ContractExpiryResponse(
     public enum Status { NONE, ACTIVE, ENDING_SOON, ENDED }
 
     /**
-     * @param daysToEnd negative once ended
+     * Every active deployment as a contract row, for the Contracts page's "All" view.
+     * Status is computed against {@code windowDays}, so the page's filter chips and
+     * the ending-soon list agree on what "soon" means.
+     */
+    public record All(LocalDate asOf, int windowDays, List<Contract> contracts) {
+    }
+
+    /**
+     * @param daysToEnd negative once ended; null when there is no end date
      * @param alertedAt when the ending-soon alert was emailed; null if not yet
      * @param document  the contract PDF attached to this deployment; null if none
      */
@@ -36,7 +44,7 @@ public record ContractExpiryResponse(
             String site,
             LocalDate contractStartDate,
             LocalDate contractEndDate,
-            long daysToEnd,
+            Long daysToEnd,
             Status status,
             Instant alertedAt,
             ContractDocumentInfo document) {

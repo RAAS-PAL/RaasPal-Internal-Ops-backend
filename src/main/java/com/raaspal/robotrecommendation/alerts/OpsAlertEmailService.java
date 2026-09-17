@@ -53,7 +53,7 @@ public class OpsAlertEmailService {
                 .append(td(c.customerName())).append(td(c.site()))
                 .append(td(c.serialNumber())).append(td(join(c.name(), c.brand(), c.model())))
                 .append(td(String.valueOf(c.contractEndDate())))
-                .append(td(c.daysToEnd() + " days"))
+                .append(td(c.daysToEnd() == null ? "—" : c.daysToEnd() + " days"))
                 .append("</tr>");
         }
         String html = "<p>" + contracts.size() + " robot contract(s) end within the next " + windowDays
