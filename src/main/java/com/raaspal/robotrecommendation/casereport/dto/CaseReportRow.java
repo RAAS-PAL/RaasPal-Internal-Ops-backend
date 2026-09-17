@@ -23,6 +23,10 @@ import java.time.LocalDate;
  * so it prints these in place of Solution, RE On Site and SLA. They are null on every other
  * sheet's rows, and on rows frozen before the fields existed, which the JSON reader
  * tolerates because a record component absent from the stored document reads as null.
+ *
+ * <p>{@link #board} belongs to the On Hold sheet alone. That sheet is the only one that
+ * reads two boards, and it is the reviewer's filter — cleaning or delivery — and the
+ * board a row's ticket link opens. Null everywhere else, for the same reason as above.
  */
 public record CaseReportRow(
 
@@ -87,6 +91,12 @@ public record CaseReportRow(
         String province,
 
         /**
+         * On Hold only: {@link #BOARD_CLEANING} or {@link #BOARD_DELIVERY}, the board the
+         * ticket came from. Null on every single-board sheet.
+         */
+        String board,
+
+        /**
          * Not printed. Links a row back to the ticket a correction belongs on. A row a
          * person added by hand has no ticket and carries a {@link #MANUAL_PREFIX} id
          * instead, which is how it is told apart from a board row.
@@ -98,11 +108,23 @@ public record CaseReportRow(
          * kept as it is when the report is regenerated from the board; the rest are
          * rebuilt.
          */
-        boolean edited
+        boolean edited,
+
+        /**
+         * Not printed, and not on the sheet at all. True once a person has taken this
+         * board row off the report. The row is kept, hidden, so a regeneration knows
+         * not to bring it back and so the removal can be undone. Numbered 0 while hidden.
+         * A row added by hand is deleted outright instead — nothing would bring it back.
+         */
+        boolean removed
 ) {
 
     /** Id prefix of a row added by hand rather than read from the board. */
     public static final String MANUAL_PREFIX = "manual-";
+
+    /** {@link #board} values. Strings, not an enum, so a stored row never fails to read. */
+    public static final String BOARD_CLEANING = "CLEANING";
+    public static final String BOARD_DELIVERY = "DELIVERY";
 
     /**
      * True for a row a person added, which no board read can produce or remove.
@@ -132,7 +154,7 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, branch, robot, serialNumber, problem, solution,
                 openDate, reOnSite, days, sla, sla == null ? "" : sla.label(),
                 null, null, null, null, null,
-                province, sourceItemId, false);
+                province, null, sourceItemId, false, false);
     }
 
     /**
@@ -156,7 +178,7 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, null, robot, serialNumber, problem, null,
                 openDate, null, days, sla, sla == null ? "" : sla.label(),
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                null, sourceItemId, false);
+                null, null, sourceItemId, false, false);
     }
 
     /** The same row under a different number, for renumbering after rows come and go. */
@@ -164,6 +186,22 @@ public record CaseReportRow(
         return new CaseReportRow(newNo, project, branch, robot, serialNumber, problem,
                 solution, openDate, reOnSite, days, sla, slaLabel,
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                province, sourceItemId, edited);
+                province, board, sourceItemId, edited, removed);
+    }
+
+    /** The same row stamped with the board it came from, for the On Hold sheet. */
+    public CaseReportRow withBoard(String newBoard) {
+        return new CaseReportRow(no, project, branch, robot, serialNumber, problem,
+                solution, openDate, reOnSite, days, sla, slaLabel,
+                requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
+                province, newBoard, sourceItemId, edited, removed);
+    }
+
+    /** The same row, taken off the sheet or put back on it. */
+    public CaseReportRow withRemoved(boolean nowRemoved) {
+        return new CaseReportRow(no, project, branch, robot, serialNumber, problem,
+                solution, openDate, reOnSite, days, sla, slaLabel,
+                requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
+                province, board, sourceItemId, edited, nowRemoved);
     }
 }

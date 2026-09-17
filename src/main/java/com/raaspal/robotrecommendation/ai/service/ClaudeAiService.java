@@ -484,12 +484,21 @@ public class ClaudeAiService
     // ─── CaseSolutionAiService ────────────────────────────────────────────────
 
     /**
-     * Paraphrasing a short comment thread into a few dated lines — Haiku-sized, and
-     * cheap enough to run per ticket per report. Every line is reviewed before a
-     * report is sent, and the report is frozen with whatever this produced, so a
-     * regenerated draft can differ slightly. That is expected of a paraphrase.
+     * Paraphrasing a short comment thread into a few dated lines, once per ticket per
+     * report. Sonnet 5 since 2026-09-16, up from Haiku: the Solution column is what the
+     * customer reads, and the RE team wanted it to read better. Still cents per report —
+     * the threads are short and every line is reviewed before a report is sent. The
+     * report is frozen with whatever this produced, so a regenerated draft can differ
+     * slightly. That is expected of a paraphrase.
      */
-    private static final String CASE_SOLUTION_MODEL = "claude-haiku-4-5-20251001";
+    private static final String CASE_SOLUTION_MODEL = "claude-sonnet-5";
+
+    /**
+     * The AOTGA part fields: four short values pulled from the same thread. Left on
+     * Haiku when the Solution column moved up — it is extraction, not prose, and
+     * nothing there reads better for a bigger model.
+     */
+    private static final String CASE_PARTS_MODEL = "claude-haiku-4-5-20251001";
 
     @Override
     public String summariseProgress(CaseProgressRequest request) {
@@ -545,9 +554,8 @@ public class ClaudeAiService
     // ─── CasePartsAiService ───────────────────────────────────────────────────
 
     /**
-     * Same model and same per-ticket cost profile as {@link #summariseProgress}: the
-     * thread is short, the answer is four fields, and every row is reviewed before the
-     * report is sent.
+     * Same per-ticket shape as {@link #summariseProgress}: the thread is short, the
+     * answer is four fields, and every row is reviewed before the report is sent.
      */
     @Override
     public CasePartsSummary extractParts(CaseProgressRequest request) {
@@ -583,7 +591,7 @@ public class ClaudeAiService
 
         try {
             String response = callClaude(
-                    AiPromptTemplates.casePartsSystemPrompt(), user, null, null, CASE_SOLUTION_MODEL);
+                    AiPromptTemplates.casePartsSystemPrompt(), user, null, null, CASE_PARTS_MODEL);
             return CasePartsSummary.parse(response, objectMapper);
         } catch (Exception e) {
             // Dashes are reviewable; a failed report is not.

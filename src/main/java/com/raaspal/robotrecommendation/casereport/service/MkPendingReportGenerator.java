@@ -12,11 +12,20 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Builds the MK pending-case sheet from the delivery board.
+ * Builds the pending-case sheets that come from the delivery board: MK, Delivery, and
+ * the delivery half of On Hold.
+ *
+ * <p>MK was the first and is the reason the class is named as it is. Delivery (added
+ * 2026-09-16) is its mirror — every other customer on the board, under the same SLA rule,
+ * because the board has one Province column and one meaning for it whoever the customer
+ * is. Delivery drops its held cases to the On Hold sheet as the cleaning sheets do; MK
+ * alone keeps them, because the RE team asked for MK to stay exactly as it was. A held MK
+ * case is therefore on two sheets, its own and On Hold, and that is by request.
  *
  * <p>Reads monday live rather than the snapshot tables. Deliberate for now: it makes the
  * report inspectable before the daily sync exists, and the columns it needs are all on the
@@ -42,6 +51,16 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 public class MkPendingReportGenerator {
+
+    /** Which of the board's customers a sheet is for. */
+    public enum Scope {
+        /** MK, Yayoi and Bonus Suki — held cases included, by request. */
+        MK,
+        /** Every customer that is not MK's, minus the held ones. */
+        OTHER,
+        /** Every held case on the board, whoever the customer. */
+        ON_HOLD
+    }
 
     /** Delivery Tickets. */
     static final String BOARD_ID = "1647612496";
@@ -103,16 +122,18 @@ public class MkPendingReportGenerator {
      *             so passing it in rather than reading the clock is what lets yesterday's
      *             report be regenerated identically
      */
-    public List<CaseReportRow> generate(LocalDate asOf) {
+    public List<CaseReportRow> generate(Scope scope, LocalDate asOf) {
         List<MondayItem> items = boardReader.readGroupItems(BOARD_ID, GROUP_ID, COLUMN_IDS);
 
-        List<CaseReportRow> unordered = new ArrayList<>();
+        // See CleaningPendingReportGenerator: decide in series, build together.
+        List<Supplier<CaseReportRow>> pending = new ArrayList<>();
         int otherCustomers = 0;
         int notYetOpen = 0;
+        int notHeld = 0;
 
         for (MondayItem item : items) {
             String project = stripHash(item.columnText(C_PROJECT));
-            if (!belongsToThisReport(project)) {
+            if (!belongsTo(scope, project)) {
                 otherCustomers++;
                 continue;
             }
@@ -145,7 +166,14 @@ public class MkPendingReportGenerator {
                     SLA_METRO,
                     SLA_UPCOUNTRY);
 
-            unordered.add(CaseReportRow.of(
+            // Held cases go to On Hold and leave Delivery; MK keeps its own by request.
+            boolean held = sla == SlaStatus.ON_HOLD;
+            if ((scope == Scope.ON_HOLD && !held) || (scope == Scope.OTHER && held)) {
+                notHeld++;
+                continue;
+            }
+
+            pending.add(() -> CaseReportRow.of(
                     0,
                     project,
                     branchLabel(item),
@@ -154,7 +182,7 @@ public class MkPendingReportGenerator {
                     item.columnText(C_PROBLEM),
                     solutions.write(item, item.columnText(C_SOLUTION), branchLabel(item),
                             item.columnText(C_PROBLEM), item.columnText(C_STATUS),
-                            item.columnText(C_SUP_STATUS), asOf),
+                            item.columnText(C_SUP_STATUS), openDate, asOf),
                     openDate,
                     MondayCells.date(item.columnText(C_RE_ON_SITE)),
                     openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf),
@@ -162,6 +190,8 @@ public class MkPendingReportGenerator {
                     province,
                     item.id()));
         }
+
+        List<CaseReportRow> unordered = new ArrayList<>(solutions.buildAll(pending));
 
         // Oldest case first, as the team's own sheet is ordered: the rows most overdue are
         // the ones the reader wants at the top. A case with no open date goes last, where
@@ -174,9 +204,10 @@ public class MkPendingReportGenerator {
             rows.add(row.withNo(rows.size() + 1));
         }
 
-        log.info("MK pending report for {}: {} rows from {} tickets on the delivery board "
-                        + "({} other customers, {} not yet open on that date)",
-                asOf, rows.size(), items.size(), otherCustomers, notYetOpen);
+        log.info("{} pending report for {}: {} rows from {} tickets on the delivery board "
+                        + "({} other customers, {} held/not held for this sheet, "
+                        + "{} not yet open on that date)",
+                scope, asOf, rows.size(), items.size(), otherCustomers, notHeld, notYetOpen);
 
         return rows;
     }
@@ -229,9 +260,22 @@ public class MkPendingReportGenerator {
         return trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
     }
 
-    private static boolean belongsToThisReport(String project) {
+    private static boolean isMk(String project) {
         if (project == null) return false;
         String lower = project.toLowerCase(Locale.ROOT);
         return PROJECTS.stream().anyMatch(lower::contains);
+    }
+
+    /**
+     * By customer only. A ticket with no Project tag is not MK's — nothing says it is —
+     * so it lands on Delivery, where a blank Project cell is a prompt to fill the tag in
+     * rather than a case that quietly vanished from every sheet.
+     */
+    private static boolean belongsTo(Scope scope, String project) {
+        return switch (scope) {
+            case MK -> isMk(project);
+            case OTHER -> !isMk(project);
+            case ON_HOLD -> true;
+        };
     }
 }

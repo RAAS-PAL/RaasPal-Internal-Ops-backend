@@ -124,6 +124,10 @@ public final class AiPromptTemplates {
                 - If the current board status describes a state the last comment does
                   not, finish with that state, dated from the last comment to the
                   report date.
+                - A date that belongs inside a phrase — a planned visit, a promised
+                  delivery — is written in words, not as a date token: อยู่ระหว่างแพลนเข้า
+                  ดำเนินการอีกครั้งวันที่ 17, never "...อีกครั้ง 17-Sep". A date token
+                  always begins an entry.
                 - Do not add commentary, explanation, or anything after the line.
                 """;
     }

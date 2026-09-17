@@ -4,11 +4,20 @@ import com.raaspal.robotrecommendation.ai.service.CaseSolutionAiService;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayUpdate;
 import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Locale;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.function.Supplier;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,7 +30,6 @@ import java.util.List;
  * the column ids differ, and those stay with each generator.
  */
 @Service
-@RequiredArgsConstructor
 public class SolutionLineWriter {
 
     /**
@@ -32,7 +40,69 @@ public class SolutionLineWriter {
      */
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Bangkok");
 
+    /**
+     * What the RE team writes on a ticket nobody has commented on yet: the case has been
+     * received and is being looked at. Dated the day it opened.
+     */
+    public static final String OPENER = "อยู่ระหว่างตรวจสอบและประเมินอาการหุ่นยนต์";
+
+    /** {@code 16-Sep}, the entry date form the workbook uses. */
+    private static final DateTimeFormatter ENTRY_DATE = DateTimeFormatter.ofPattern("dd-MMM", Locale.ENGLISH);
+
     private final CaseSolutionAiService solutionAi;
+
+    /**
+     * Where the model calls run. One call per ticket, and a sheet has dozens of tickets:
+     * in series that was three minutes for On Hold, which is longer than any client waits.
+     * Bounded, because the API has rate limits and the box has two cores; daemon, so a
+     * stuck call cannot keep the JVM from shutting down.
+     */
+    private final ExecutorService pool;
+
+    @Autowired
+    public SolutionLineWriter(CaseSolutionAiService solutionAi,
+                              @Value("${app.casereport.solution-concurrency:6}") int concurrency) {
+        this.solutionAi = solutionAi;
+        this.pool = Executors.newFixedThreadPool(Math.max(1, concurrency), r -> {
+            Thread t = new Thread(r, "solution-writer");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /** Tests: the default concurrency. */
+    public SolutionLineWriter(CaseSolutionAiService solutionAi) {
+        this(solutionAi, 6);
+    }
+
+    /**
+     * Build every row at once, on the pool, and return them in the order given.
+     *
+     * <p>Each task is one row's construction with its {@link #write} call inside, so the
+     * generator's loop stays a loop that decides what belongs on the sheet, and only the
+     * slow part moves off the request thread. A task that fails fails the sheet — the
+     * same as it did in series — with the original exception rather than a wrapped one,
+     * so the message that reaches the reviewer is unchanged.
+     */
+    public <T> java.util.List<T> buildAll(java.util.List<Supplier<T>> tasks) {
+        java.util.List<Future<T>> futures = new ArrayList<>(tasks.size());
+        for (Supplier<T> task : tasks) {
+            futures.add(pool.submit(task::get));
+        }
+        java.util.List<T> out = new ArrayList<>(futures.size());
+        for (Future<T> f : futures) {
+            try {
+                out.add(f.get());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while writing Solution cells", e);
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof RuntimeException re) throw re;
+                throw new IllegalStateException(e.getCause());
+            }
+        }
+        return out;
+    }
 
     /**
      * @param typed     the board's Solution cell, used as-is when not blank
@@ -40,7 +110,9 @@ public class SolutionLineWriter {
      * @param problem   the Main Issue cell
      * @param status    the Status cell, so the model can finish with the current state
      * @param supStatus the Sup Status cell
-     * @return the line, or null when there is nothing to say
+     * @param openDate  when the case opened, which dates the opener on a silent ticket;
+     *                  null falls back to the report date
+     * @return the cell, one dated entry per line; never blank on a board row
      */
     public String write(MondayItem item,
                         String typed,
@@ -48,20 +120,27 @@ public class SolutionLineWriter {
                         String problem,
                         String status,
                         String supStatus,
+                        LocalDate openDate,
                         LocalDate asOf) {
         if (typed != null && !typed.isBlank()) {
-            return typed;
+            return SolutionLine.oneEntryPerLine(typed);
         }
         List<CaseProgressRequest.Comment> comments = commentsOf(item);
-        if (comments.isEmpty()) {
-            return null;
-        }
+        String line = comments.isEmpty() ? null : solutionAi.summariseProgress(
+                new CaseProgressRequest(branch, problem, status, supStatus, asOf, comments));
 
-        String line = solutionAi.summariseProgress(new CaseProgressRequest(
-                branch, problem, status, supStatus, asOf, comments));
-        if (line == null || line.isBlank()) return null;
-        // The one rule the model is allowed to break and the report is not.
-        return SolutionLine.splitCrossMonthRanges(line, asOf.getYear());
+        // A blank cell used to be the honest answer for a ticket with nothing in it. The
+        // RE team's sheet never leaves one blank: a case just opened is "being assessed",
+        // and they write that. So does this, dated the day the case opened, which is what
+        // the reviewer would have typed.
+        if (line == null || line.isBlank()) {
+            LocalDate on = openDate != null ? openDate : asOf;
+            return on.format(ENTRY_DATE) + ' ' + OPENER;
+        }
+        // The one rule the model is allowed to break and the report is not — then the
+        // layout, which the model is not asked for at all.
+        return SolutionLine.oneEntryPerLine(
+                SolutionLine.splitCrossMonthRanges(line, asOf.getYear()));
     }
 
     /**

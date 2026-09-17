@@ -117,6 +117,12 @@ public class CaseReportExcelWriter {
         return name.length() <= 31 ? name : name.substring(0, 31).trim();
     }
 
+    /** "CLEANING" -> "Cleaning", as the console prints it. */
+    static String boardLabel(String board) {
+        if (board == null || board.isEmpty()) return null;
+        return board.charAt(0) + board.substring(1).toLowerCase(java.util.Locale.ROOT);
+    }
+
     /**
      * A cleaning case can name several robots, typed into one board field as
      * "A, B, C". Written one per line so the cell wraps between serials rather than
@@ -151,9 +157,12 @@ public class CaseReportExcelWriter {
         }
         boolean project = !CaseReportDefinition.MAKRO_PENDING.equals(code);
         boolean branch = !CaseReportDefinition.CLEANING_PENDING.equals(code);
+        // Two boards on one sheet: say which, or a branch name alone is ambiguous.
+        boolean board = CaseReportDefinition.ON_HOLD_PENDING.equals(code);
 
         List<Column> columns = new ArrayList<>();
         columns.add(Column.number("No", 6, r -> (double) r.no()));
+        if (board) columns.add(Column.text("Board", 10, r -> boardLabel(r.board())));
         if (project) columns.add(Column.text("Project", 14, CaseReportRow::project));
         if (branch) columns.add(Column.text("Branch", 22, CaseReportRow::branch));
         columns.add(Column.text("Robot", 12, CaseReportRow::robot));

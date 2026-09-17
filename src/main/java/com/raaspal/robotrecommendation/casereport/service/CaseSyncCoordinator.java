@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.casereport.service;
 
+import com.raaspal.robotrecommendation.casereport.brand.BrandTicketSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ import java.util.List;
 public class CaseSyncCoordinator {
 
     private final CaseTicketSyncService syncService;
+    private final BrandTicketSyncService brandSync;
 
     /**
      * Every board, each in its own transaction.

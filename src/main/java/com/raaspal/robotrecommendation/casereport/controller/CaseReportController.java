@@ -63,10 +63,12 @@ public class CaseReportController {
             "mk", CaseReportDefinition.MK_PENDING,
             "cleaning", CaseReportDefinition.CLEANING_PENDING,
             "makro", CaseReportDefinition.MAKRO_PENDING,
-            "aotga", CaseReportDefinition.AOTGA_PENDING);
+            "aotga", CaseReportDefinition.AOTGA_PENDING,
+            "delivery", CaseReportDefinition.DELIVERY_PENDING,
+            "on-hold", CaseReportDefinition.ON_HOLD_PENDING);
 
     /** Only these slugs reach the handlers below; anything else falls through to a 404. */
-    private static final String REPORT = "{report:mk|cleaning|makro|aotga}";
+    private static final String REPORT = "{report:mk|cleaning|makro|aotga|delivery|on-hold}";
 
     /**
      * A pending-case sheet: {@code mk} (MK, Yayoi and Bonus Suki delivery cases),
@@ -149,8 +151,9 @@ public class CaseReportController {
     }
 
     /**
-     * Remove a row that was added by hand. A board row is refused: closing or moving the
-     * ticket on monday, then regenerating, is what removes those.
+     * Take a row off this date's report. A board row is kept hidden, so a regeneration
+     * does not bring it back and it can be restored; a row added by hand is deleted.
+     * monday is not changed.
      */
     @DeleteMapping("/" + REPORT + "/rows/{sourceItemId}")
     public ApiResponse<Void> removeRow(
@@ -160,6 +163,17 @@ public class CaseReportController {
 
         runService.removeRow(REPORTS.get(report), asOf, sourceItemId);
         return ApiResponse.success("Row removed");
+    }
+
+    /** Put a removed board row back on the sheet. */
+    @PostMapping("/" + REPORT + "/rows/{sourceItemId}/restore")
+    public ApiResponse<CaseReportRow> restoreRow(
+            @PathVariable String report,
+            @PathVariable String sourceItemId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
+
+        return ApiResponse.success("Row restored",
+                runService.restoreRow(REPORTS.get(report), asOf, sourceItemId));
     }
 
     /**

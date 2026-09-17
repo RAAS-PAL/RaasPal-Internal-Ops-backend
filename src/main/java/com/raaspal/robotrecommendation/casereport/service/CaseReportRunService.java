@@ -20,6 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -57,9 +60,22 @@ public class CaseReportRunService {
     private final MkPendingReportGenerator mkGenerator;
     private final CleaningPendingReportGenerator cleaningGenerator;
     private final AotgaReportGenerator aotgaGenerator;
+    private final OnHoldReportGenerator onHoldGenerator;
     private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
     private final CaseReportExcelWriter excelWriter;
+
+    /**
+     * The generations running right now, by sheet and date.
+     *
+     * <p>A generation is minutes of monday and model calls. When a second request for the
+     * same sheet and date arrives while one is running — a client that gave up and asked
+     * again, two reviewers opening the same tab — it waits for the first and gets its rows,
+     * rather than starting another that reads the same board, pays for the same model
+     * calls, and then overwrites the same run. In-memory, because there is one instance.
+     */
+    private final ConcurrentHashMap<String, CompletableFuture<List<CaseReportRow>>> inFlight =
+            new ConcurrentHashMap<>();
 
     /** A built workbook and the name it should download as. */
     public record Export(byte[] bytes, String filename) {
@@ -75,7 +91,9 @@ public class CaseReportRunService {
     @Transactional
     public Export export(String definitionCode, LocalDate asOf) {
         CaseReportDefinition definition = requireDefinition(definitionCode);
-        List<CaseReportRow> rows = rowsFor(definitionCode, asOf, false);
+        List<CaseReportRow> rows = rowsFor(definitionCode, asOf, false).stream()
+                .filter(row -> !row.removed())
+                .toList();
         return new Export(excelWriter.write(definition, asOf, rows), excelWriter.filename(definition, asOf));
     }
 
@@ -145,12 +163,34 @@ public class CaseReportRunService {
                             + "frozen on the day they are generated.");
         }
 
-        List<CaseReportRow> rows = generate(definitionCode, definition, asOf);
-        if (existing != null) {
-            rows = keepEditedRows(parse(existing.getRowsJson()), rows);
+        String key = definitionCode + '|' + asOf;
+        CompletableFuture<List<CaseReportRow>> mine = new CompletableFuture<>();
+        CompletableFuture<List<CaseReportRow>> running = inFlight.putIfAbsent(key, mine);
+        if (running != null) {
+            log.info("A {} generation for {} is already running; waiting for its rows",
+                    definitionCode, asOf);
+            try {
+                return running.join();
+            } catch (CompletionException e) {
+                // The same failure the first request saw, with its message intact.
+                if (e.getCause() instanceof RuntimeException re) throw re;
+                throw e;
+            }
         }
-        freeze(definition, asOf, existing, rows);
-        return rows;
+        try {
+            List<CaseReportRow> rows = generate(definitionCode, definition, asOf);
+            if (existing != null) {
+                rows = keepEditedRows(parse(existing.getRowsJson()), rows);
+            }
+            freeze(definition, asOf, existing, rows);
+            mine.complete(rows);
+            return rows;
+        } catch (RuntimeException e) {
+            mine.completeExceptionally(e);
+            throw e;
+        } finally {
+            inFlight.remove(key, mine);
+        }
     }
 
     /**
@@ -212,7 +252,7 @@ public class CaseReportRunService {
 
         rows.add(row);
         run.setRowsJson(write(rows));
-        run.setTicketCount(rows.size());
+        run.setTicketCount((int) rows.stream().filter(r -> !r.removed()).count());
         runs.save(run);
 
         log.info("Added row {} ({}) to the {} run for {}", row.no(), id, definitionCode, asOf);
@@ -220,10 +260,14 @@ public class CaseReportRunService {
     }
 
     /**
-     * Take out a row that was added by hand.
+     * Take a row off this date's report.
      *
-     * <p>Only those. A board row is monday's, and removing it here would only last until
-     * the next regeneration put it back: the ticket has to be closed or moved there.
+     * <p>The RE team drops tickets the board still lists — resolved but not yet closed,
+     * or not the customer's concern that morning — and the sheet has to be able to say
+     * so. A board row is kept in the stored run, hidden and numbered 0, which is how a
+     * later regeneration knows not to bring it back and how {@link #restoreRow} can undo
+     * it. Nothing is written to monday. A row added by hand is deleted outright: nothing
+     * would bring it back, and there is nothing to restore it from.
      */
     @Transactional
     public void removeRow(String definitionCode, LocalDate asOf, String sourceItemId) {
@@ -236,19 +280,48 @@ public class CaseReportRunService {
             throw new BadRequestException(
                     "The " + asOf + " report has no row " + sourceItemId + ".");
         }
-        if (!rows.get(index).isManual()) {
-            throw new BadRequestException(
-                    "Row " + rows.get(index).no() + " comes from the monday board and cannot be "
-                            + "removed here — a regeneration would bring it back. Close or move "
-                            + "the ticket on monday, then regenerate.");
-        }
 
-        rows.remove(index);
-        run.setRowsJson(write(renumber(rows)));
-        run.setTicketCount(rows.size());
-        runs.save(run);
+        if (rows.get(index).isManual()) {
+            rows.remove(index);
+        } else {
+            rows.set(index, rows.get(index).withRemoved(true));
+        }
+        store(run, rows);
 
         log.info("Removed row {} from the {} run for {}", sourceItemId, definitionCode, asOf);
+    }
+
+    /**
+     * Put a removed board row back on the sheet, where the sheet's order would have it.
+     *
+     * @return the row as stored, with its number back
+     */
+    @Transactional
+    public CaseReportRow restoreRow(String definitionCode, LocalDate asOf, String sourceItemId) {
+        CaseReportDefinition definition = requireDefinition(definitionCode);
+        CaseReportRun run = requireDraft(definitionCode, definition, asOf);
+
+        List<CaseReportRow> rows = new ArrayList<>(parse(run.getRowsJson()));
+        int index = indexOf(rows, sourceItemId);
+        if (index < 0 || !rows.get(index).removed()) {
+            throw new BadRequestException(
+                    "The " + asOf + " report has no removed row " + sourceItemId + ".");
+        }
+
+        rows.set(index, rows.get(index).withRemoved(false));
+        List<CaseReportRow> stored = store(run, rows);
+
+        log.info("Restored row {} to the {} run for {}", sourceItemId, definitionCode, asOf);
+        return stored.get(index);
+    }
+
+    /** Renumber, count what is on the sheet, and save. */
+    private List<CaseReportRow> store(CaseReportRun run, List<CaseReportRow> rows) {
+        List<CaseReportRow> numbered = renumber(rows);
+        run.setRowsJson(write(numbered));
+        run.setTicketCount((int) numbered.stream().filter(row -> !row.removed()).count());
+        runs.save(run);
+        return numbered;
     }
 
     /** The stored draft for a date, or the reason there is nothing to change. */
@@ -319,8 +392,12 @@ public class CaseReportRunService {
                 previous == null ? null : previous.partReceived(),
                 previous == null ? null : previous.agingAfterReceived(),
                 province,
+                // Carried like the part fields: the form has no Board control, and an
+                // edited On Hold row must not drop out of the reviewer's filter.
+                previous == null ? null : previous.board(),
                 sourceItemId,
-                true);
+                true,
+                previous != null && previous.removed());
     }
 
     private static int indexOf(List<CaseReportRow> rows, String sourceItemId) {
@@ -330,21 +407,28 @@ public class CaseReportRunService {
         return -1;
     }
 
+    /** 1..n over the rows on the sheet; a removed row is numbered 0 and keeps its place. */
     private static List<CaseReportRow> renumber(List<CaseReportRow> rows) {
         List<CaseReportRow> out = new ArrayList<>(rows.size());
-        for (CaseReportRow row : rows) out.add(row.withNo(out.size() + 1));
+        int next = 1;
+        for (CaseReportRow row : rows) {
+            out.add(row.withNo(row.removed() ? 0 : next++));
+        }
         return out;
     }
 
     /**
-     * The regenerated rows, with every row a person edited carried over unchanged and
-     * every row a person added kept at the bottom.
+     * The regenerated rows, with every row a person edited carried over unchanged, every
+     * row a person removed kept off the sheet, and every row a person added kept at the
+     * bottom.
      *
-     * <p>Edited rows are matched by ticket, so a regeneration that reorders the sheet
-     * still finds them. An edited row whose ticket has left the board is dropped with
-     * the rest: the case closed, and a correction to a closed case has nothing left to
-     * correct. Added rows have no ticket to leave, so they stay until somebody removes
-     * them. Renumbered afterwards because the generator numbered before the swap.
+     * <p>Edited and removed rows are matched by ticket, so a regeneration that reorders
+     * the sheet still finds them. A removed row takes the board's fresh content but stays
+     * hidden: if it is ever restored it should say what the board says now. An edited or
+     * removed row whose ticket has left the board is dropped with the rest: the case
+     * closed, and there is nothing left to correct or hide. Added rows have no ticket to
+     * leave, so they stay until somebody removes them. Renumbered afterwards because the
+     * generator numbered before the swap.
      */
     private static List<CaseReportRow> keepEditedRows(List<CaseReportRow> stored,
                                                       List<CaseReportRow> fresh) {
@@ -353,8 +437,13 @@ public class CaseReportRunService {
                 .filter(row -> row.sourceItemId() != null && !row.isManual())
                 .collect(Collectors.toMap(CaseReportRow::sourceItemId, Function.identity(),
                         (a, b) -> a));
+        java.util.Set<String> removed = stored.stream()
+                .filter(CaseReportRow::removed)
+                .map(CaseReportRow::sourceItemId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
         List<CaseReportRow> manual = stored.stream().filter(CaseReportRow::isManual).toList();
-        if (edited.isEmpty() && manual.isEmpty()) {
+        if (edited.isEmpty() && removed.isEmpty() && manual.isEmpty()) {
             return fresh;
         }
 
@@ -363,7 +452,8 @@ public class CaseReportRunService {
         for (CaseReportRow row : fresh) {
             CaseReportRow keep = edited.get(row.sourceItemId());
             if (keep != null) kept++;
-            merged.add(keep != null ? keep : row);
+            CaseReportRow next = keep != null ? keep : row;
+            merged.add(removed.contains(row.sourceItemId()) ? next.withRemoved(true) : next);
         }
         merged.addAll(manual);
         log.info("Regenerated with {} edited row(s) kept and {} added row(s) carried over",
@@ -416,12 +506,16 @@ public class CaseReportRunService {
         // Each code named explicitly rather than falling through to a default, so adding
         // AOTGA is a compile-time obligation and not a silent wrong report.
         return switch (code) {
-            case CaseReportDefinition.MK_PENDING -> mkGenerator.generate(asOf);
+            case CaseReportDefinition.MK_PENDING ->
+                    mkGenerator.generate(MkPendingReportGenerator.Scope.MK, asOf);
+            case CaseReportDefinition.DELIVERY_PENDING ->
+                    mkGenerator.generate(MkPendingReportGenerator.Scope.OTHER, asOf);
             case CaseReportDefinition.CLEANING_PENDING ->
                     cleaningGenerator.generate(CleaningPendingReportGenerator.Scope.CLEANING, asOf);
             case CaseReportDefinition.MAKRO_PENDING ->
                     cleaningGenerator.generate(CleaningPendingReportGenerator.Scope.MAKRO, asOf);
             case CaseReportDefinition.AOTGA_PENDING -> aotgaGenerator.generate(asOf);
+            case CaseReportDefinition.ON_HOLD_PENDING -> onHoldGenerator.generate(asOf);
             default -> throw new BadRequestException("No generator is wired for report " + code);
         };
     }
@@ -437,7 +531,7 @@ public class CaseReportRunService {
                 .build();
 
         run.setRowsJson(write(rows));
-        run.setTicketCount(rows.size());
+        run.setTicketCount((int) rows.stream().filter(r -> !r.removed()).count());
         run.setGeneratedAt(LocalDateTime.now());
         run.setErrorMessage(null);
 

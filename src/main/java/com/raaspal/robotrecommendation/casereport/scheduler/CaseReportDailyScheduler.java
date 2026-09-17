@@ -87,7 +87,9 @@ public class CaseReportDailyScheduler {
                 CaseReportDefinition.MK_PENDING,
                 CaseReportDefinition.CLEANING_PENDING,
                 CaseReportDefinition.MAKRO_PENDING,
-                CaseReportDefinition.AOTGA_PENDING }) {
+                CaseReportDefinition.AOTGA_PENDING,
+                CaseReportDefinition.DELIVERY_PENDING,
+                CaseReportDefinition.ON_HOLD_PENDING }) {
             try {
                 LocalDate today = LocalDate.now(ZoneId.of("Asia/Bangkok"));
                 int rows = runService.rowsFor(code, today, false).size();

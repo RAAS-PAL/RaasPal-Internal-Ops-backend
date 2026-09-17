@@ -35,6 +35,10 @@ public class CaseReportDefinition {
     public static final String MAKRO_PENDING = "MAKRO_PENDING";
     /** The airports' sheet: spare-part turnaround rather than an SLA. */
     public static final String AOTGA_PENDING = "AOTGA_PENDING";
+    /** Every other delivery customer, under MK's SLA rule. */
+    public static final String DELIVERY_PENDING = "DELIVERY_PENDING";
+    /** Held cases from both boards, except the airports'. The only two-board sheet. */
+    public static final String ON_HOLD_PENDING = "ON_HOLD_PENDING";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

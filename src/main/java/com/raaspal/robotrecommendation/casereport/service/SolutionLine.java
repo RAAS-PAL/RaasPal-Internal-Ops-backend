@@ -34,7 +34,34 @@ public final class SolutionLine {
             "\\b(\\d{1,2})-(\\d{1,2})([- ])(" + MON + ")\\b\\s*(.*?)"
                     + "(?=\\s+\\d{1,2}-(?:\\d{1,2}[- ])?(?:" + MON + ")\\b|$)");
 
+    /**
+     * Where one entry ends and the next begins: a date token ({@code 03-Sep},
+     * {@code 08-09 Sep}, {@code 08-09-Sep}) that is preceded by whitespace and followed by
+     * a phrase. The phrase is required so a date that closes an entry — "เข้า PM 21-Sep" —
+     * is not mistaken for the start of one.
+     */
+    private static final Pattern ENTRY_START = Pattern.compile(
+            "\\s+(?=\\d{1,2}-(?:\\d{1,2}[- ])?(?:" + MON + ")\\b\\s+\\S)");
+
     private SolutionLine() {
+    }
+
+    /**
+     * One dated entry per line, as the RE team lays the cell out.
+     *
+     * <p>The model is asked for a single space-joined line and this puts the breaks in,
+     * rather than asking the model for line breaks, so the layout does not depend on how
+     * well an instruction was followed on a given day. Whatever whitespace arrives —
+     * spaces, the model's own newlines, both — is folded first, so the result is the same
+     * either way. A cell with one entry is unchanged.
+     *
+     * <p>Verified against the RE team's 16 September 2026 workbook, where every Solution
+     * cell is a stack of dated lines.
+     */
+    public static String oneEntryPerLine(String line) {
+        if (line == null || line.isBlank()) return line;
+        String folded = line.strip().replaceAll("\\s+", " ");
+        return ENTRY_START.matcher(folded).replaceAll("\n");
     }
 
     /**

@@ -12,16 +12,24 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 /**
- * Builds the two pending-case sheets that come from the cleaning board: Cleaning and
- * Makro.
+ * Builds the pending-case sheets that come from the cleaning board: Cleaning, Makro, and
+ * the cleaning half of On Hold.
  *
  * <p>One board, two sheets, because the RE team splits it by customer. Makro is a big
  * enough account to get its own file, and the airports (AOTGA) get another with a
  * different layout altogether. What is left is "Cleaning". The three sets do not overlap,
  * so a Makro ticket never appears on the Cleaning sheet — a reviewer cannot remove a board
  * row from a report, and thirteen rows to ignore every morning would be worse than none.
+ *
+ * <p>Since 2026-09-16 a held case is not on the Cleaning or Makro sheet either. Those
+ * sheets are the morning's to-do list, and a case whose clock is stopped — waiting on the
+ * customer, on a part, on a decision — is not something the RE team can act on today. The
+ * held cases go to the On Hold sheet instead, which reads both boards; the
+ * {@link Scope#ON_HOLD} scope here is its cleaning half. The airports stay out of it, as
+ * they stay out of Cleaning: RAW_AOTGA already prints every one of their cases, held or not.
  *
  * <p><strong>The column ids here belong to the cleaning board and to no other.</strong>
  * {@code text} is Main Issue on this board but Solution on delivery; {@code status_1} is
@@ -38,10 +46,12 @@ public class CleaningPendingReportGenerator {
 
     /** Which of the board's customers a sheet is for. */
     public enum Scope {
-        /** Every open cleaning case that is not Makro's and not an airport's. */
+        /** Every open cleaning case that is not Makro's, not an airport's, and not held. */
         CLEANING,
-        /** Makro's cases only. */
-        MAKRO
+        /** Makro's cases only, minus the held ones. */
+        MAKRO,
+        /** Every held case that is not an airport's — Makro's included. */
+        ON_HOLD
     }
 
     /** Cleaning Tickets. */
@@ -85,9 +95,12 @@ public class CleaningPendingReportGenerator {
     public List<CaseReportRow> generate(Scope scope, LocalDate asOf) {
         List<MondayItem> items = boardReader.readGroupItems(BOARD_ID, GROUP_ID, COLUMN_IDS);
 
-        List<CaseReportRow> unordered = new ArrayList<>();
+        // What belongs on the sheet is decided here, in series; the rows are then built
+        // together, because each one carries a model call.
+        List<Supplier<CaseReportRow>> pending = new ArrayList<>();
         int otherSheets = 0;
         int notYetOpen = 0;
+        int heldElsewhere = 0;
 
         for (MondayItem item : items) {
             if (!belongsTo(scope, item)) {
@@ -111,16 +124,34 @@ public class CleaningPendingReportGenerator {
                     SLA_DAYS,
                     SLA_DAYS);
 
+            // Held cases live on the On Hold sheet and nowhere else on this board. Decided
+            // after the SLA rather than in belongsTo because "held" is the calculator's
+            // verdict — Status or Sup Status — and this is the one place it is computed.
+            boolean held = sla == SlaStatus.ON_HOLD;
+            if (held != (scope == Scope.ON_HOLD)) {
+                heldElsewhere++;
+                continue;
+            }
+
             String site = siteLabel(item);
 
             // The Cleaning sheet prints the customer under "Project" and has no Branch
             // column; the Makro sheet prints the branch under "Branch" and the customer is
             // the sheet itself. The row carries both fields, so each sheet fills the one it
-            // shows and the review table hides the other.
-            String project = scope == Scope.MAKRO ? "Makro" : site;
-            String branch = scope == Scope.MAKRO ? site : null;
+            // shows and the review table hides the other. On Hold prints both: with two
+            // boards' customers on one sheet, the branch alone does not say whose it is.
+            String project;
+            String branch;
+            switch (scope) {
+                case MAKRO -> { project = "Makro"; branch = site; }
+                case CLEANING -> { project = site; branch = null; }
+                default -> {
+                    project = isMakro(item) ? "Makro" : site;
+                    branch = MondayCells.text(item.columnText(C_BRANCH));
+                }
+            }
 
-            unordered.add(CaseReportRow.of(
+            pending.add(() -> CaseReportRow.of(
                     0,
                     project,
                     branch,
@@ -129,7 +160,7 @@ public class CleaningPendingReportGenerator {
                     item.columnText(C_PROBLEM),
                     solutions.write(item, item.columnText(C_SOLUTION), site,
                             item.columnText(C_PROBLEM), item.columnText(C_STATUS),
-                            item.columnText(C_SUP_STATUS), asOf),
+                            item.columnText(C_SUP_STATUS), openDate, asOf),
                     openDate,
                     MondayCells.date(item.columnText(C_RE_ACTION)),
                     openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf),
@@ -138,6 +169,7 @@ public class CleaningPendingReportGenerator {
                     item.id()));
         }
 
+        List<CaseReportRow> unordered = new ArrayList<>(solutions.buildAll(pending));
         unordered.sort(Comparator.comparing(CaseReportRow::openDate,
                 Comparator.nullsLast(Comparator.naturalOrder())));
 
@@ -147,8 +179,9 @@ public class CleaningPendingReportGenerator {
         }
 
         log.info("{} pending report for {}: {} rows from {} tickets on the cleaning board "
-                        + "({} belong to other sheets, {} not yet open on that date)",
-                scope, asOf, rows.size(), items.size(), otherSheets, notYetOpen);
+                        + "({} belong to other sheets, {} held/not held for this sheet, "
+                        + "{} not yet open on that date)",
+                scope, asOf, rows.size(), items.size(), otherSheets, heldElsewhere, notYetOpen);
 
         return rows;
     }
@@ -164,15 +197,21 @@ public class CleaningPendingReportGenerator {
         return MondayCells.text(item.columnText(C_PROJECT));
     }
 
-    private static boolean belongsTo(Scope scope, MondayItem item) {
+    private static boolean isMakro(MondayItem item) {
         String haystack = ((item.columnText(C_PROJECT) == null ? "" : item.columnText(C_PROJECT))
                 + " " + (item.columnText(C_BRANCH) == null ? "" : item.columnText(C_BRANCH)))
                 .toLowerCase(Locale.ROOT);
-        boolean makro = MAKRO.stream().anyMatch(haystack::contains);
+        return MAKRO.stream().anyMatch(haystack::contains);
+    }
+
+    /** By customer only; whether the case is held is settled later, once the SLA is known. */
+    private static boolean belongsTo(Scope scope, MondayItem item) {
+        boolean airport = AirportTickets.matches(
+                item.columnText(C_PROJECT), item.columnText(C_BRANCH));
         return switch (scope) {
-            case MAKRO -> makro;
-            case CLEANING -> !makro && !AirportTickets.matches(
-                    item.columnText(C_PROJECT), item.columnText(C_BRANCH));
+            case MAKRO -> isMakro(item);
+            case CLEANING -> !isMakro(item) && !airport;
+            case ON_HOLD -> !airport;
         };
     }
 }
