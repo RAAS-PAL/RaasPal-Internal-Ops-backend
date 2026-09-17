@@ -78,16 +78,28 @@ class ContractRenewalFollowupServiceTest {
         assertThat(openEnded.getRenewalStatus()).isEqualTo(ContractRenewalStatus.CONTACTED);
     }
 
-    /** "Not contacted" is the unset state: choosing it wipes the note and author too. */
+    /** "Not contacted" with no note is the unset state: it wipes the author too. */
     @Test
-    void notContactedClearsEverything() {
+    void notContactedWithoutANoteClearsEverything() {
         service.update(siamCenter.getRobotUnit().getId(), ContractRenewalStatus.WILL_NOT_RENEW, "moving to another vendor", false, "b");
-        service.update(siamCenter.getRobotUnit().getId(), ContractRenewalStatus.NOT_CONTACTED, "ignored", false, "b");
+        service.update(siamCenter.getRobotUnit().getId(), ContractRenewalStatus.NOT_CONTACTED, "  ", false, "b");
 
         assertThat(siamCenter.getRenewalStatus()).isNull();
         assertThat(siamCenter.getRenewalNote()).isNull();
         assertThat(siamCenter.getRenewalUpdatedBy()).isNull();
         assertThat(ContractRenewalFollowup.of(siamCenter).status()).isEqualTo(ContractRenewalStatus.NOT_CONTACTED);
+    }
+
+    /** A reminder to oneself needs no call first. */
+    @Test
+    void aNoteMayStandWithoutAStatus() {
+        service.update(siamCenter.getRobotUnit().getId(), ContractRenewalStatus.NOT_CONTACTED, "call back after the 20th", false, "b");
+
+        assertThat(siamCenter.getRenewalStatus()).isNull();
+        ContractRenewalFollowup f = ContractRenewalFollowup.of(siamCenter);
+        assertThat(f.status()).isEqualTo(ContractRenewalStatus.NOT_CONTACTED);
+        assertThat(f.note()).isEqualTo("call back after the 20th");
+        assertThat(f.updatedBy()).isEqualTo("b");
     }
 
     /** A new end date is a new term; the follow-up starts over with it. */

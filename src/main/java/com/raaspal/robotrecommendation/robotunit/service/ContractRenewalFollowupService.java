@@ -35,8 +35,10 @@ public class ContractRenewalFollowupService {
     }
 
     /**
-     * @param status              {@link ContractRenewalStatus#NOT_CONTACTED} clears the
-     *                            follow-up (note and author too) - it is the unset state
+     * @param status              {@link ContractRenewalStatus#NOT_CONTACTED} is the unset
+     *                            state: stored as no status. A note may still be kept with
+     *                            it ("call back after the 20th"); with no note either, the
+     *                            follow-up is cleared entirely, author and all
      * @param applyToSameContract also write it to the other robots on the same contract
      */
     @Transactional
@@ -61,11 +63,12 @@ public class ContractRenewalFollowupService {
 
         String cleanNote = note == null || note.isBlank() ? null : note.strip();
         Instant now = Instant.now();
+        boolean unset = status == null || status == ContractRenewalStatus.NOT_CONTACTED;
         for (Deployment d : covered) {
-            if (status == null || status == ContractRenewalStatus.NOT_CONTACTED) {
+            if (unset && cleanNote == null) {
                 d.clearRenewalFollowup();
             } else {
-                d.setRenewalStatus(status);
+                d.setRenewalStatus(unset ? null : status);
                 d.setRenewalNote(cleanNote);
                 d.setRenewalUpdatedBy(updatedBy);
                 d.setRenewalUpdatedAt(now);
