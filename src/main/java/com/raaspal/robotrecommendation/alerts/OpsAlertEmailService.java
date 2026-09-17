@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.alerts;
 
 import com.raaspal.robotrecommendation.robotunit.dto.ContractExpiryResponse;
+import com.raaspal.robotrecommendation.robotunit.dto.ContractRenewalFollowup;
 import com.raaspal.robotrecommendation.telemetry.dto.ZeroDataRobotsResponse;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -54,12 +55,13 @@ public class OpsAlertEmailService {
                 .append(td(c.serialNumber())).append(td(join(c.name(), c.brand(), c.model())))
                 .append(td(String.valueOf(c.contractEndDate())))
                 .append(td(c.daysToEnd() == null ? "—" : c.daysToEnd() + " days"))
+                .append(td(followupLabel(c.followup())))
                 .append("</tr>");
         }
         String html = "<p>" + contracts.size() + " robot contract(s) end within the next " + windowDays
                 + " days. Please arrange the renewal or set the robot's end date accordingly.</p>"
-                + table("Customer", "Site", "Serial", "Robot", "Ends", "In", rows)
-                + link("/tools?tab=robots", "Open Tools → Robots");
+                + table(rows, "Customer", "Site", "Serial", "Robot", "Ends", "In", "Follow-up")
+                + link("/tools?tab=contracts", "Open Tools → Contracts");
         return send("[RAASPAL] " + contracts.size() + " robot contract(s) ending within " + windowDays + " days", html,
                 "contract expiry alert");
     }
@@ -80,7 +82,7 @@ public class OpsAlertEmailService {
                 : "<p>" + digest.zeroData() + " of " + digest.inScope() + " robots under contract in "
                   + esc(digest.monthLabel()) + " logged <b>no task</b>. Please contact the customers to find out why, "
                   + "and record the outcome on the No data page.</p>"
-                  + table("Customer", "Site", "Serial", "Robot", "Why", "Last data", rows);
+                  + table(rows, "Customer", "Site", "Serial", "Robot", "Why", "Last data");
         String html = intro + link("/reports?tab=zero-data", "Open the No data page");
         return send("[RAASPAL] Robots with no data — " + digest.monthLabel()
                 + " (" + digest.zeroData() + " of " + digest.inScope() + ")", html, "zero-data digest");
@@ -113,10 +115,23 @@ public class OpsAlertEmailService {
         return "<p><a href=\"" + esc(consoleBaseUrl + path) + "\">" + esc(label) + "</a></p>";
     }
 
-    private static String table(String h1, String h2, String h3, String h4, String h5, String h6, StringBuilder rows) {
+    private static String table(StringBuilder rows, String... headers) {
+        StringBuilder head = new StringBuilder();
+        for (String h : headers) head.append(th(h));
         return "<table cellpadding=\"6\" cellspacing=\"0\" border=\"1\" style=\"border-collapse:collapse;border-color:#dbe4f0\">"
-                + "<tr style=\"background:#bcccea\">" + th(h1) + th(h2) + th(h3) + th(h4) + th(h5) + th(h6) + "</tr>"
+                + "<tr style=\"background:#bcccea\">" + head + "</tr>"
                 + rows + "</table>";
+    }
+
+    private static String followupLabel(ContractRenewalFollowup f) {
+        if (f == null) return "Not contacted";
+        String label = switch (f.status()) {
+            case NOT_CONTACTED -> "Not contacted";
+            case CONTACTED -> "Contacted";
+            case WILL_RENEW -> "Will renew";
+            case WILL_NOT_RENEW -> "Will not renew";
+        };
+        return f.note() == null || f.note().isBlank() ? label : label + " — " + f.note();
     }
 
     private static String reasonLabel(ZeroDataRobotsResponse.Reason reason) {
