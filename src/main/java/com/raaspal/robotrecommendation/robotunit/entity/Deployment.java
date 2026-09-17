@@ -87,6 +87,33 @@ public class Deployment {
     private Instant contractExpiryAlertedAt;
 
     /**
+     * The customer success follow-up on this contract term: whether the customer has
+     * been called about renewing, and what they said. Null = not contacted yet.
+     * Cleared with {@link #contractExpiryAlertedAt} whenever the end date changes, so
+     * a renewed contract is chased afresh for its next term.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "renewal_status", length = 20)
+    private ContractRenewalStatus renewalStatus;
+
+    @Column(name = "renewal_note", columnDefinition = "TEXT")
+    private String renewalNote;
+
+    @Column(name = "renewal_updated_by")
+    private String renewalUpdatedBy;
+
+    @Column(name = "renewal_updated_at")
+    private Instant renewalUpdatedAt;
+
+    /** Back to "not contacted", for a new term. */
+    public void clearRenewalFollowup() {
+        this.renewalStatus = null;
+        this.renewalNote = null;
+        this.renewalUpdatedBy = null;
+        this.renewalUpdatedAt = null;
+    }
+
+    /**
      * The signed contract PDF covering this deployment, if one has been attached.
      * Shared with every other deployment the same contract covers; see
      * {@link ContractDocument}.

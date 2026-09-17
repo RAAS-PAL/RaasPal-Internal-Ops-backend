@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.robotunit.service;
 
 import com.raaspal.robotrecommendation.robotunit.dto.ContractDocumentInfo;
 import com.raaspal.robotrecommendation.robotunit.dto.ContractExpiryResponse;
+import com.raaspal.robotrecommendation.robotunit.dto.ContractRenewalFollowup;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
 import lombok.RequiredArgsConstructor;
@@ -139,7 +140,8 @@ public class ContractExpiryService {
                 d.getContractExpiryAlertedAt(),
                 d.getContractDocument() == null ? null : ContractDocumentInfo.of(
                         d.getContractDocument(),
-                        deploymentRepository.countByContractDocumentId(d.getContractDocument().getId())));
+                        deploymentRepository.countByContractDocumentId(d.getContractDocument().getId())),
+                ContractRenewalFollowup.of(d));
     }
 
     LocalDate today() {

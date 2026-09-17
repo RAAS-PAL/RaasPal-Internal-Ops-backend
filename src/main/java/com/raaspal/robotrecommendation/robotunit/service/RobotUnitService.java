@@ -269,8 +269,10 @@ public class RobotUnitService {
         deployment.setReportCadence(cadence);
         deployment.setContractStartDate(request.contractStartDate());
         if (!java.util.Objects.equals(deployment.getContractEndDate(), request.contractEndDate())) {
-            // A new end date is a new expiry to warn about; an extension re-arms the alert.
+            // A new end date is a new expiry to warn about; an extension re-arms the alert
+            // and puts the CS follow-up back to "not contacted" for the new term.
             deployment.setContractExpiryAlertedAt(null);
+            deployment.clearRenewalFollowup();
         }
         deployment.setContractEndDate(request.contractEndDate());
         deploymentRepository.save(deployment);

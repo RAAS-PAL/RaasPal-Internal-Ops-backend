@@ -32,6 +32,7 @@ public record ContractExpiryResponse(
      * @param daysToEnd negative once ended; null when there is no end date
      * @param alertedAt when the ending-soon alert was emailed; null if not yet
      * @param document  the contract PDF attached to this deployment; null if none
+     * @param followup  what the CS team has done about renewing; never null
      */
     public record Contract(
             UUID robotUnitId,
@@ -47,6 +48,7 @@ public record ContractExpiryResponse(
             Long daysToEnd,
             Status status,
             Instant alertedAt,
-            ContractDocumentInfo document) {
+            ContractDocumentInfo document,
+            ContractRenewalFollowup followup) {
     }
 }

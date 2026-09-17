@@ -12,8 +12,10 @@ import com.raaspal.robotrecommendation.robotunit.dto.UpdateStockUnitRequest;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import com.raaspal.robotrecommendation.robotunit.dto.ContractExpiryResponse;
 import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
+import com.raaspal.robotrecommendation.robotunit.dto.UpdateRenewalFollowupRequest;
 import com.raaspal.robotrecommendation.robotunit.service.ContractDocumentService;
 import com.raaspal.robotrecommendation.robotunit.service.ContractExpiryService;
+import com.raaspal.robotrecommendation.robotunit.service.ContractRenewalFollowupService;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +56,7 @@ public class RobotUnitController {
     private final RobotUnitService robotUnitService;
     private final ContractExpiryService contractExpiryService;
     private final ContractDocumentService contractDocumentService;
+    private final ContractRenewalFollowupService contractRenewalFollowupService;
 
     /** Register a robot by serial number and deploy it to a customer. */
     @PostMapping
@@ -216,6 +219,25 @@ public class RobotUnitController {
     public ApiResponse<Void> removeContractDocument(@PathVariable UUID robotUnitId) {
         contractDocumentService.remove(robotUnitId);
         return ApiResponse.success("Contract document removed");
+    }
+
+    // ─── Renewal follow-up ───────────────────────────────────────────────────
+
+    /**
+     * Record where the CS team is with renewing this robot's contract - and, if asked,
+     * the other robots of the same customer on the same contract dates. Resets by
+     * itself when the end date changes.
+     */
+    @PutMapping("/{robotUnitId}/contract-followup")
+    @PreAuthorize("hasAnyRole('ADMIN','RAASPAL_TEAM')")
+    public ApiResponse<ContractRenewalFollowupService.Updated> updateRenewalFollowup(
+            @PathVariable UUID robotUnitId,
+            @Valid @RequestBody UpdateRenewalFollowupRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        ContractRenewalFollowupService.Updated updated = contractRenewalFollowupService.update(
+                robotUnitId, request.status(), request.note(), request.applyToSameContractOrDefault(),
+                principal == null ? null : principal.getUsername());
+        return ApiResponse.success("Follow-up recorded on " + updated.deploymentsUpdated() + " robot(s)", updated);
     }
 }
 
