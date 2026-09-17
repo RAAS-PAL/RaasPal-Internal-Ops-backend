@@ -11,11 +11,15 @@ import com.raaspal.robotrecommendation.robotunit.dto.UpdateStockStatusRequest;
 import com.raaspal.robotrecommendation.robotunit.dto.UpdateStockUnitRequest;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import com.raaspal.robotrecommendation.robotunit.dto.ContractExpiryResponse;
+import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
+import com.raaspal.robotrecommendation.robotunit.service.ContractDocumentService;
 import com.raaspal.robotrecommendation.robotunit.service.ContractExpiryService;
 import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -28,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -48,6 +53,7 @@ public class RobotUnitController {
 
     private final RobotUnitService robotUnitService;
     private final ContractExpiryService contractExpiryService;
+    private final ContractDocumentService contractDocumentService;
 
     /** Register a robot by serial number and deploy it to a customer. */
     @PostMapping
@@ -166,4 +172,40 @@ public class RobotUnitController {
         robotUnitService.deactivate(deploymentId);
         return ApiResponse.success("Deployment deactivated");
     }
+    // ─── Contract documents ──────────────────────────────────────────────────
+
+    /**
+     * Attach the signed contract PDF to this robot's deployment - and, if asked, to
+     * every other robot of the same customer on the same contract dates. Replaces
+     * whatever was attached before. The file is checked to be a PDF by its bytes.
+     */
+    @PostMapping(value = "/{robotUnitId}/contract-document", consumes = "multipart/form-data")
+    @PreAuthorize("hasAnyRole('ADMIN','RAASPAL_TEAM')")
+    public ApiResponse<ContractDocumentService.Attached> attachContractDocument(
+            @PathVariable UUID robotUnitId,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(name = "applyToSameContract", defaultValue = "true") boolean applyToSameContract,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        ContractDocumentService.Attached attached = contractDocumentService.attach(
+                robotUnitId, file.getOriginalFilename(), file.getContentType(),
+                ContractDocumentService.bytesOf(file), applyToSameContract,
+                principal == null ? null : principal.getUsername());
+        return ApiResponse.success("Contract attached to " + attached.deploymentsLinked() + " robot(s)", attached);
+    }
+
+    /** A five-minute link to the attached PDF. The console opens it in a new tab. */
+    @GetMapping("/{robotUnitId}/contract-document/url")
+    @PreAuthorize("hasAnyRole('ADMIN','RAASPAL_TEAM')")
+    public ApiResponse<Map<String, String>> contractDocumentUrl(@PathVariable UUID robotUnitId) {
+        return ApiResponse.success(Map.of("url", contractDocumentService.temporaryUrl(robotUnitId)));
+    }
+
+    /** Detach the PDF from this robot. Other robots on the same contract keep it. */
+    @DeleteMapping("/{robotUnitId}/contract-document")
+    @PreAuthorize("hasAnyRole('ADMIN','RAASPAL_TEAM')")
+    public ApiResponse<Void> removeContractDocument(@PathVariable UUID robotUnitId) {
+        contractDocumentService.remove(robotUnitId);
+        return ApiResponse.success("Contract document removed");
+    }
 }
+

@@ -86,6 +86,15 @@ public class Deployment {
     @Column(name = "contract_expiry_alerted_at")
     private Instant contractExpiryAlertedAt;
 
+    /**
+     * The signed contract PDF covering this deployment, if one has been attached.
+     * Shared with every other deployment the same contract covers; see
+     * {@link ContractDocument}.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "contract_document_id")
+    private ContractDocument contractDocument;
+
     @Column(name = "deployed_at", nullable = false)
     private LocalDateTime deployedAt;
 

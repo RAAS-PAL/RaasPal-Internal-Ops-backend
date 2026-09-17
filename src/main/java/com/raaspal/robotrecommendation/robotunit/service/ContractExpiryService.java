@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.robotunit.service;
 
+import com.raaspal.robotrecommendation.robotunit.dto.ContractDocumentInfo;
 import com.raaspal.robotrecommendation.robotunit.dto.ContractExpiryResponse;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
@@ -111,7 +112,10 @@ public class ContractExpiryService {
                 d.getContractEndDate(),
                 ChronoUnit.DAYS.between(today, d.getContractEndDate()),
                 statusOf(d.getContractEndDate(), today, DEFAULT_WINDOW_DAYS),
-                d.getContractExpiryAlertedAt());
+                d.getContractExpiryAlertedAt(),
+                d.getContractDocument() == null ? null : ContractDocumentInfo.of(
+                        d.getContractDocument(),
+                        deploymentRepository.countByContractDocumentId(d.getContractDocument().getId())));
     }
 
     LocalDate today() {

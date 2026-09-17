@@ -38,6 +38,23 @@ public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
 
     List<Deployment> findByRobotUnitIdAndIsActiveTrue(UUID robotUnitId);
 
+    /**
+     * The other active deployments on the same contract as one: same customer, same
+     * start and end dates. What "also attach to the other robots" means.
+     */
+    @Query("""
+            SELECT d FROM Deployment d
+            WHERE d.isActive = true
+              AND d.customerProfile.id = :customerId
+              AND d.contractEndDate = :end
+              AND ((:start IS NULL AND d.contractStartDate IS NULL) OR d.contractStartDate = :start)
+            """)
+    List<Deployment> findActiveOnSameContract(@Param("customerId") UUID customerId,
+                                              @Param("start") LocalDate start,
+                                              @Param("end") LocalDate end);
+
+    long countByContractDocumentId(UUID contractDocumentId);
+
     List<Deployment> findByCustomerProfileIdAndIsActiveTrue(UUID customerProfileId);
 
     /** Active deployments serviced by a partner — the partner API's scoping query. */
