@@ -79,8 +79,11 @@ public class ContractDocumentService {
         List<Deployment> covered = new ArrayList<>();
         covered.add(target);
         if (applyToSameContract && target.getContractEndDate() != null) {
-            for (Deployment d : deployments.findActiveOnSameContract(
-                    target.getCustomerProfile().getId(), target.getContractStartDate(), target.getContractEndDate())) {
+            UUID customerId = target.getCustomerProfile().getId();
+            List<Deployment> sameContract = target.getContractStartDate() == null
+                    ? deployments.findActiveOnSameContractWithoutStart(customerId, target.getContractEndDate())
+                    : deployments.findActiveOnSameContract(customerId, target.getContractStartDate(), target.getContractEndDate());
+            for (Deployment d : sameContract) {
                 if (!d.getId().equals(target.getId())) covered.add(d);
             }
         }

@@ -39,19 +39,32 @@ public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
     List<Deployment> findByRobotUnitIdAndIsActiveTrue(UUID robotUnitId);
 
     /**
-     * The other active deployments on the same contract as one: same customer, same
-     * start and end dates. What "also attach to the other robots" means.
+     * The active deployments on the same contract as one: same customer, same start
+     * and end dates. What "also attach to the other robots" means. Two queries rather
+     * than one with {@code (:start IS NULL AND ...)}: PostgreSQL cannot type a bare
+     * null parameter in that form and refuses the statement.
      */
     @Query("""
             SELECT d FROM Deployment d
             WHERE d.isActive = true
               AND d.customerProfile.id = :customerId
+              AND d.contractStartDate = :start
               AND d.contractEndDate = :end
-              AND ((:start IS NULL AND d.contractStartDate IS NULL) OR d.contractStartDate = :start)
             """)
     List<Deployment> findActiveOnSameContract(@Param("customerId") UUID customerId,
                                               @Param("start") LocalDate start,
                                               @Param("end") LocalDate end);
+
+    /** The same, for a contract whose start date was never recorded. */
+    @Query("""
+            SELECT d FROM Deployment d
+            WHERE d.isActive = true
+              AND d.customerProfile.id = :customerId
+              AND d.contractStartDate IS NULL
+              AND d.contractEndDate = :end
+            """)
+    List<Deployment> findActiveOnSameContractWithoutStart(@Param("customerId") UUID customerId,
+                                                          @Param("end") LocalDate end);
 
     long countByContractDocumentId(UUID contractDocumentId);
 
