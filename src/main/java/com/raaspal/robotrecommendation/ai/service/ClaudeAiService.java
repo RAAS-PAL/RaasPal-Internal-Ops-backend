@@ -438,11 +438,13 @@ public class ClaudeAiService
     // ─── CmReportExtractionService ────────────────────────────────────────────
 
     /**
-     * Field extraction from one pasted ticket — a small, well-specified task, so it
-     * runs on Haiku rather than the default model. At roughly a cent per report the
-     * cost is negligible, and every field is reviewed by a human before it is saved.
+     * Field extraction for a CM report. Sonnet since 2026-09-18: the input is no longer a
+     * tidy paste but a ticket's whole comment thread — several technicians, Thai and
+     * English, replies out of order — and the narrative fields (cause, inspection,
+     * actions, test) have to be composed from it, not copied. A few cents per report;
+     * every field is still reviewed by a human before it is saved.
      */
-    private static final String CM_MODEL = "claude-haiku-4-5-20251001";
+    private static final String CM_MODEL = "claude-sonnet-5";
 
     @Override
     public CmReportDraft extractCmReport(String sourceText) {
