@@ -44,7 +44,7 @@ import java.util.*;
 public class CaseTicketSyncService {
 
     /** Cleaning Tickets / All Case. */
-    private static final String CLEANING_BOARD = "3451717331";
+    public static final String CLEANING_BOARD = "3451717331";
     private static final String CLEANING_GROUP = "new_group96592__1";
 
     /** Delivery Tickets / All Case. */

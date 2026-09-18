@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,4 +26,8 @@ public interface CmReportRepository extends JpaRepository<CmReport, UUID> {
             + "LOWER(r.serialNumber) LIKE LOWER(CONCAT('%', :keyword, '%')) "
             + "ORDER BY r.createdAt DESC")
     List<CmReport> search(@Param("keyword") String keyword);
+
+    /** Of these ticket numbers, the ones a report has already been written for. */
+    @Query("SELECT DISTINCT r.ticketNo FROM CmReport r WHERE r.ticketNo IN :ticketNos")
+    List<String> findExistingTicketNos(@Param("ticketNos") Collection<String> ticketNos);
 }
