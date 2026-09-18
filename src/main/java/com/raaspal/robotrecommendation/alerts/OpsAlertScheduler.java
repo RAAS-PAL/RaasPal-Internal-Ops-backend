@@ -46,7 +46,7 @@ public class OpsAlertScheduler {
     @Value("${app.alerts.zone:Asia/Bangkok}")
     private String zone;
 
-    @Value("${app.alerts.contract-window-days:30}")
+    @Value("${app.alerts.contract-window-days:90}")
     private int contractWindowDays;
 
     @Value("${app.alerts.zero-data-day-of-month:3}")

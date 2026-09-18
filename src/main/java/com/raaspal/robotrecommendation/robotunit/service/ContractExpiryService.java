@@ -23,7 +23,7 @@ import java.util.List;
  * Which robots' contracts are ending, and which have ended.
  *
  * <p>Two audiences. The console shows the list so a customer's renewal is visible a
- * month out rather than discovered when the robot stops reporting; the daily alert
+ * quarter out rather than discovered when the robot stops reporting; the daily alert
  * ({@code OpsAlertScheduler}) emails each deployment once as it crosses into the
  * window, stamping {@code contractExpiryAlertedAt} so a day the scheduler did not run
  * is caught up rather than missed. Changing the end date clears the stamp, so an
@@ -37,8 +37,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ContractExpiryService {
 
-    /** The alert window: a contract ending within this many days is "ending soon". */
-    public static final int DEFAULT_WINDOW_DAYS = 30;
+    /**
+     * The alert window: a contract ending within this many days is "ending soon".
+     * 90, not 30 - the CS team needs a quarter to call, quote and get a renewal signed
+     * (raised from 30 on 2026-09-18). The email scheduler reads its own copy from
+     * {@code app.alerts.contract-window-days}; keep the two the same.
+     */
+    public static final int DEFAULT_WINDOW_DAYS = 90;
 
     private final DeploymentRepository deploymentRepository;
 

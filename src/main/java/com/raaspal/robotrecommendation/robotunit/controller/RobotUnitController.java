@@ -87,12 +87,12 @@ public class RobotUnitController {
     }
 
     /**
-     * Contracts ending within {@code withinDays} (default 30) and contracts already
+     * Contracts ending within {@code withinDays} (default 90) and contracts already
      * ended, for the console's Contracts view. Only active deployments with an end date.
      */
     @GetMapping("/contracts/expiring")
     public ApiResponse<ContractExpiryResponse> expiringContracts(
-            @RequestParam(required = false, defaultValue = "30") int withinDays) {
+            @RequestParam(required = false, defaultValue = "90") int withinDays) {
         return ApiResponse.success(contractExpiryService.list(Math.max(0, Math.min(withinDays, 365))));
     }
 
@@ -102,7 +102,7 @@ public class RobotUnitController {
      */
     @GetMapping("/contracts")
     public ApiResponse<ContractExpiryResponse.All> allContracts(
-            @RequestParam(required = false, defaultValue = "30") int withinDays) {
+            @RequestParam(required = false, defaultValue = "90") int withinDays) {
         return ApiResponse.success(contractExpiryService.all(Math.max(0, Math.min(withinDays, 365))));
     }
 
