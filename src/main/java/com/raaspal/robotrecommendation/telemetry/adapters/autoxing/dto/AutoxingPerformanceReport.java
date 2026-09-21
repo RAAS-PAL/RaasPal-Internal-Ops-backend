@@ -29,6 +29,8 @@ public record AutoxingPerformanceReport(
         Reliability reliability,
         /** Null when service cases were not requested or could not be read. */
         ServiceCases serviceCases,
+        /** Recorded faults (robot_fault_event); null when the history could not be read. */
+        AutoxingFaultSummary faults,
         List<Recommendation> recommendations,
         List<String> notes
 ) {

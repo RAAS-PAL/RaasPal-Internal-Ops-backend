@@ -58,7 +58,7 @@ class AutoxingPerformanceServiceTest {
                 task(4, 14, 20, false, true, "Path blocked"),
                 task(4, 15, 25, false, false, null)));   // charging
 
-        AutoxingPerformanceReport r = AutoxingPerformanceService.assemble("SN1", FROM, TO, tasks, stats(), 4, null,
+        AutoxingPerformanceReport r = AutoxingPerformanceService.assemble("SN1", FROM, TO, tasks, stats(), 4, null, null,
                 "Robot", "Zara", "Customer", "Site", new ArrayList<>());
 
         assertThat(r.reliability().totalTasks()).isEqualTo(4);
@@ -88,7 +88,7 @@ class AutoxingPerformanceServiceTest {
     @Test
     void emptyPeriodSaysNoData() throws Exception {
         AutoxingPerformanceReport r = AutoxingPerformanceService.assemble("SN1", FROM, TO, List.of(),
-                JSON.readTree("{}"), null, null, "Robot", null, "—", "—", new ArrayList<>());
+                JSON.readTree("{}"), null, null, null, "Robot", null, "—", "—", new ArrayList<>());
         assertThat(r.summary().completionRatePct()).isNull();
         assertThat(r.operational().peakHourStart()).isNull();
         assertThat(r.recommendations()).extracting(Recommendation::code).containsExactly("NO_DATA");

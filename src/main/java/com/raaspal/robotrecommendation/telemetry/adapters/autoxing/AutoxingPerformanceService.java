@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.raaspal.robotrecommendation.casereport.brand.BrandTicketQueryService;
 import com.raaspal.robotrecommendation.casereport.brand.dto.BrandTicket;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
+import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingFaultSummary;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingPerformanceReport;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingPerformanceReport.*;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +61,7 @@ public class AutoxingPerformanceService {
     private final AutoxingApiClient apiClient;
     private final AutoxingReportService reportService;
     private final BrandTicketQueryService ticketQuery;
+    private final AutoxingFaultQueryService faultQuery;
 
     /** One task off the list, flags defaulted: AutoXing omits a flag rather than send false. */
     record TaskRow(String taskId, long createTime, Integer taskType, Integer runType, Integer sourceType,
@@ -150,10 +152,29 @@ public class AutoxingPerformanceService {
             }
         }
 
+        AutoxingFaultSummary faults = null;
+        try {
+            AutoxingFaultSummary full = faultQuery.summarise(robotId, from, to);
+            // The report carries the per-code totals; the event list is for the fault log.
+            faults = AutoxingFaultSummary.builder()
+                    .recordingSince(full.recordingSince())
+                    .partialPeriod(full.partialPeriod())
+                    .errorOccurrences(full.errorOccurrences())
+                    .errors(full.errors().stream().limit(3).toList())
+                    .emergencyStops(full.emergencyStops())
+                    .emergencyStopSeconds(full.emergencyStopSeconds())
+                    .offlineSeconds(full.offlineSeconds())
+                    .events(List.of())
+                    .build();
+        } catch (Exception e) {
+            notes.add("faults_unavailable");
+            log.warn("Fault history unavailable for {}: {}", robotId, e.getMessage());
+        }
+
         AutoxingReportService.RobotContext context =
                 reportService.resolveRobotContext(robotId, nameOverride, modelOverride);
 
-        return assemble(robotId, from, to, tasks, stats, previousCompleted, cases,
+        return assemble(robotId, from, to, tasks, stats, previousCompleted, cases, faults,
                 context.robotName(), context.model(), context.customerName(), context.siteBranch(), notes);
     }
 
@@ -220,7 +241,8 @@ public class AutoxingPerformanceService {
 
     static AutoxingPerformanceReport assemble(String robotId, LocalDate from, LocalDate to,
                                               List<TaskRow> tasks, JsonNode stats, Integer previousCompleted,
-                                              ServiceCases cases, String robotName, String model,
+                                              ServiceCases cases, AutoxingFaultSummary faults,
+                                              String robotName, String model,
                                               String customerName, String siteBranch, List<String> notes) {
         int totalDays = (int) ChronoUnit.DAYS.between(from, to) + 1;
         List<TaskRow> work = tasks.stream().filter(t -> !t.charging()).toList();
@@ -330,7 +352,8 @@ public class AutoxingPerformanceService {
                 .operational(operational)
                 .reliability(reliability)
                 .serviceCases(cases)
-                .recommendations(recommend(summary, operational, reliability, cases))
+                .faults(faults)
+                .recommendations(recommend(summary, operational, reliability, cases, faults))
                 .notes(notes)
                 .build();
     }
@@ -339,7 +362,8 @@ public class AutoxingPerformanceService {
      * Rule-based, like the Gausium report: every rule that fires contributes one line, and
      * a clean month says so. Thresholds are first guesses to be tuned with the RE team.
      */
-    static List<Recommendation> recommend(Summary s, Operational o, Reliability r, ServiceCases cases) {
+    static List<Recommendation> recommend(Summary s, Operational o, Reliability r, ServiceCases cases,
+                                          AutoxingFaultSummary faults) {
         List<Recommendation> out = new ArrayList<>();
         if (r.totalTasks() == 0) {
             out.add(new Recommendation("NO_DATA", Map.of()));
@@ -365,6 +389,14 @@ public class AutoxingPerformanceService {
         }
         if (s.tasksChangePct() != null && s.tasksChangePct() <= -20) {
             out.add(new Recommendation("USAGE_DROP", Map.of("value", s.tasksChangePct())));
+        }
+        if (faults != null && faults.errorOccurrences() > 0) {
+            String top = faults.errors().isEmpty() || faults.errors().get(0).message() == null
+                    ? "" : faults.errors().get(0).message();
+            out.add(new Recommendation("ROBOT_FAULTS", Map.of("count", faults.errorOccurrences(), "message", top)));
+        }
+        if (faults != null && faults.emergencyStops() > 0) {
+            out.add(new Recommendation("EMERGENCY_STOPS", Map.of("count", faults.emergencyStops())));
         }
         if (cases != null && cases.stillOpen() > 0) {
             out.add(new Recommendation("OPEN_SERVICE_CASES", Map.of("count", cases.stillOpen())));

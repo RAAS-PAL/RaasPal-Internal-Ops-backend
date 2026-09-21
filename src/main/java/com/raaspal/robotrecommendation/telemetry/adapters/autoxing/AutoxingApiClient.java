@@ -243,6 +243,24 @@ public class AutoxingApiClient {
      * The array of rows in a list response. AutoXing is inconsistent: business and
      * building lists use {@code lists}, area/robot lists use {@code list}.
      */
+    /**
+     * Every robot on the account in one call ({@code pageSize 0} = no paging): online,
+     * battery, E-stop, charging, busy, and the active fault {@code errors} as codes only.
+     * Verified 2026-09-21: 44 robots in 0.3 s. The fault poller's only regular call.
+     */
+    public JsonNode getRobotFleet(String token) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("pageSize", 0);
+        body.put("pageNum", 1);
+        return entries(exchangeForData(
+                restClient.post()
+                        .uri(ROBOT_LIST_PATH)
+                        .header("X-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body),
+                "get robot fleet"));
+    }
+
     public static JsonNode entries(JsonNode data) {
         if (data == null) {
             return MissingNode.getInstance();
