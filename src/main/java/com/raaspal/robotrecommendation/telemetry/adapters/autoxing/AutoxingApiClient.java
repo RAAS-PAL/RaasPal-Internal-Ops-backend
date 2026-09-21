@@ -40,6 +40,7 @@ public class AutoxingApiClient {
     private static final String ROBOT_STATE_PATH = "/robot/v2.0/{robotId}/state";
     private static final String TASK_STATISTICS_PATH = "/statis/v2.0/task";
     private static final String TASK_DETAIL_PATH = "/task/v3/{taskId}";
+    private static final String TASK_LIST_PATH = "/task/v1.1/list";
     private static final String ROBOT_LIST_PATH = "/robot/v1.1/list";
     private static final String BUSINESS_LIST_PATH = "/business/v1.1/list";
     private static final String BUILDING_LIST_PATH = "/building/v1.1/list";
@@ -136,6 +137,32 @@ public class AutoxingApiClient {
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(body),
                 "get task statistics");
+    }
+
+    /**
+     * One page of the raw task list for one robot, tasks created in {@code [startMs, endMs]}.
+     * Returns the {@code data} node: {@code count} (the whole window) and {@code list}.
+     *
+     * <p>Verified live 2026-09-21: the window and {@code robotId} filter server-side
+     * ({@code deviceId}/{@code robotIds} are silently ignored and return the whole
+     * account), 100 rows is the useful page size, and boolean flags that are false are
+     * <em>omitted</em> rather than sent as false - so a missing {@code isFailed} means
+     * "not failed". {@code isFinish} is true on cancelled tasks too: it means "ended".
+     */
+    public JsonNode getTaskList(String robotId, long startMs, long endMs, int pageNum, int pageSize, String token) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("robotId", robotId);
+        body.put("startTime", startMs);
+        body.put("endTime", endMs);
+        body.put("pageNum", pageNum);
+        body.put("pageSize", pageSize);
+        return exchangeForData(
+                restClient.post()
+                        .uri(TASK_LIST_PATH)
+                        .header("X-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body),
+                "get task list for " + robotId);
     }
 
     /** Per-task detail/status. {@code needDetail=true} returns task points and actions. */

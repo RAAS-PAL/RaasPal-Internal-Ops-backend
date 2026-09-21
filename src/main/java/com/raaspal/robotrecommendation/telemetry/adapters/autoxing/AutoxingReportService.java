@@ -51,7 +51,22 @@ public class AutoxingReportService {
     private volatile Instant directoryCachedAt = Instant.EPOCH;
 
     /** Robot identity and deployment context resolved from AutoXing's directories. */
-    private record RobotContext(String robotName, String model, String customerName, String siteBranch) {
+    record RobotContext(String robotName, String model, String customerName, String siteBranch) {
+    }
+
+    /**
+     * The robot's name, model, customer and site, for {@link AutoxingPerformanceService}.
+     * Live state is read only to learn where the robot is; a failure there degrades to
+     * the robot summary and area list, never fails the report.
+     */
+    RobotContext resolveRobotContext(String robotId, String nameOverride, String modelOverride) {
+        JsonNode state = null;
+        try {
+            state = withReauth(token -> apiClient.getRobotState(robotId, token));
+        } catch (Exception e) {
+            log.warn("AutoXing live state unavailable for {}: {}", robotId, e.getMessage());
+        }
+        return resolveContext(robotId, state, nameOverride, modelOverride);
     }
 
     /**
@@ -337,7 +352,7 @@ public class AutoxingReportService {
      * Runs an API call with the current token; on an authentication failure, refreshes
      * the token once and retries. Non-auth failures propagate immediately.
      */
-    private JsonNode withReauth(Function<String, JsonNode> call) {
+    JsonNode withReauth(Function<String, JsonNode> call) {
         String token = authService.getValidToken();
         try {
             return call.apply(token);

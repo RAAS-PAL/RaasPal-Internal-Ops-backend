@@ -1,8 +1,10 @@
 package com.raaspal.robotrecommendation.telemetry.controller;
 
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
+import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.AutoxingPerformanceService;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.AutoxingReportService;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingDeliveryReport;
+import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingPerformanceReport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 
 /**
@@ -26,6 +29,7 @@ public class AutoxingReportController {
     private static final int DEFAULT_WINDOW_DAYS = 29; // 30-day inclusive window (from..to)
 
     private final AutoxingReportService reportService;
+    private final AutoxingPerformanceService performanceService;
 
     /**
      * Delivery report for one AutoXing robot over {@code [from, to]} (inclusive, max
@@ -41,5 +45,24 @@ public class AutoxingReportController {
         LocalDate end = to != null ? to : LocalDate.now(ZoneOffset.UTC);
         LocalDate start = from != null ? from : end.minusDays(DEFAULT_WINDOW_DAYS);
         return ApiResponse.success(reportService.build(robotId, start, end, robotName, model));
+    }
+
+    /**
+     * The delivery-robot Executive Performance Report (prototype, live pull). Defaults to
+     * last calendar month in Bangkok. {@code serviceCases=false} leaves the RAAS PAL
+     * service-ticket line off - it is a customer-facing decision still open.
+     */
+    @GetMapping("/performance")
+    public ApiResponse<AutoxingPerformanceReport> performance(
+            @RequestParam String robotId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String robotName,
+            @RequestParam(required = false) String model,
+            @RequestParam(defaultValue = "true") boolean serviceCases) {
+        LocalDate lastMonth = LocalDate.now(ZoneId.of("Asia/Bangkok")).minusMonths(1);
+        LocalDate start = from != null ? from : lastMonth.withDayOfMonth(1);
+        LocalDate end = to != null ? to : lastMonth.withDayOfMonth(lastMonth.lengthOfMonth());
+        return ApiResponse.success(performanceService.build(robotId.trim(), start, end, robotName, model, serviceCases));
     }
 }
