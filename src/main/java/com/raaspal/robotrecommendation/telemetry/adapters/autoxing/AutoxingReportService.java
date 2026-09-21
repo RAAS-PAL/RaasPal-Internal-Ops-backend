@@ -93,6 +93,9 @@ public class AutoxingReportService {
         try {
             stats = withReauth(token -> apiClient.getTaskStatistics(List.of(robotId), startMs, endMs, token));
         } catch (AutoxingApiException e) {
+            if (e.isUnknownRobot()) {
+                throw new BadRequestException(AutoxingApiException.unknownRobotMessage(robotId));
+            }
             throw new BadRequestException("AutoXing statistics request failed: " + e.getMessage());
         }
 

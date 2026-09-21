@@ -123,6 +123,9 @@ public class AutoxingPerformanceService {
             tasks = fetchTasks(robotId, from, to);
             stats = fetchStats(robotId, from, to);
         } catch (AutoxingApiException e) {
+            if (e.isUnknownRobot()) {
+                throw new BadRequestException(AutoxingApiException.unknownRobotMessage(robotId));
+            }
             throw new BadRequestException("AutoXing request failed: " + e.getMessage());
         }
 
