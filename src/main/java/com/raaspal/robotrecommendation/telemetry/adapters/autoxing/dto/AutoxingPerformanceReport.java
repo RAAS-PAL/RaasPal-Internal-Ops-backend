@@ -21,6 +21,8 @@ public record AutoxingPerformanceReport(
         String model,
         String customerName,
         String siteBranch,
+        /** True when the header comes from Tools -> Robots; false = AutoXing's own names. */
+        boolean registered,
         String periodLabel,
         LocalDate from,
         LocalDate to,

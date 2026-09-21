@@ -18,6 +18,8 @@ import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
 import com.raaspal.robotrecommendation.robotunit.repository.RobotUnitRepository;
+import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.AutoxingApiException;
+import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.AutoxingFleetDirectory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
@@ -50,6 +52,7 @@ public class RobotUnitService {
     private final RobotUnitRepository robotUnitRepository;
     private final DeploymentRepository deploymentRepository;
     private final CustomerProfileRepository customerProfileRepository;
+    private final AutoxingFleetDirectory autoxingFleet;
 
     /**
      * Receives robots into the warehouse — stock, with no customer and no deployment.
@@ -177,6 +180,19 @@ public class RobotUnitService {
 
     private static final Pattern VERSION_PATTERN = Pattern.compile("([Vv][0-9.]+)");
 
+    /** Delivery-robot brands. A robot of one of these registered without a type is DELIVERY, not CLEANING. */
+    private static final Set<String> DELIVERY_BRANDS = Set.of("AUTOXING", "PUDU");
+
+    private static boolean isAutoxing(String brand) {
+        return brand != null && "AUTOXING".equalsIgnoreCase(brand.trim());
+    }
+
+    private static RobotType defaultType(String brand) {
+        return brand != null && DELIVERY_BRANDS.contains(brand.trim().toUpperCase(java.util.Locale.ROOT))
+                ? RobotType.DELIVERY
+                : RobotType.CLEANING;
+    }
+
     /** Registers a robot by serial number and deploys it to a customer. */
     @Transactional
     public RobotUnitResponse register(RegisterRobotRequest request) {
@@ -184,6 +200,14 @@ public class RobotUnitService {
         if (robotUnitRepository.existsBySerialNumber(serialNumber)) {
             throw new BadRequestException(
                     "A robot with serial number '" + serialNumber + "' is already registered");
+        }
+
+        // AutoXing serials mix "l" and "I", which look identical; a typo stored here would
+        // only surface later as a report that cannot find the robot. Checked against the
+        // live fleet - but only refused on a definite "no": if AutoXing cannot be asked,
+        // the registration goes ahead.
+        if (isAutoxing(request.brand()) && Boolean.FALSE.equals(autoxingFleet.knows(serialNumber).orElse(null))) {
+            throw new BadRequestException(AutoxingApiException.unknownRobotMessage(serialNumber));
         }
 
         CustomerProfile customer = customerProfileRepository.findById(request.customerProfileId())
@@ -199,7 +223,7 @@ public class RobotUnitService {
                 .brand(request.brand().trim())
                 .model(request.model())
                 .name(request.name())
-                .robotType(request.robotType() != null ? request.robotType() : RobotType.CLEANING)
+                .robotType(request.robotType() != null ? request.robotType() : defaultType(request.brand()))
                 .status(RobotUnitStatus.RENT)
                 .build());
 

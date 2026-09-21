@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.telemetry.core;
 
+import com.raaspal.robotrecommendation.common.enums.RobotType;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.report.service.CustomerReportExclusionService;
 import com.raaspal.robotrecommendation.report.service.ReportPeriod;
@@ -97,6 +98,11 @@ public class ZeroDataRobotService {
 
         for (Deployment d : deployments) {
             if (!period.coversContract(d.getContractStartDate(), d.getContractEndDate())) {
+                continue;
+            }
+            // Delivery robots never have cleaning task data; listing them here would flag
+            // every one as "no data" every month.
+            if (d.getRobotUnit().getRobotType() == RobotType.DELIVERY) {
                 continue;
             }
             inScope++;

@@ -10,7 +10,9 @@ import com.raaspal.robotrecommendation.telemetry.entity.RobotFaultEvent.Kind;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -72,6 +74,27 @@ class AutoxingFaultPollServiceTest {
 
         assertThat(plan.toClose()).isEmpty();
         assertThat(plan.toOpen()).isEmpty();
+    }
+
+    @Test
+    void aChangeIsWrittenOnlyWhenSeenOnTwoPollsInARowAndKeepsItsFirstSighting() {
+        Map<Key, Instant> pending = new HashMap<>();
+        Key slip = new Key("R1", Kind.ERROR, 2008);
+        Instant t1 = Instant.parse("2026-09-21T10:00:00Z");
+        Instant t2 = Instant.parse("2026-09-21T10:00:10Z");
+        Instant t3 = Instant.parse("2026-09-21T10:00:20Z");
+
+        assertThat(AutoxingFaultPollService.confirm(List.of(slip), pending, t1)).isEmpty();
+        assertThat(pending).containsEntry(slip, t1);
+        assertThat(AutoxingFaultPollService.confirm(List.of(slip), pending, t2)).containsExactly(slip);
+        assertThat(pending).containsEntry(slip, t1);   // first sighting kept for first_seen_at
+
+        // a one-poll flicker: seen, then gone - never confirmed, and forgotten
+        pending.clear();
+        AutoxingFaultPollService.confirm(List.of(slip), pending, t1);
+        assertThat(AutoxingFaultPollService.confirm(List.of(), pending, t2)).isEmpty();
+        assertThat(pending).isEmpty();
+        assertThat(AutoxingFaultPollService.confirm(List.of(slip), pending, t3)).isEmpty();
     }
 
     @Test

@@ -7,6 +7,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.raaspal.robotrecommendation.casereport.brand.BrandTicketQueryService;
 import com.raaspal.robotrecommendation.casereport.brand.dto.BrandTicket;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
+import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
+import com.raaspal.robotrecommendation.robotunit.dto.RobotUnitResponse;
+import com.raaspal.robotrecommendation.robotunit.service.RobotUnitService;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingFaultSummary;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingPerformanceReport;
 import com.raaspal.robotrecommendation.telemetry.adapters.autoxing.dto.AutoxingPerformanceReport.*;
@@ -62,6 +65,7 @@ public class AutoxingPerformanceService {
     private final AutoxingReportService reportService;
     private final BrandTicketQueryService ticketQuery;
     private final AutoxingFaultQueryService faultQuery;
+    private final RobotUnitService robotUnits;
 
     /** One task off the list, flags defaulted: AutoXing omits a flag rather than send false. */
     record TaskRow(String taskId, long createTime, Integer taskType, Integer runType, Integer sourceType,
@@ -119,6 +123,26 @@ public class AutoxingPerformanceService {
         }
 
         List<String> notes = new ArrayList<>();
+
+        // A registered robot reports under RAAS PAL's own names, and only for the part of
+        // the period its contract covers - the same clipping the Gausium report does.
+        Registration registration = registration(robotId);
+        RobotUnitResponse.DeploymentInfo deployment = registration.deployment();
+        if (deployment != null) {
+            if (deployment.contractStartDate() != null && deployment.contractStartDate().isAfter(from)) {
+                from = deployment.contractStartDate();
+                notes.add("clipped_to_contract_start");
+            }
+            if (deployment.contractEndDate() != null && deployment.contractEndDate().isBefore(to)) {
+                to = deployment.contractEndDate();
+                notes.add("clipped_to_contract_end");
+            }
+            if (from.isAfter(to)) {
+                throw new BadRequestException("This robot's contract does not cover the selected period");
+            }
+            days = ChronoUnit.DAYS.between(from, to) + 1;
+        }
+
         List<TaskRow> tasks;
         JsonNode stats;
         try {
@@ -171,11 +195,35 @@ public class AutoxingPerformanceService {
             log.warn("Fault history unavailable for {}: {}", robotId, e.getMessage());
         }
 
-        AutoxingReportService.RobotContext context =
-                reportService.resolveRobotContext(robotId, nameOverride, modelOverride);
+        RobotUnitResponse unit = registration.unit();
+        AutoxingReportService.RobotContext context = reportService.resolveRobotContext(robotId,
+                firstNonBlank(nameOverride, unit == null ? null : unit.name()),
+                firstNonBlank(modelOverride, unit == null ? null : unit.model()));
+        String customer = deployment != null && deployment.customerName() != null
+                ? deployment.customerName() : context.customerName();
+        String site = deployment != null && deployment.site() != null && !deployment.site().isBlank()
+                ? deployment.site() : context.siteBranch();
 
         return assemble(robotId, from, to, tasks, stats, previousCompleted, cases, faults,
-                context.robotName(), context.model(), context.customerName(), context.siteBranch(), notes);
+                context.robotName(), context.model(), customer, site, deployment != null, notes);
+    }
+
+    /** The robot as registered in Tools -> Robots; both parts null when it is not registered. */
+    record Registration(RobotUnitResponse unit, RobotUnitResponse.DeploymentInfo deployment) {
+    }
+
+    /**
+     * The robot's unit and active deployment, or nulls when it is not registered - the
+     * report then falls back to AutoXing's own business and building names.
+     */
+    private Registration registration(String robotId) {
+        try {
+            RobotUnitResponse unit = robotUnits.getBySerialNumber(robotId);
+            RobotUnitResponse.DeploymentInfo d = unit.deployment();
+            return new Registration(unit, d != null && d.active() ? d : null);
+        } catch (ResourceNotFoundException notRegistered) {
+            return new Registration(null, null);
+        }
     }
 
     /* ─── Fetching ───────────────────────────────────────────────────────────── */
@@ -243,7 +291,8 @@ public class AutoxingPerformanceService {
                                               List<TaskRow> tasks, JsonNode stats, Integer previousCompleted,
                                               ServiceCases cases, AutoxingFaultSummary faults,
                                               String robotName, String model,
-                                              String customerName, String siteBranch, List<String> notes) {
+                                              String customerName, String siteBranch, boolean registered,
+                                              List<String> notes) {
         int totalDays = (int) ChronoUnit.DAYS.between(from, to) + 1;
         List<TaskRow> work = tasks.stream().filter(t -> !t.charging()).toList();
         List<TaskRow> charging = tasks.stream().filter(TaskRow::charging).toList();
@@ -345,6 +394,7 @@ public class AutoxingPerformanceService {
                 .model(model)
                 .customerName(customerName)
                 .siteBranch(siteBranch)
+                .registered(registered)
                 .periodLabel(periodLabel(from, to))
                 .from(from)
                 .to(to)
@@ -470,5 +520,10 @@ public class AutoxingPerformanceService {
 
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        String x = blankToNull(a);
+        return x != null ? x : blankToNull(b);
     }
 }

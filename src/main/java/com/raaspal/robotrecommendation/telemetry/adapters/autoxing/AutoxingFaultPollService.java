@@ -18,9 +18,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>AutoXing only ever says what is wrong <em>now</em>; nothing in its API returns a past
  * fault. Each poll reads the whole fleet in one call and compares it with the faults
- * already open in {@code robot_fault_event}: a fault that appeared is opened, one that
- * disappeared is closed. A fault that simply stays active writes nothing, so a 10-second
- * interval costs one AutoXing call and, most of the time, zero database writes.
+ * already open (kept in memory, loaded once from {@code robot_fault_event}): a fault that
+ * appeared on two polls in a row is opened, one gone on two polls in a row is closed. A
+ * fault that simply stays active costs nothing, so a poll is one AutoXing call and, most
+ * of the time, no database access at all.
  *
  * <p>What a poll can and cannot conclude:
  * <ul>
@@ -46,6 +47,21 @@ public class AutoxingFaultPollService {
     private final Map<Integer, Message> messages = new ConcurrentHashMap<>();
 
     private int failureStreak;
+
+    /**
+     * The open rows, kept between polls so an unchanged fleet costs no database read.
+     * Null = not loaded yet or possibly stale (after a failed write) - reloaded next poll.
+     */
+    private Map<Key, RobotFaultEvent> open;
+
+    /**
+     * Debounce: a change must be seen on two polls in a row before it is written, so a
+     * fault that flickers for one poll, or a single dropped response making a robot look
+     * offline, leaves no row. The timestamp kept is the first sighting, so the recorded
+     * times stay as precise as the interval allows.
+     */
+    private final Map<Key, Instant> pendingOpen = new HashMap<>();
+    private final Map<Key, Instant> pendingClose = new HashMap<>();
 
     record Message(String text, Integer level) {
     }
@@ -112,39 +128,57 @@ public class AutoxingFaultPollService {
             if (s.robotId() != null) robots.add(s);
         });
 
-        Map<Key, RobotFaultEvent> open = new HashMap<>();
-        faults.findByBrandAndClearedAtIsNull(BRAND).forEach(e -> open.put(Key.of(e), e));
+        if (open == null) {
+            open = new HashMap<>();
+            faults.findByBrandAndClearedAtIsNull(BRAND).forEach(e -> open.put(Key.of(e), e));
+        }
 
         Plan plan = plan(open.keySet(), robots);
         Instant now = Instant.now();
 
-        int closed = 0;
-        for (Key key : plan.toClose()) {
-            RobotFaultEvent e = open.get(key);
-            e.setClearedAt(now);
-            faults.save(e);
-            closed++;
-        }
+        List<Key> confirmedClose = confirm(plan.toClose(), pendingClose, now);
+        List<Key> confirmedOpen = confirm(plan.toOpen(), pendingOpen, now);
 
+        int closed = 0;
         int opened = 0;
-        for (Key key : plan.toOpen()) {
-            Message m = key.kind() == Kind.ERROR ? message(key.robotId(), key.code()) : null;
-            try {
-                faults.save(RobotFaultEvent.builder()
-                        .brand(BRAND)
-                        .robotId(key.robotId())
-                        .businessId(plan.businessByRobot().get(key.robotId()))
-                        .kind(key.kind())
-                        .errorCode(key.code())
-                        .errorLevel(m == null ? null : m.level())
-                        .message(m == null ? null : m.text())
-                        .firstSeenAt(now)
-                        .build());
-                opened++;
-            } catch (DataIntegrityViolationException dup) {
-                // uq_robot_fault_event_open: another poller opened it first. Not an error.
-                log.debug("Fault {} already open elsewhere", key);
+        boolean stale = false;
+        try {
+            for (Key key : confirmedClose) {
+                RobotFaultEvent e = open.get(key);
+                e.setClearedAt(pendingClose.remove(key));
+                faults.save(e);
+                open.remove(key);
+                closed++;
             }
+            for (Key key : confirmedOpen) {
+                Message m = key.kind() == Kind.ERROR ? message(key.robotId(), key.code()) : null;
+                Instant firstSeen = pendingOpen.remove(key);
+                try {
+                    RobotFaultEvent saved = faults.save(RobotFaultEvent.builder()
+                            .brand(BRAND)
+                            .robotId(key.robotId())
+                            .businessId(plan.businessByRobot().get(key.robotId()))
+                            .kind(key.kind())
+                            .errorCode(key.code())
+                            .errorLevel(m == null ? null : m.level())
+                            .message(m == null ? null : m.text())
+                            .firstSeenAt(firstSeen)
+                            .build());
+                    open.put(key, saved);
+                    opened++;
+                } catch (DataIntegrityViolationException dup) {
+                    // uq_robot_fault_event_open: another poller opened it first. Reload next poll.
+                    log.debug("Fault {} already open elsewhere", key);
+                    stale = true;
+                }
+            }
+        } catch (RuntimeException e) {
+            // The in-memory view may no longer match the table; rebuild it from the table.
+            open = null;
+            throw e;
+        }
+        if (stale) {
+            open = null;
         }
 
         int online = (int) robots.stream().filter(RobotSnapshot::online).count();
@@ -153,6 +187,22 @@ public class AutoxingFaultPollService {
                     robots.size(), online, opened, closed);
         }
         return new PollResult(robots.size(), online, opened, closed);
+    }
+
+    /**
+     * The keys that changed on this poll <em>and</em> the previous one. Keys seen for the
+     * first time are parked with their first-sighting time; keys that stopped changing are
+     * forgotten.
+     */
+    static List<Key> confirm(List<Key> changedNow, Map<Key, Instant> pending, Instant now) {
+        Set<Key> current = new HashSet<>(changedNow);
+        pending.keySet().retainAll(current);
+        List<Key> confirmed = new ArrayList<>();
+        for (Key k : changedNow) {
+            if (pending.containsKey(k)) confirmed.add(k);
+            else pending.put(k, now);
+        }
+        return confirmed;
     }
 
     /**

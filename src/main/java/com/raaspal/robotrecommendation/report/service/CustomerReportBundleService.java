@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.report.service;
 
+import com.raaspal.robotrecommendation.common.enums.RobotType;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.customer.entity.CustomerProfile;
 import com.raaspal.robotrecommendation.customer.repository.CustomerProfileRepository;
@@ -41,6 +42,16 @@ public class CustomerReportBundleService {
     private final ReportCacheService reportCacheService;
     private final CustomerReportExclusionRepository exclusionRepository;
 
+    /**
+     * Whether a robot belongs in this (cleaning) bundle. Delivery robots - AutoXing today -
+     * have no cleaning telemetry, so the Gausium-shaped report built for them would be an
+     * empty page with the customer's name on it. They are left out until the delivery
+     * report is part of the bundle.
+     */
+    static boolean inCleaningReport(RobotUnitResponse robot) {
+        return robot.robotType() != RobotType.DELIVERY;
+    }
+
     /** What the customer sees: the reports actually being sent, excluded robots omitted. */
     @Transactional(readOnly = true)
     public CustomerReportBundleResponse build(UUID customerProfileId, String month) {
@@ -49,6 +60,7 @@ public class CustomerReportBundleService {
 
         // Each robot's report is served from cache (computed once per robot+month).
         List<ReportPreviewResponse> robots = robotUnitService.listByCustomer(customerProfileId).stream()
+                .filter(CustomerReportBundleService::inCleaningReport)
                 .filter(robot -> underContract(robot, month))
                 .filter(robot -> !excluded.contains(robot.id()))
                 .map(robot -> reportCacheService.getRobotReport(robot.serialNumber(), month))
@@ -67,6 +79,7 @@ public class CustomerReportBundleService {
         Set<UUID> excluded = excludedRobotUnitIds(customerProfileId, month);
 
         List<CustomerBundlePreviewResponse.Robot> robots = robotUnitService.listByCustomer(customerProfileId).stream()
+                .filter(CustomerReportBundleService::inCleaningReport)
                 .filter(robot -> underContract(robot, month))
                 .map(robot -> {
                     ReportPreviewResponse report = reportCacheService.getRobotReport(robot.serialNumber(), month);

@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.report.service;
 
+import com.raaspal.robotrecommendation.common.enums.RobotType;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.report.entity.ReportSend;
 import com.raaspal.robotrecommendation.report.repository.ReportSendRepository;
@@ -239,6 +240,8 @@ public class ReportDeliveryService {
             return;
         }
         for (RobotUnitResponse robot : robotUnitService.listByCustomer(customerProfileId)) {
+            // Delivery robots have no telemetry adapter; syncing them only logs an error.
+            if (robot.robotType() == RobotType.DELIVERY) continue;
             try {
                 telemetrySyncService.syncBySerialNumber(robot.serialNumber(), from, to);
             } catch (Exception e) {
@@ -257,6 +260,9 @@ public class ReportDeliveryService {
     private Set<UUID> eligibleCustomerIds() {
         Set<UUID> customerIds = new LinkedHashSet<>();
         for (Deployment deployment : deploymentRepository.findByIsActiveTrue()) {
+            // A customer whose only robots are delivery robots has nothing in the cleaning
+            // bundle; making them eligible would send an empty email.
+            if (deployment.getRobotUnit().getRobotType() == RobotType.DELIVERY) continue;
             if (deployment.getReportCadence() == ReportCadence.MONTHLY) {
                 customerIds.add(deployment.getCustomerProfile().getId());
             }
