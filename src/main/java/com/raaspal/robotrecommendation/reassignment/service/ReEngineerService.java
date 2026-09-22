@@ -58,7 +58,8 @@ public class ReEngineerService {
                             e.getMondayUserId() == null ? null : mondayNames.get(e.getMondayUserId()),
                             e.isActive(), e.getMaxLoad(), e.getNote(),
                             w == null ? BigDecimal.ZERO : w.load(), w == null ? 0 : w.openTickets(),
-                            assessed.getOrDefault(e.getId(), 0), onLeave.contains(e.getId()));
+                            assessed.getOrDefault(e.getId(), 0), onLeave.contains(e.getId()),
+                            e.getEmployeeCode(), e.getHomeZone());
                 })
                 .toList();
     }
@@ -99,6 +100,16 @@ public class ReEngineerService {
             });
         }
         e.setMondayUserId(monday);
+        String code = blank(req.employeeCode()) == null ? null : req.employeeCode().trim().toUpperCase(Locale.ROOT);
+        if (code != null) {
+            engineers.findByEmployeeCode(code).filter(other -> !other.getId().equals(e.getId())).ifPresent(other -> {
+                throw new BadRequestException("Employee code " + code + " already belongs to " + other.displayName());
+            });
+        }
+        e.setEmployeeCode(code);
+        String zone = blank(req.homeZone());
+        if (zone != null && !props.getZones().containsKey(zone)) throw new BadRequestException("Unknown zone " + zone);
+        e.setHomeZone(zone);
         if (req.maxLoad() != null) e.setMaxLoad(req.maxLoad());
         e.setNote(blank(req.note()));
         if (req.active() != null) e.setActive(req.active());

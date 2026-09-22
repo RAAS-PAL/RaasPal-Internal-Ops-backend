@@ -37,7 +37,10 @@ import java.util.*;
  *       last approved assignment, capped at 14, as a share of 14 (rotation);
  *       D = 1 for an easy ticket that an exactly-L2 engineer can grow on;
  *       R = 1 for an easy ticket when this engineer is one of at most two available who
- *       could take hard work on the model (keep scarce experts free).</li>
+ *       could take hard work on the model (keep scarce experts free);
+ *       plus 40 when the engineer is based in the ticket's zone, minus 40 when they are based
+ *       in a zone and the ticket is outside it - a regional engineer takes the local work and
+ *       is the last resort elsewhere.</li>
  * </ol>
  * Tickets are processed most urgent first; each suggestion adds provisional load to the
  * suggested engineer, so one person is not suggested for the whole queue.
@@ -74,12 +77,13 @@ public final class ReAssignmentEvaluator {
     public record Ticket(String itemId, String name, String group, String status, String subStatus,
                          String modelLabel, String issueLevel, String caseType, String serviceMode,
                          String serial, String customer, String branch, String mainIssue,
-                         LocalDate openDate, LocalDate actionDate, List<Person> people, Instant firstSeenAt) {
+                         LocalDate openDate, LocalDate actionDate, List<Person> people, Instant firstSeenAt,
+                         String zone) {
     }
 
     public record Engineer(UUID id, String name, boolean active, String mondayUserId, boolean hasEmail,
                            BigDecimal maxLoad, Map<String, Integer> levels, List<Busy> busy,
-                           Instant lastApprovedAt) {
+                           Instant lastApprovedAt, String homeZone) {
     }
 
     /** Days an engineer is not free for new work. {@code kind} LEAVE or JOB; both dates inclusive. */
@@ -238,10 +242,7 @@ public final class ReAssignmentEvaluator {
             Integer model = e.levels().get(modelSkill);
             Integer cm = e.levels().get(CM_SKILL);
             String skillGap = skillGap(model, cm, required);
-            if (!e.active()) {
-                excluded.add(new Exclusion(e.id(), e.name(), "Inactive", model, cm));
-                continue;
-            }
+            if (!e.active()) continue;   // out of the rotation: not even listed as excluded
             if (skillGap != null) {
                 excluded.add(new Exclusion(e.id(), e.name(), skillGap, model, cm));
                 continue;
@@ -286,7 +287,7 @@ public final class ReAssignmentEvaluator {
         List<Candidate> scored = new ArrayList<>();
         for (Candidate c : eligible) {
             Engineer e = engineers.get(c.engineerId());
-            scored.add(score(c, e, required, category, hardCapable, in.now()));
+            scored.add(score(c, e, required, category, hardCapable, in.now(), t.zone()));
         }
         scored.sort(Comparator.comparing(Candidate::score).reversed()
                 .thenComparing(Candidate::projectedLoad)
@@ -302,7 +303,8 @@ public final class ReAssignmentEvaluator {
                 best, scored.subList(1, Math.min(scored.size(), 5)), excluded, null, day);
     }
 
-    static Candidate score(Candidate c, Engineer e, int required, String category, int hardCapable, Instant now) {
+    static Candidate score(Candidate c, Engineer e, int required, String category, int hardCapable, Instant now,
+                           String ticketZone) {
         int m = (c.modelLevel() - required) + (c.cmLevel() - required);
         BigDecimal u = c.projectedLoad().divide(c.maxLoad(), 4, RoundingMode.HALF_UP).min(BigDecimal.ONE);
         Integer expertise = e.levels().get(EXPERTISE_SKILL.get(category));
@@ -312,6 +314,7 @@ public final class ReAssignmentEvaluator {
                         .divide(BigDecimal.valueOf(14), 4, RoundingMode.HALF_UP).max(BigDecimal.ZERO);
         int d = required == 2 && c.modelLevel() == 2 && c.cmLevel() == 2 ? 1 : 0;
         int r = required == 2 && c.modelLevel() >= 4 && c.cmLevel() >= 4 && hardCapable <= 2 ? 1 : 0;
+        int z = e.homeZone() == null ? 0 : e.homeZone().equals(ticketZone) ? 1 : -1;
 
         Map<String, BigDecimal> parts = new LinkedHashMap<>();
         parts.put("base", BigDecimal.valueOf(100));
@@ -321,6 +324,7 @@ public final class ReAssignmentEvaluator {
         parts.put("rotation", f.multiply(BigDecimal.valueOf(3)));
         parts.put("development", BigDecimal.valueOf(4L * d));
         parts.put("keepExpertFree", BigDecimal.valueOf(-20L * r));
+        parts.put("location", BigDecimal.valueOf(40L * z));
         BigDecimal s = parts.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
         parts.replaceAll((k, v) -> v.setScale(2, RoundingMode.HALF_UP));
         return new Candidate(c.engineerId(), c.name(), c.modelLevel(), c.cmLevel(), expertise, c.currentLoad(),

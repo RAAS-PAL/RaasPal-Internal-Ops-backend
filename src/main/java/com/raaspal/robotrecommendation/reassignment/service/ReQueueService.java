@@ -79,7 +79,7 @@ public class ReQueueService {
                     canManage ? e.suggested() : redact(e.suggested()),
                     canManage ? e.alternatives() : List.of(),
                     canManage ? e.excluded() : List.of(),
-                    a == null ? null : view(a, byId, t.name()), mondayUrl(t.itemId()), e.forDate()));
+                    a == null ? null : view(a, byId, t.name()), mondayUrl(t.itemId()), e.forDate(), t.zone()));
         }
         List<ReEngineer> active = engineers.findByActiveTrue();
         int withoutMonday = (int) active.stream().filter(x -> x.getMondayUserId() == null).count();
@@ -119,7 +119,8 @@ public class ReQueueService {
                 .map(t -> new Ticket(t.getItemId(), t.getItemName(), t.getGroupTitle(), t.getStatus(),
                         t.getSubStatus(), t.getModelLabel(), t.getIssueLevel(), t.getCaseType(), t.getServiceMode(),
                         t.getSerialNumber(), t.getCustomer(), t.getBranch(), t.getMainIssue(), t.getOpenDate(),
-                        t.getActionDate(), refresh.parsePeople(t.getPeople()), t.getFirstSeenAt()))
+                        t.getActionDate(), refresh.parsePeople(t.getPeople()), t.getFirstSeenAt(),
+                        props.zoneOf(t.getItemName(), t.getBranch(), t.getCustomer())))
                 .toList();
 
         Map<UUID, Map<String, Integer>> levels = matrix.currentLevels();
@@ -145,7 +146,7 @@ public class ReQueueService {
         List<Engineer> engineerFacts = engineers.findAll().stream()
                 .map(e -> new Engineer(e.getId(), e.displayName(), e.isActive(), e.getMondayUserId(),
                         e.getEmail() != null, e.getMaxLoad(), levels.getOrDefault(e.getId(), Map.of()),
-                        busy.getOrDefault(e.getId(), List.of()), lastApproved.get(e.getId())))
+                        busy.getOrDefault(e.getId(), List.of()), lastApproved.get(e.getId()), e.getHomeZone()))
                 .toList();
 
         Map<String, String> modelNames = new HashMap<>();

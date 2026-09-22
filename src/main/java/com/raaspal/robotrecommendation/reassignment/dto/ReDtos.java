@@ -26,13 +26,15 @@ public final class ReDtos {
             @Size(max = 50) String mondayUserId,
             @DecimalMin("0.5") @DecimalMax("100") BigDecimal maxLoad,
             @Size(max = 1000) String note,
-            Boolean active) {
+            Boolean active,
+            @Size(max = 30) String employeeCode,
+            @Size(max = 50) String homeZone) {
     }
 
     public record EngineerView(UUID id, String fullName, String nickname, String displayName, String email,
                                String mondayUserId, String mondayName, boolean active, BigDecimal maxLoad,
                                String note, BigDecimal load, int openTickets, int assessedSkills,
-                               boolean onLeaveToday) {
+                               boolean onLeaveToday, String employeeCode, String homeZone) {
     }
 
     public record LeaveRequest(@NotNull UUID engineerId, @NotNull LocalDate startsOn, @NotNull LocalDate endsOn,
@@ -119,7 +121,7 @@ public final class ReDtos {
                            LocalDate openDate, LocalDate actionDate, List<String> people, String outcome,
                            String reason, Integer requiredLevel, boolean assumedDifficulty, String issueCategory,
                            Candidate suggested, List<Candidate> alternatives, List<Exclusion> excluded,
-                           AssignmentView assignment, String mondayUrl, LocalDate forDate) {
+                           AssignmentView assignment, String mondayUrl, LocalDate forDate, String zone) {
     }
 
     public record QueueView(List<QueueRow> rows, Map<String, Integer> counts, Instant lastRefreshAt,

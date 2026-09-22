@@ -39,6 +39,14 @@ public class ReEngineer {
     @Column(name = "monday_user_id", unique = true, columnDefinition = "TEXT")
     private String mondayUserId;
 
+    /** Company employee code, e.g. RAAS-00119 (V55). */
+    @Column(name = "employee_code", columnDefinition = "TEXT")
+    private String employeeCode;
+
+    /** Zone code the engineer is based in (app.re-assignment.zones); null = Bangkok, goes anywhere (V55). */
+    @Column(name = "home_zone", columnDefinition = "TEXT")
+    private String homeZone;
+
     @Column(nullable = false)
     @Builder.Default
     private boolean active = true;

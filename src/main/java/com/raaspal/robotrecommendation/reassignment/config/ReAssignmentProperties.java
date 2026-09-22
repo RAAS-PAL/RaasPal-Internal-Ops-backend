@@ -82,6 +82,19 @@ public class ReAssignmentProperties {
      */
     private List<String> busyServiceModes = new ArrayList<>(List.of("On Site"));
 
+    /**
+     * Zones an engineer can be based in, each with the place names that put a ticket there.
+     * The Cleaning board has no province column, so a ticket's zone is found by looking for
+     * these words in its name, branch and project (case, spaces and punctuation ignored).
+     */
+    private Map<String, List<String>> zones = new LinkedHashMap<>(Map.of(
+            "EASTERN_SEABOARD", List.of(
+                    "ชลบุรี", "Chonburi", "Chon Buri", "ศรีราชา", "Sriracha", "Si Racha", "พัทยา", "Pattaya",
+                    "บางแสน", "Bangsaen", "แหลมฉบัง", "Laem Chabang", "อมตะ", "Amata", "ปลวกแดง", "Pluak Daeng",
+                    "บ่อวิน", "Bowin", "สัตหีบ", "Sattahip", "อู่ตะเภา", "U-Tapao", "บางพระ", "หนองมน",
+                    "ระยอง", "Rayong", "มาบตาพุด", "Map Ta Phut", "บ้านฉาง", "ฉะเชิงเทรา", "Chachoengsao",
+                    "บางปะกง", "Bang Pakong", "Eastern Seaboard", "อีสเทิร์นซีบอร์ด")));
+
     private Email email = new Email();
 
     private MondayWrite mondayWrite = new MondayWrite();
@@ -163,6 +176,24 @@ public class ReAssignmentProperties {
             if (eq > 0) out.put(norm(pair.substring(0, eq)), Integer.parseInt(pair.substring(eq + 1).trim()));
         }
         return out;
+    }
+
+    /** The first zone whose place names appear in any of the texts, or null when none does. */
+    public String zoneOf(String... texts) {
+        StringBuilder hay = new StringBuilder();
+        for (String t : texts) if (t != null) hay.append(squash(t)).append('|');
+        for (Map.Entry<String, List<String>> zone : zones.entrySet()) {
+            for (String place : zone.getValue()) {
+                String needle = squash(place);
+                if (!needle.isEmpty() && hay.indexOf(needle) >= 0) return zone.getKey();
+            }
+        }
+        return null;
+    }
+
+    /** Lowercase, without spaces or punctuation: "Laem Chabang" and "laemchabang" meet. */
+    static String squash(String s) {
+        return s.toLowerCase(Locale.ROOT).replaceAll("[\\s\\p{Punct}]+", "");
     }
 
     public static String norm(String s) {

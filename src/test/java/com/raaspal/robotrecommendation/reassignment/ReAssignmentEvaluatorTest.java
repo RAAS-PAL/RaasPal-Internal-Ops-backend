@@ -37,19 +37,19 @@ class ReAssignmentEvaluatorTest {
 
     private static Engineer eng(UUID id, String name, int model, int cm, String monday, double max) {
         return new Engineer(id, name, true, monday, true, BigDecimal.valueOf(max),
-                Map.of("OMNIE", model, "PHANTAS", model, "CM_CLEANING", cm, "ELECTRICAL_CLEANING", 2), List.of(), null);
+                Map.of("OMNIE", model, "PHANTAS", model, "CM_CLEANING", cm, "ELECTRICAL_CLEANING", 2), List.of(), null, null);
     }
 
     private static Ticket ticket(String id, String model, String level, String type, String group, String status,
                                  List<Person> people) {
         return new Ticket(id, "ticket " + id, group, status, null, model, level, type, "Online", null, "Cust",
-                "Branch", "battery not charging", LocalDate.of(2026, 9, 20), null, people, NOW);
+                "Branch", "battery not charging", LocalDate.of(2026, 9, 20), null, people, NOW, null);
     }
 
     /** An open ticket in All Case with a service mode and an RE Action date. */
     private static Ticket scheduled(String id, String serviceMode, LocalDate actionDate, List<Person> people) {
         return new Ticket(id, "ticket " + id, "All Case", "New", null, "Omnie", "L1-Easy", "Service case", serviceMode,
-                null, "Cust", "Branch", "wheel stuck", LocalDate.of(2026, 9, 20), actionDate, people, NOW);
+                null, "Cust", "Branch", "wheel stuck", LocalDate.of(2026, 9, 20), actionDate, people, NOW, null);
     }
 
     private static Ticket open(String id, String model, String level) {
@@ -95,7 +95,7 @@ class ReAssignmentEvaluatorTest {
     void qualifiedButFullOrOnLeaveMeansAllBusy() {
         Engineer full = eng(A, "A", 4, 4, "m-a", 1.5);   // holds one active ticket: 1 + 1 > 1.5
         Engineer away = new Engineer(B, "B", true, "m-b", true, BigDecimal.valueOf(6),
-                Map.of("OMNIE", 4, "CM_CLEANING", 4), List.of(new Busy(TODAY, TODAY.plusDays(2), "LEAVE", "leave")), null);
+                Map.of("OMNIE", 4, "CM_CLEANING", 4), List.of(new Busy(TODAY, TODAY.plusDays(2), "LEAVE", "leave")), null, null);
         Ticket busyWith = ticket("w1", "M50", "L1-Easy", "Service case", "All Case", "Working on it",
                 List.of(new Person("m-a", "A")));
 
@@ -195,7 +195,7 @@ class ReAssignmentEvaluatorTest {
     void anEngineerBookedForSeveralDaysIsNotSuggestedOnThoseDays() {
         Engineer booked = new Engineer(B, "B", true, "m-b", true, BigDecimal.valueOf(6),
                 Map.of("OMNIE", 2, "CM_CLEANING", 2), List.of(new Busy(TODAY.minusDays(1), TODAY.plusDays(6), "JOB",
-                        "booked: install at site X")), null);
+                        "booked: install at site X")), null, null);
         List<Engineer> team = List.of(booked, eng(C, "C", 3, 3, "m-c", 6));
 
         List<Evaluation> evs = run(List.of(
@@ -234,5 +234,34 @@ class ReAssignmentEvaluatorTest {
         assertThat(e.excluded()).extracting(Exclusion::reason)
                 .containsExactly("Busy on " + thursday + " - on site: ticket aOnSite");
         assertThat(only(evs, "pastDate").forDate()).isEqualTo(TODAY);
+    }
+
+    @Test
+    void aRegionalEngineerTakesLocalWorkAndIsTheLastResortElsewhere() {
+        Engineer east = new Engineer(D, "East", true, "m-d", true, BigDecimal.valueOf(6),
+                Map.of("OMNIE", 3, "CM_CLEANING", 3), List.of(), null, "EASTERN_SEABOARD");
+        List<Engineer> team = List.of(east, eng(A, "A", 2, 2, "m-a", 6));   // A is the better fit on levels alone
+
+        Ticket rayong = new Ticket("rayong", "Omnie : Rayong mall", "All Case", "New", null, "Omnie", "L1-Easy",
+                "Service case", "On Site", null, "Cust", "Rayong", "wheel", LocalDate.of(2026, 9, 20), null, List.of(), NOW,
+                "EASTERN_SEABOARD");
+        Ticket bangkok = open("bkk", "Omnie", "L1-Easy");
+        List<Evaluation> evs = run(List.of(rayong, bangkok), team, Map.of(), Set.of());
+
+        assertThat(only(evs, "rayong").suggested().engineerId()).isEqualTo(D);
+        assertThat(only(evs, "rayong").suggested().components().get("location")).isEqualByComparingTo("40");
+        assertThat(only(evs, "bkk").suggested().engineerId()).isEqualTo(A);
+        assertThat(only(evs, "bkk").alternatives()).extracting(Candidate::engineerId).containsExactly(D);
+    }
+
+    @Test
+    void inactiveEngineersAreLeftOutEntirely() {
+        Engineer gone = new Engineer(B, "B", false, "m-b", true, BigDecimal.valueOf(6),
+                Map.of("OMNIE", 4, "CM_CLEANING", 4), List.of(), null, null);
+        Evaluation e = only(run(List.of(open("t1", "Omnie", "L1-Easy")), List.of(gone, eng(A, "A", 2, 2, "m-a", 6)),
+                Map.of(), Set.of()), "t1");
+        assertThat(e.suggested().engineerId()).isEqualTo(A);
+        assertThat(e.excluded()).isEmpty();
+        assertThat(e.alternatives()).isEmpty();
     }
 }

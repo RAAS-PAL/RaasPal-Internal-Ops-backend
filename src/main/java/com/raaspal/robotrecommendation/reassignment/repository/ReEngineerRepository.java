@@ -18,4 +18,6 @@ public interface ReEngineerRepository extends JpaRepository<ReEngineer, UUID> {
     Optional<ReEngineer> findByMondayUserId(String mondayUserId);
 
     Optional<ReEngineer> findByEmailIgnoreCase(String email);
+
+    Optional<ReEngineer> findByEmployeeCode(String employeeCode);
 }

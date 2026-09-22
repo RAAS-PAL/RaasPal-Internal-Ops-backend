@@ -3,6 +3,7 @@ package com.raaspal.robotrecommendation.reassignment.controller;
 import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
+import com.raaspal.robotrecommendation.reassignment.config.ReAssignmentProperties;
 import com.raaspal.robotrecommendation.reassignment.dto.ReDtos.*;
 import com.raaspal.robotrecommendation.reassignment.entity.ReAssignment;
 import com.raaspal.robotrecommendation.reassignment.entity.ReEngineer;
@@ -36,6 +37,7 @@ import java.util.*;
 public class ReAssignmentController {
 
     private final ReAccessService access;
+    private final ReAssignmentProperties props;
     private final ReQueueService queue;
     private final ReTicketRefreshService refresh;
     private final ReAssignmentService assignmentService;
@@ -138,6 +140,12 @@ public class ReAssignmentController {
                                                              @AuthenticationPrincipal UserPrincipal me) {
         access.requireManage(me);
         return ApiResponse.success(matrix.history(id));
+    }
+
+    /** Zone codes an engineer can be based in (app.re-assignment.zones). */
+    @GetMapping("/zones")
+    public ApiResponse<List<String>> zones() {
+        return ApiResponse.success(List.copyOf(props.getZones().keySet()));
     }
 
     @GetMapping("/monday-people")
