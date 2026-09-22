@@ -49,7 +49,7 @@ deploy/api.env
 deploy/preview/preview.env
 deploy/*.pem
 
-# AutoXing cloud dashboard screenshots (Statistics / Task pages), saved as PDFs for
-# reference while designing the delivery report. ~4.7 MB that nothing in the build
-# reads; they stay on disk locally, out of the repo.
-docs/autoxing/*.pdf
+# Reference material: source workbooks, API docs, templates, seed SQL, customer lists
+# (e.g. docs/autoxing/zara-import.sql carries customer contacts). Nothing in the build
+# reads it; it stays on disk locally, out of the repo.
+docs/
