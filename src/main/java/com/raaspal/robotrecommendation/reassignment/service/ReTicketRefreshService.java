@@ -183,7 +183,7 @@ public class ReTicketRefreshService {
             t.setMainIssue(text(item, c.getMainIssue()));
             t.setOpenDate(date(text(item, c.getOpenDate())));
             t.setActionDate(date(text(item, c.getActionDate())));
-            t.setPeople(json(people(item, c.getPeople())));
+            t.setPeople(peopleJson(people(item, c.getPeople())));
             t.setMondayUpdatedAt(instant(item.path("updated_at").asText(null)));
             boolean open = !closedStatuses.contains(norm(t.getStatus()));
             t.setOpen(open);
@@ -288,7 +288,7 @@ public class ReTicketRefreshService {
         }
     }
 
-    private String json(List<Person> people) {
+    public String peopleJson(List<Person> people) {
         try {
             return objectMapper.writeValueAsString(people);
         } catch (Exception e) {

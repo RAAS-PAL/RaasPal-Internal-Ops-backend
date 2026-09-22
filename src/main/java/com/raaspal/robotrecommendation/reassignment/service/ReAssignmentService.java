@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.*;
 
 /**
@@ -23,8 +24,14 @@ import java.util.*;
  * Choosing someone the rules excluded is allowed (the Senior RE knows things the data does
  * not) but needs a reason, and the exclusion is recorded next to it.
  *
- * <p>Nothing here writes to monday: in Phase 1 the Senior RE sets the RE on the board, and
- * a refresh confirms it.
+ * <p>With monday writes on (the default), approving also sets the engineer as the ticket's
+ * RE on monday, so the approval is CONFIRMED at once; the column is re-read right before the
+ * write, and if monday refuses, nothing is saved. Cancelling empties the column again when
+ * it still shows only that engineer. With writes off, approvals are only recorded and a
+ * refresh confirms them once the Senior RE sets monday by hand.
+ *
+ * <p>An approval can also book the engineer for a range of days (a job that runs several
+ * days), so they are not suggested for other work on those days.
  */
 @Service
 @RequiredArgsConstructor
@@ -38,6 +45,9 @@ public class ReAssignmentService {
     private final ReTicketHoldRepository holds;
     private final ReAssignmentEmailService email;
     private final ReEventLog events;
+    private final ReMondayWriter mondayWriter;
+    private final ReScheduleRepository schedules;
+    private final ReTicketRefreshService refresh;
 
     @Transactional
     public ReAssignment approve(ApproveRequest req, String actor) {
@@ -70,6 +80,28 @@ public class ReAssignmentService {
                     ? "A reason is required to choose someone the rules excluded (" + exclusion.reason() + ")"
                     : "A reason is required when not taking the suggestion");
         }
+        LocalDate from = req.bookedFrom();
+        LocalDate to = req.bookedTo();
+        if ((from == null) != (to == null)) throw new BadRequestException("Give both booking dates, or neither");
+        if (from != null && to.isBefore(from)) throw new BadRequestException("The booking ends before it starts");
+
+        // monday first: if it refuses, nothing is recorded and the queue stays as it was.
+        boolean written = false;
+        if (mondayWriter.enabled()) {
+            if (engineer.getMondayUserId() == null || engineer.getMondayUserId().isBlank()) {
+                throw new BadRequestException(engineer.displayName() + " is not linked to a monday person yet - "
+                        + "link them on the Engineers tab, so approving can set them as RE on monday");
+            }
+            if (!mondayPeople(req.itemId()).isEmpty()) {
+                throw new BadRequestException("Someone was set as RE on monday since the last refresh - refresh to see who");
+            }
+            try {
+                mondayWriter.setPerson(req.itemId(), engineer.getMondayUserId());
+            } catch (RuntimeException e) {
+                throw new BadRequestException("monday did not accept the change, so nothing was saved: " + e.getMessage());
+            }
+            written = true;
+        }
 
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("outcome", ev.outcome().name());
@@ -88,12 +120,28 @@ public class ReAssignmentService {
 
         ReAssignment saved = assignments.save(ReAssignment.builder()
                 .boardId(board).itemId(req.itemId()).engineerId(engineer.getId())
-                .status(ReAssignment.APPROVED).origin(origin)
+                .status(written ? ReAssignment.CONFIRMED : ReAssignment.APPROVED).origin(origin)
+                .confirmedAt(written ? Instant.now() : null)
+                .mondayStatus(written ? ReAssignment.MONDAY_WRITTEN : ReAssignment.MONDAY_NOT_WRITTEN)
+                .mondayWrittenAt(written ? Instant.now() : null)
                 .score(chosen == null ? null : chosen.score())
                 .requiredLevel(ev.requiredLevel() == null ? null : ev.requiredLevel().shortValue())
                 .reason(reason.isBlank() ? ev.reason() : reason)
                 .decisionSnapshot(events.json(snapshot))
                 .approvedBy(actor).build());
+
+        if (written) {
+            // Show it as assigned straight away instead of waiting for the next refresh.
+            tickets.findById(new ReTicket.Key(board, req.itemId())).ifPresent(t -> {
+                t.setPeople(refresh.peopleJson(List.of(new Person(engineer.getMondayUserId(), engineer.displayName()))));
+                tickets.save(t);
+            });
+        }
+        if (from != null) {
+            schedules.save(ReSchedule.builder().engineerId(engineer.getId()).boardId(board).itemId(req.itemId())
+                    .assignmentId(saved.getId()).startsOn(from).endsOn(to).note("booked with the approval")
+                    .createdBy(actor).build());
+        }
 
         holds.findByBoardIdAndItemIdAndReleasedAtIsNull(board, req.itemId()).ifPresent(h -> {
             h.setReleasedAt(Instant.now());
@@ -106,6 +154,8 @@ public class ReAssignmentService {
         detail.put("engineer", engineer.displayName());
         detail.put("origin", origin);
         detail.put("reason", reason);
+        detail.put("mondayWritten", written);
+        if (from != null) detail.put("booked", from + " to " + to);
         events.record("ASSIGNMENT", saved.getId(), "APPROVED", actor, detail);
         return saved;
     }
@@ -135,11 +185,60 @@ public class ReAssignmentService {
         ReAssignment a = assignments.findById(assignmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Assignment", "id", assignmentId));
         if (!a.isCurrent()) throw new BadRequestException("This assignment has already ended");
+        if (ReAssignment.MONDAY_WRITTEN.equals(a.getMondayStatus())) undoOnMonday(a);
+        schedules.deleteAll(schedules.findByAssignmentId(a.getId()));
         a.setStatus(ReAssignment.CANCELLED);
         a.setEndedAt(Instant.now());
         a.setEndedBy(actor);
         events.record("ASSIGNMENT", a.getId(), "CANCELLED", actor, Map.of("reason", reason));
         return assignments.save(a);
+    }
+
+    /**
+     * Takes the engineer back out of the RE column - only when monday still shows exactly
+     * them. If someone changed it in the meantime, monday is left alone and that is recorded.
+     */
+    private void undoOnMonday(ReAssignment a) {
+        ReEngineer e = engineers.findById(a.getEngineerId()).orElse(null);
+        List<String> current;
+        try {
+            current = mondayWriter.currentPeople(a.getItemId());
+        } catch (IllegalStateException gone) {
+            a.setMondayStatus(ReAssignment.MONDAY_LEFT);
+            a.setMondayDetail(gone.getMessage());
+            return;
+        } catch (RuntimeException ex) {
+            throw new BadRequestException("Could not read the ticket from monday, so nothing was cancelled: " + ex.getMessage());
+        }
+        if (current.isEmpty()) {
+            a.setMondayStatus(ReAssignment.MONDAY_CLEARED);
+            a.setMondayDetail("The RE column was already empty");
+            return;
+        }
+        if (e == null || e.getMondayUserId() == null || !current.equals(List.of(e.getMondayUserId()))) {
+            a.setMondayStatus(ReAssignment.MONDAY_LEFT);
+            a.setMondayDetail("monday shows someone else now, so the RE column was left as it is");
+            return;
+        }
+        try {
+            mondayWriter.clear(a.getItemId());
+        } catch (RuntimeException ex) {
+            throw new BadRequestException("monday did not accept clearing the RE, so nothing was cancelled: " + ex.getMessage());
+        }
+        a.setMondayStatus(ReAssignment.MONDAY_CLEARED);
+        a.setMondayDetail(null);
+        tickets.findById(new ReTicket.Key(a.getBoardId(), a.getItemId())).ifPresent(t -> {
+            t.setPeople("[]");
+            tickets.save(t);
+        });
+    }
+
+    private List<String> mondayPeople(String itemId) {
+        try {
+            return mondayWriter.currentPeople(itemId);
+        } catch (RuntimeException e) {
+            throw new BadRequestException("Could not read the ticket from monday, so nothing was saved: " + e.getMessage());
+        }
     }
 
     @Transactional
