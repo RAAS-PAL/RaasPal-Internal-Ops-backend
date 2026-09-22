@@ -33,9 +33,11 @@ public class ReAssignmentProperties {
 
     private Columns columns = new Columns();
 
-    /** Groups whose tickets are open work - suggested for and counted as load. */
-    private List<String> activeGroups = new ArrayList<>(List.of(
-            "All Case", "Check", "AOTGA", "AOTGA 30 Credit cases", "Makro Project"));
+    /**
+     * Groups whose tickets are open work - suggested for and counted as load. Only All Case:
+     * the team treats every other group (Check, AOTGA, ...) as finished, whatever the status.
+     */
+    private List<String> activeGroups = new ArrayList<>(List.of("All Case"));
 
     /** Statuses that mean finished. */
     private List<String> closedStatuses = new ArrayList<>(List.of("Done"));
