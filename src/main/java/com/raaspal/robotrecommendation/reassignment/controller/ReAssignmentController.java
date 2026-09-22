@@ -166,6 +166,26 @@ public class ReAssignmentController {
         return ApiResponse.success("Leave removed", null);
     }
 
+    @GetMapping("/bookings")
+    public ApiResponse<List<ScheduleView>> bookings(@AuthenticationPrincipal UserPrincipal me) {
+        access.requireManage(me);
+        return ApiResponse.success(engineers.upcomingBookings());
+    }
+
+    @PostMapping("/bookings")
+    public ApiResponse<Void> addBooking(@Valid @RequestBody ScheduleRequest req, @AuthenticationPrincipal UserPrincipal me) {
+        access.requireManage(me);
+        engineers.addBooking(req, ReAccessService.actor(me));
+        return ApiResponse.success("Booking recorded", null);
+    }
+
+    @DeleteMapping("/bookings/{id}")
+    public ApiResponse<Void> deleteBooking(@PathVariable UUID id, @AuthenticationPrincipal UserPrincipal me) {
+        access.requireManage(me);
+        engineers.deleteBooking(id, ReAccessService.actor(me));
+        return ApiResponse.success("Booking removed", null);
+    }
+
     /* ─── Skill matrix ────────────────────────────────────────────────────── */
 
     @GetMapping("/skills")
@@ -247,7 +267,8 @@ public class ReAssignmentController {
         return assignmentService.history().stream().filter(v -> v.id().equals(a.getId())).findFirst()
                 .orElse(new AssignmentView(a.getId(), a.getItemId(), null, a.getEngineerId(), null, a.getStatus(),
                         a.getOrigin(), a.getScore(), null, a.getReason(), a.getApprovedBy(), a.getApprovedAt(),
-                        a.getConfirmedAt(), a.getEndedAt(), a.getEndedBy(), a.getEmailStatus(), a.getEmailDetail()));
+                        a.getConfirmedAt(), a.getEndedAt(), a.getEndedBy(), a.getEmailStatus(), a.getEmailDetail(),
+                        a.getMondayStatus(), a.getMondayDetail()));
     }
 
     private static byte[] requireXlsx(MultipartFile file) throws IOException {

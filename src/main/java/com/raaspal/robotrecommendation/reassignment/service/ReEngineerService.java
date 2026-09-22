@@ -30,6 +30,7 @@ public class ReEngineerService {
     private final ReEngineerRepository engineers;
     private final ReSkillLevelRepository levels;
     private final ReLeaveRepository leaves;
+    private final ReScheduleRepository schedules;
     private final ReTicketRepository tickets;
     private final ReTicketRefreshService refresh;
     private final ReQueueService queue;
@@ -131,6 +132,45 @@ public class ReEngineerService {
         leaves.delete(l);
         events.record("LEAVE", id, "DELETED", actor,
                 Map.of("engineerId", l.getEngineerId(), "from", l.getStartsOn(), "to", l.getEndsOn()));
+    }
+
+    /* ─── Bookings ────────────────────────────────────────────────────────── */
+
+    @Transactional(readOnly = true)
+    public List<ScheduleView> upcomingBookings() {
+        Map<UUID, String> names = new HashMap<>();
+        engineers.findAll().forEach(e -> names.put(e.getId(), e.displayName()));
+        Map<String, String> ticketNames = new HashMap<>();
+        tickets.findByBoardId(props.getBoardId()).forEach(t -> ticketNames.put(t.getItemId(), t.getItemName()));
+        return schedules.findByEndsOnGreaterThanEqualOrderByStartsOnAsc(LocalDate.now(BANGKOK).minusDays(1)).stream()
+                .map(s -> new ScheduleView(s.getId(), s.getEngineerId(), names.get(s.getEngineerId()), s.getItemId(),
+                        s.getItemId() == null ? null : ticketNames.get(s.getItemId()), s.getAssignmentId(),
+                        s.getStartsOn(), s.getEndsOn(), s.getNote(), s.getCreatedBy()))
+                .toList();
+    }
+
+    @Transactional
+    public void addBooking(ScheduleRequest req, String actor) {
+        if (req.endsOn().isBefore(req.startsOn())) throw new BadRequestException("The booking ends before it starts");
+        if (!engineers.existsById(req.engineerId())) throw new ResourceNotFoundException("Engineer", "id", req.engineerId());
+        String itemId = blank(req.itemId());
+        if (itemId != null && tickets.findById(new ReTicket.Key(props.getBoardId(), itemId)).isEmpty()) {
+            throw new BadRequestException("Ticket " + itemId + " is not on the board - refresh first");
+        }
+        ReSchedule saved = schedules.save(ReSchedule.builder().engineerId(req.engineerId())
+                .boardId(itemId == null ? null : props.getBoardId()).itemId(itemId)
+                .startsOn(req.startsOn()).endsOn(req.endsOn()).note(blank(req.note())).createdBy(actor).build());
+        events.record("BOOKING", saved.getId(), "CREATED", actor,
+                Map.of("engineerId", req.engineerId(), "from", req.startsOn(), "to", req.endsOn(),
+                        "itemId", itemId == null ? "" : itemId));
+    }
+
+    @Transactional
+    public void deleteBooking(UUID id, String actor) {
+        ReSchedule s = schedules.findById(id).orElseThrow(() -> new ResourceNotFoundException("Booking", "id", id));
+        schedules.delete(s);
+        events.record("BOOKING", id, "DELETED", actor,
+                Map.of("engineerId", s.getEngineerId(), "from", s.getStartsOn(), "to", s.getEndsOn()));
     }
 
     /* ─── monday people ───────────────────────────────────────────────────── */

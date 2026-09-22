@@ -91,6 +91,22 @@ public class ReAssignment {
     @Column(name = "email_sent_at")
     private Instant emailSentAt;
 
+    /** NOT_WRITTEN | WRITTEN | CLEARED | LEFT - what happened in the board's RE column (V54). */
+    @Column(name = "monday_status", nullable = false, columnDefinition = "TEXT")
+    @Builder.Default
+    private String mondayStatus = MONDAY_NOT_WRITTEN;
+
+    @Column(name = "monday_detail", columnDefinition = "TEXT")
+    private String mondayDetail;
+
+    @Column(name = "monday_written_at")
+    private Instant mondayWrittenAt;
+
+    public static final String MONDAY_NOT_WRITTEN = "NOT_WRITTEN";
+    public static final String MONDAY_WRITTEN = "WRITTEN";
+    public static final String MONDAY_CLEARED = "CLEARED";
+    public static final String MONDAY_LEFT = "LEFT";
+
     public boolean isCurrent() {
         return endedAt == null;
     }

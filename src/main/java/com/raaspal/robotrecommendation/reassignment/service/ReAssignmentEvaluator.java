@@ -24,8 +24,10 @@ import java.util.*;
  *       L1-Easy→L2, L2-Mid→L3, L3-Hard→L4. An engineer qualifies only when <em>both</em>
  *       their level on that model and their CM-Cleaning level meet it. "-" never qualifies.
  *       A blank Issue Level assumes L2-Mid and flags the suggestion.</li>
- *   <li><b>Availability (hard).</b> Active, not on leave today, and the new ticket fits
- *       under their load limit. Load is the status-weighted sum of the open tickets they
+ *   <li><b>Availability (hard).</b> Active, free on the day the ticket is for, and the new
+ *       ticket fits under their load limit. The day is the ticket's "RE Action" date when it
+ *       is set and not past, otherwise today. Not free = on leave, booked on a job in the
+ *       console, or on an open On-Site ticket whose RE Action is that day. Load is the status-weighted sum of the open tickets they
  *       hold on monday plus approvals not yet on monday.</li>
  *   <li><b>Score (soft), higher wins:</b>
  *       <pre>S = 100 - 8·M - 30·U + 2·E + 3·F + 4·D - 20·R</pre>
@@ -76,8 +78,15 @@ public final class ReAssignmentEvaluator {
     }
 
     public record Engineer(UUID id, String name, boolean active, String mondayUserId, boolean hasEmail,
-                           BigDecimal maxLoad, Map<String, Integer> levels, boolean onLeave,
+                           BigDecimal maxLoad, Map<String, Integer> levels, List<Busy> busy,
                            Instant lastApprovedAt) {
+    }
+
+    /** Days an engineer is not free for new work. {@code kind} LEAVE or JOB; both dates inclusive. */
+    public record Busy(LocalDate from, LocalDate to, String kind, String label) {
+        boolean covers(LocalDate day) {
+            return !day.isBefore(from) && !day.isAfter(to);
+        }
     }
 
     /** A board label's mapping: disposition MAPPED / MANUAL / UNCONFIRMED, and the model skill when MAPPED. */
@@ -90,7 +99,8 @@ public final class ReAssignmentEvaluator {
 
     public record Policy(Set<String> activeGroups, Set<String> closedStatuses, Set<String> nonCmCaseTypes,
                          List<String> urgencyOrder, Map<String, BigDecimal> statusLoad, BigDecimal defaultLoad,
-                         BigDecimal newTicketLoad, Map<String, Integer> requiredLevels, String assumedIssueLevel) {
+                         BigDecimal newTicketLoad, Map<String, Integer> requiredLevels, String assumedIssueLevel,
+                         Set<String> busyServiceModes) {
     }
 
     public record Input(List<Ticket> tickets, List<Engineer> engineers, Map<String, Mapping> mappings,
@@ -113,7 +123,7 @@ public final class ReAssignmentEvaluator {
         HELD,
         /** Nobody in the matrix has the levels this ticket needs. */
         NO_QUALIFIED,
-        /** People qualify, but every one of them is at their limit or on leave. */
+        /** People qualify, but every one of them is at their limit, on leave or booked that day. */
         ALL_BUSY
     }
 
@@ -126,10 +136,11 @@ public final class ReAssignmentEvaluator {
     public record Exclusion(UUID engineerId, String name, String reason, Integer modelLevel, Integer cmLevel) {
     }
 
+    /** {@code forDate}: the day availability was checked for (null when nobody was evaluated). */
     public record Evaluation(Ticket ticket, Outcome outcome, String reason, String modelSkill, String modelName,
                              Integer requiredLevel, boolean assumedDifficulty, String issueCategory,
                              Candidate suggested, List<Candidate> alternatives, List<Exclusion> excluded,
-                             Existing existing) {
+                             Existing existing, LocalDate forDate) {
     }
 
     public record Workload(BigDecimal load, int openTickets) {
@@ -158,6 +169,10 @@ public final class ReAssignmentEvaluator {
             if (!visible) load.merge(ex.engineerId(), p.newTicketLoad(), BigDecimal::add);
         });
 
+        // Busy days: leave and console bookings come with the engineer; on-site tickets they
+        // already hold on monday block that ticket's RE Action day.
+        Map<UUID, List<Busy>> busy = busyDays(in.tickets(), in.engineers(), p);
+
         List<Ticket> queue = in.tickets().stream()
                 .filter(t -> inActiveGroup(t, p) && !closed(t, p))
                 .sorted(queueOrder(p))
@@ -165,12 +180,13 @@ public final class ReAssignmentEvaluator {
 
         List<Evaluation> out = new ArrayList<>();
         for (Ticket t : queue) {
-            out.add(evaluateOne(t, in, engineers, load));
+            out.add(evaluateOne(t, in, engineers, load, busy));
         }
         return out;
     }
 
-    private static Evaluation evaluateOne(Ticket t, Input in, Map<UUID, Engineer> engineers, Map<UUID, BigDecimal> load) {
+    private static Evaluation evaluateOne(Ticket t, Input in, Map<UUID, Engineer> engineers, Map<UUID, BigDecimal> load,
+                                          Map<UUID, List<Busy>> busy) {
         Policy p = in.policy();
         Existing ex = in.existing().get(t.itemId());
 
@@ -212,6 +228,7 @@ public final class ReAssignmentEvaluator {
         Integer required = p.requiredLevels().get(norm(assumed ? p.assumedIssueLevel() : t.issueLevel()));
         if (required == null) required = 3;
         String category = issueCategory(t);
+        LocalDate day = forDate(t, in.today());
 
         List<Candidate> eligible = new ArrayList<>();
         List<Exclusion> excluded = new ArrayList<>();
@@ -230,8 +247,12 @@ public final class ReAssignmentEvaluator {
                 continue;
             }
             qualified.add(e);
-            if (e.onLeave()) {
-                excluded.add(new Exclusion(e.id(), e.name(), "On leave today", model, cm));
+            Busy taken = busy.getOrDefault(e.id(), List.of()).stream().filter(b -> b.covers(day)).findFirst().orElse(null);
+            if (taken != null) {
+                String when = day.equals(in.today()) ? "today" : "on " + day;
+                excluded.add(new Exclusion(e.id(), e.name(), "LEAVE".equals(taken.kind())
+                        ? "On leave " + when
+                        : "Busy " + when + " - " + taken.label(), model, cm));
                 continue;
             }
             BigDecimal current = load.getOrDefault(e.id(), BigDecimal.ZERO);
@@ -248,12 +269,13 @@ public final class ReAssignmentEvaluator {
         if (qualified.isEmpty()) {
             return new Evaluation(t, Outcome.NO_QUALIFIED,
                     "Nobody has L" + required + " on " + modelName + " and on CM Cleaning",
-                    modelSkill, modelName, required, assumed, category, null, List.of(), excluded, null);
+                    modelSkill, modelName, required, assumed, category, null, List.of(), excluded, null, day);
         }
         if (eligible.isEmpty()) {
             return new Evaluation(t, Outcome.ALL_BUSY,
-                    qualified.size() + " engineer(s) qualify but all are at their limit or on leave",
-                    modelSkill, modelName, required, assumed, category, null, List.of(), excluded, null);
+                    qualified.size() + " engineer(s) qualify but all are at their limit, on leave or booked "
+                            + (day.equals(in.today()) ? "today" : "on " + day),
+                    modelSkill, modelName, required, assumed, category, null, List.of(), excluded, null, day);
         }
 
         // How many available engineers could take HARD work on this model - for R.
@@ -277,7 +299,7 @@ public final class ReAssignmentEvaluator {
                 + " CM, load " + fmt(best.currentLoad()) + " of " + fmt(best.maxLoad())
                 + (assumed ? " - difficulty not set, assumed " + p.assumedIssueLevel() : "");
         return new Evaluation(t, Outcome.SUGGESTED, reason, modelSkill, modelName, required, assumed, category,
-                best, scored.subList(1, Math.min(scored.size(), 5)), excluded, null);
+                best, scored.subList(1, Math.min(scored.size(), 5)), excluded, null, day);
     }
 
     static Candidate score(Candidate c, Engineer e, int required, String category, int hardCapable, Instant now) {
@@ -344,6 +366,34 @@ public final class ReAssignmentEvaluator {
         return out;
     }
 
+    /** The day a ticket is being staffed for: its RE Action date when set and not past, else today. */
+    static LocalDate forDate(Ticket t, LocalDate today) {
+        return t.actionDate() != null && !t.actionDate().isBefore(today) ? t.actionDate() : today;
+    }
+
+    /**
+     * Every engineer's busy days: what came in with them (leave, console bookings) plus the
+     * RE Action day of each open On-Site ticket in the active groups that has them in its RE
+     * column.
+     */
+    static Map<UUID, List<Busy>> busyDays(List<Ticket> tickets, List<Engineer> engineers, Policy p) {
+        Map<UUID, List<Busy>> out = new HashMap<>();
+        Map<String, UUID> byMonday = new HashMap<>();
+        for (Engineer e : engineers) {
+            out.put(e.id(), new ArrayList<>(e.busy() == null ? List.of() : e.busy()));
+            if (e.mondayUserId() != null && !e.mondayUserId().isBlank()) byMonday.put(e.mondayUserId(), e.id());
+        }
+        for (Ticket t : tickets) {
+            if (t.actionDate() == null || !inActiveGroup(t, p) || closed(t, p)) continue;
+            if (!p.busyServiceModes().contains(norm(t.serviceMode()))) continue;
+            for (Person person : t.people()) {
+                UUID id = byMonday.get(person.id());
+                if (id != null) out.get(id).add(new Busy(t.actionDate(), t.actionDate(), "JOB", "on site: " + t.name()));
+            }
+        }
+        return out;
+    }
+
     /** The first keyword category found in the issue text and ticket name, else TROUBLESHOOTING. */
     static String issueCategory(Ticket t) {
         String text = (Objects.toString(t.mainIssue(), "") + " " + Objects.toString(t.name(), "")).toLowerCase(Locale.ROOT);
@@ -387,7 +437,7 @@ public final class ReAssignmentEvaluator {
     private static Evaluation result(Ticket t, Outcome o, String reason, String modelSkill, String modelName,
                                      Integer required, boolean assumed, String category, Existing ex) {
         return new Evaluation(t, o, reason, modelSkill, modelName, required, assumed, category, null,
-                List.of(), List.of(), ex);
+                List.of(), List.of(), ex, null);
     }
 
     static String norm(String s) {

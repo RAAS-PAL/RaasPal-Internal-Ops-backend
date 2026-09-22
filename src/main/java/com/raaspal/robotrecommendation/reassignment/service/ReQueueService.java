@@ -16,7 +16,7 @@ import java.time.LocalDate;
 import java.util.*;
 
 /**
- * Builds the assignment queue: loads tickets, engineers, levels, mappings, leave and
+ * Builds the assignment queue: loads tickets, engineers, levels, mappings, leave, bookings and
  * approvals from the database and hands them to the pure {@link ReAssignmentEvaluator}.
  *
  * <p>Evaluations are computed on every read rather than stored: they depend on load and
@@ -33,6 +33,7 @@ public class ReQueueService {
     private final ReModelMappingRepository mappings;
     private final ReSkillDefinitionRepository skills;
     private final ReLeaveRepository leaves;
+    private final ReScheduleRepository schedules;
     private final ReAssignmentRepository assignments;
     private final ReTicketHoldRepository holds;
     private final ReSkillMatrixService matrix;
@@ -78,12 +79,12 @@ public class ReQueueService {
                     canManage ? e.suggested() : redact(e.suggested()),
                     canManage ? e.alternatives() : List.of(),
                     canManage ? e.excluded() : List.of(),
-                    a == null ? null : view(a, byId, t.name()), mondayUrl(t.itemId())));
+                    a == null ? null : view(a, byId, t.name()), mondayUrl(t.itemId()), e.forDate()));
         }
         List<ReEngineer> active = engineers.findByActiveTrue();
         int withoutMonday = (int) active.stream().filter(x -> x.getMondayUserId() == null).count();
         return new QueueView(rows, counts, refresh.lastRefreshAt(), rows.size(), props.getEmail().isEnabled(),
-                canManage, active.size(), withoutMonday);
+                canManage, active.size(), withoutMonday, props.getMondayWrite().isEnabled());
     }
 
     /** Team members without manage rights see who is suggested, not the levels behind it. */
@@ -98,7 +99,7 @@ public class ReQueueService {
                 e == null ? null : e.displayName(), a.getStatus(), a.getOrigin(), a.getScore(),
                 a.getRequiredLevel() == null ? null : a.getRequiredLevel().intValue(), a.getReason(),
                 a.getApprovedBy(), a.getApprovedAt(), a.getConfirmedAt(), a.getEndedAt(), a.getEndedBy(),
-                a.getEmailStatus(), a.getEmailDetail());
+                a.getEmailStatus(), a.getEmailDetail(), a.getMondayStatus(), a.getMondayDetail());
     }
 
     public String mondayUrl(String itemId) {
@@ -122,9 +123,20 @@ public class ReQueueService {
                 .toList();
 
         Map<UUID, Map<String, Integer>> levels = matrix.currentLevels();
-        Set<UUID> onLeave = new HashSet<>();
-        leaves.findByEndsOnGreaterThanEqualOrderByStartsOnAsc(today).forEach(l -> {
-            if (l.covers(today)) onLeave.add(l.getEngineerId());
+        // Leave and console bookings from today on. A booking for a ticket that is no longer
+        // open stops counting: the job is done, so the engineer is free again.
+        Map<String, String> openNames = new HashMap<>();
+        ticketFacts.forEach(t -> openNames.put(t.itemId(), t.name()));
+        Map<UUID, List<Busy>> busy = new HashMap<>();
+        leaves.findByEndsOnGreaterThanEqualOrderByStartsOnAsc(today).forEach(l -> busy
+                .computeIfAbsent(l.getEngineerId(), k -> new ArrayList<>())
+                .add(new Busy(l.getStartsOn(), l.getEndsOn(), "LEAVE", "leave")));
+        schedules.findByEndsOnGreaterThanEqualOrderByStartsOnAsc(today).forEach(s -> {
+            if (s.getItemId() != null && !openNames.containsKey(s.getItemId())) return;
+            String label = s.getItemId() != null ? "booked: " + openNames.get(s.getItemId())
+                    : "booked" + (s.getNote() == null || s.getNote().isBlank() ? "" : ": " + s.getNote());
+            busy.computeIfAbsent(s.getEngineerId(), k -> new ArrayList<>())
+                    .add(new Busy(s.getStartsOn(), s.getEndsOn(), "JOB", label));
         });
         Map<UUID, Instant> lastApproved = new HashMap<>();
         assignments.findTop200ByBoardIdOrderByApprovedAtDesc(board)
@@ -133,7 +145,7 @@ public class ReQueueService {
         List<Engineer> engineerFacts = engineers.findAll().stream()
                 .map(e -> new Engineer(e.getId(), e.displayName(), e.isActive(), e.getMondayUserId(),
                         e.getEmail() != null, e.getMaxLoad(), levels.getOrDefault(e.getId(), Map.of()),
-                        onLeave.contains(e.getId()), lastApproved.get(e.getId())))
+                        busy.getOrDefault(e.getId(), List.of()), lastApproved.get(e.getId())))
                 .toList();
 
         Map<String, String> modelNames = new HashMap<>();
@@ -162,6 +174,7 @@ public class ReQueueService {
                 props.getDefaultLoad(),
                 props.getNewTicketLoad(),
                 props.requiredLevelMap(),
-                props.getAssumedIssueLevel());
+                props.getAssumedIssueLevel(),
+                ReTicketRefreshService.normSet(props.getBusyServiceModes()));
     }
 }

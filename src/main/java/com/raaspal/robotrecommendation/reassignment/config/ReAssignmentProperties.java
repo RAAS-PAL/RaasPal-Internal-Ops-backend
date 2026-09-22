@@ -76,7 +76,15 @@ public class ReAssignmentProperties {
      */
     private String assumedIssueLevel = "L2-Mid";
 
+    /**
+     * "Online / On Site" labels that take the engineer out for the day: someone on an open
+     * ticket of this kind is busy on its "RE Action" date. Online work does not block a day.
+     */
+    private List<String> busyServiceModes = new ArrayList<>(List.of("On Site"));
+
     private Email email = new Email();
+
+    private MondayWrite mondayWrite = new MondayWrite();
 
     private Refresh refresh = new Refresh();
 
@@ -114,6 +122,16 @@ public class ReAssignmentProperties {
 
         /** When set, every assignment email goes here instead of to the engineer (for testing). */
         private String redirectTo = "";
+    }
+
+    @Getter
+    @Setter
+    public static class MondayWrite {
+        /**
+         * Approving puts the engineer into the ticket's RE column (and cancelling takes them
+         * out again). Off = approvals are only recorded and the Senior RE sets monday by hand.
+         */
+        private boolean enabled = true;
     }
 
     @Getter

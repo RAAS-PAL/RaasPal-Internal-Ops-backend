@@ -109,7 +109,8 @@ public final class ReDtos {
     public record AssignmentView(UUID id, String itemId, String ticketName, UUID engineerId, String engineerName,
                                  String status, String origin, BigDecimal score, Integer requiredLevel,
                                  String reason, String approvedBy, Instant approvedAt, Instant confirmedAt,
-                                 Instant endedAt, String endedBy, String emailStatus, String emailDetail) {
+                                 Instant endedAt, String endedBy, String emailStatus, String emailDetail,
+                                 String mondayStatus, String mondayDetail) {
     }
 
     public record QueueRow(String itemId, String name, String group, String status, String subStatus,
@@ -118,17 +119,27 @@ public final class ReDtos {
                            LocalDate openDate, LocalDate actionDate, List<String> people, String outcome,
                            String reason, Integer requiredLevel, boolean assumedDifficulty, String issueCategory,
                            Candidate suggested, List<Candidate> alternatives, List<Exclusion> excluded,
-                           AssignmentView assignment, String mondayUrl) {
+                           AssignmentView assignment, String mondayUrl, LocalDate forDate) {
     }
 
     public record QueueView(List<QueueRow> rows, Map<String, Integer> counts, Instant lastRefreshAt,
                             int openTickets, boolean emailEnabled, boolean canManage, int engineers,
-                            int engineersWithoutMondayId) {
+                            int engineersWithoutMondayId, boolean mondayWriteEnabled) {
     }
 
     public record ApproveRequest(@NotBlank String itemId, @NotNull UUID engineerId,
                                  @Pattern(regexp = "SUGGESTION|ALTERNATIVE|MANUAL") String origin,
-                                 @Size(max = 500) String reason) {
+                                 @Size(max = 500) String reason, LocalDate bookedFrom, LocalDate bookedTo) {
+    }
+
+    /** Book an engineer on a job for some days; itemId optional. */
+    public record ScheduleRequest(@NotNull UUID engineerId, String itemId, @NotNull LocalDate startsOn,
+                                  @NotNull LocalDate endsOn, @Size(max = 500) String note) {
+    }
+
+    public record ScheduleView(UUID id, UUID engineerId, String engineerName, String itemId, String ticketName,
+                               UUID assignmentId, LocalDate startsOn, LocalDate endsOn, String note,
+                               String createdBy) {
     }
 
     public record ReasonRequest(@NotBlank @Size(max = 500) String reason) {
