@@ -16,6 +16,7 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -39,7 +40,7 @@ class ReSkillImportParseTest {
     private final ReSkillLevelRepository levels = mock(ReSkillLevelRepository.class);
     private final ReEventLog events = new ReEventLog(mock(ReEventRepository.class), new ObjectMapper());
     private final ReSkillMatrixService matrix = new ReSkillMatrixService(skills, levels,
-            mock(ReSkillChangeRepository.class), mock(ReMatrixRevisionRepository.class), engineers, events);
+            mock(ReSkillChangeRepository.class), mock(ReMatrixRevisionRepository.class), engineers, events, new JdbcTemplate());
     private final ReSkillImportService importer = new ReSkillImportService(engineers, skills, matrix, events);
 
     private final UUID existingId = UUID.randomUUID();

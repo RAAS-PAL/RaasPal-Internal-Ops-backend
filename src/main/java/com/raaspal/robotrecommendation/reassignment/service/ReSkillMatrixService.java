@@ -5,9 +5,12 @@ import com.raaspal.robotrecommendation.reassignment.dto.ReDtos.*;
 import com.raaspal.robotrecommendation.reassignment.entity.*;
 import com.raaspal.robotrecommendation.reassignment.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
@@ -31,6 +34,7 @@ public class ReSkillMatrixService {
     private final ReMatrixRevisionRepository revisions;
     private final ReEngineerRepository engineers;
     private final ReEventLog events;
+    private final JdbcTemplate jdbc;
 
     @Transactional(readOnly = true)
     public MatrixView matrix() {
@@ -98,6 +102,10 @@ public class ReSkillMatrixService {
         skills.findAll().forEach(s -> known.add(s.getCode()));
         Map<ReSkillLevel.Key, ReSkillLevel> current = new HashMap<>();
         levels.findAll().forEach(l -> current.put(new ReSkillLevel.Key(l.getEngineerId(), l.getSkillCode()), l));
+        Set<UUID> engineerIds = new HashSet<>();
+        engineers.findAll().forEach(e -> engineerIds.add(e.getId()));
+        List<ReSkillLevel> dirty = new ArrayList<>();
+        List<ReSkillChange> log = new ArrayList<>();
 
         int changed = 0;
         Instant now = Instant.now();
@@ -106,7 +114,7 @@ public class ReSkillMatrixService {
             if (c.level() != null && (c.level() < 1 || c.level() > 4)) {
                 throw new BadRequestException("Levels are L1-L4 or not assessed");
             }
-            if (!engineers.existsById(c.engineerId())) throw new BadRequestException("Unknown engineer " + c.engineerId());
+            if (!engineerIds.contains(c.engineerId())) throw new BadRequestException("Unknown engineer " + c.engineerId());
             ReSkillLevel.Key key = new ReSkillLevel.Key(c.engineerId(), c.skillCode());
             ReSkillLevel existing = current.get(key);
             Short newLevel = c.level() == null ? null : c.level().shortValue();
@@ -118,13 +126,35 @@ public class ReSkillMatrixService {
             row.setLevel(newLevel);
             row.setRevisionId(rev.getId());
             row.setUpdatedAt(now);
-            levels.save(row);
+            dirty.add(row);
             current.put(key, row);
-            changes.save(ReSkillChange.builder().revisionId(rev.getId()).engineerId(c.engineerId())
+            log.add(ReSkillChange.builder().revisionId(rev.getId()).engineerId(c.engineerId())
                     .skillCode(c.skillCode()).oldLevel(oldLevel).newLevel(newLevel).changedAt(now).build());
             changed++;
         }
+        // Batched: an import is ~400 cells, and one round trip each to the hosted database
+        // took the request past the browser's timeout.
+        // Flush first: the change log goes in over plain JDBC, and its revision and any new
+        // engineers are still only in Hibernate's session.
+        levels.saveAllAndFlush(dirty);
+        insertChanges(log);
         return changed;
+    }
+
+    /** re_skill_change has an IDENTITY key, which Hibernate cannot batch; one JDBC batch instead. */
+    private void insertChanges(List<ReSkillChange> log) {
+        if (log.isEmpty()) return;
+        jdbc.batchUpdate("""
+                INSERT INTO re_skill_change (revision_id, engineer_id, skill_code, old_level, new_level, changed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, log, 200, (ps, c) -> {
+            ps.setObject(1, c.getRevisionId());
+            ps.setObject(2, c.getEngineerId());
+            ps.setString(3, c.getSkillCode());
+            if (c.getOldLevel() == null) ps.setNull(4, Types.SMALLINT); else ps.setShort(4, c.getOldLevel());
+            if (c.getNewLevel() == null) ps.setNull(5, Types.SMALLINT); else ps.setShort(5, c.getNewLevel());
+            ps.setTimestamp(6, Timestamp.from(c.getChangedAt()));
+        });
     }
 
     @Transactional

@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.reassignment.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.springframework.data.domain.Persistable;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -25,7 +26,7 @@ import java.time.LocalDate;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ReTicket {
+public class ReTicket implements Persistable<ReTicket.Key> {
 
     @Id
     @Column(name = "board_id", columnDefinition = "TEXT")
@@ -99,6 +100,31 @@ public class ReTicket {
     @Column(name = "last_seen_at", nullable = false)
     @Builder.Default
     private Instant lastSeenAt = Instant.now();
+
+    /**
+     * The key is assigned by us, so Spring Data cannot tell a new row from an existing one and
+     * would SELECT before every INSERT - one extra round trip per ticket to the hosted database.
+     */
+    @Transient
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private boolean persisted;
+
+    @PostLoad
+    @PostPersist
+    void markPersisted() {
+        persisted = true;
+    }
+
+    @Override
+    public Key getId() {
+        return new Key(boardId, itemId);
+    }
+
+    @Override
+    public boolean isNew() {
+        return !persisted;
+    }
 
     @Getter
     @Setter

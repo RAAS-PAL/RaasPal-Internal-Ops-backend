@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.reassignment.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.springframework.data.domain.Persistable;
 
 import java.io.Serializable;
 import java.time.Instant;
@@ -21,7 +22,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ReSkillLevel {
+public class ReSkillLevel implements Persistable<ReSkillLevel.Key> {
 
     @Id
     @Column(name = "engineer_id")
@@ -40,6 +41,31 @@ public class ReSkillLevel {
     @Column(name = "updated_at", nullable = false)
     @Builder.Default
     private Instant updatedAt = Instant.now();
+
+    /**
+     * The key is assigned by us, so Spring Data cannot tell a new row from an existing one and
+     * would SELECT before every INSERT - one extra round trip per ticket to the hosted database.
+     */
+    @Transient
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private boolean persisted;
+
+    @PostLoad
+    @PostPersist
+    void markPersisted() {
+        persisted = true;
+    }
+
+    @Override
+    public Key getId() {
+        return new Key(engineerId, skillCode);
+    }
+
+    @Override
+    public boolean isNew() {
+        return !persisted;
+    }
 
     @Getter
     @Setter
