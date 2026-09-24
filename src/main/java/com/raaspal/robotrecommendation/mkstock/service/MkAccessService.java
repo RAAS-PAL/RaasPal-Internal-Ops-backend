@@ -2,6 +2,7 @@ package com.raaspal.robotrecommendation.mkstock.service;
 
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.mkstock.dto.MkDtos.AccessStatus;
+import com.raaspal.robotrecommendation.mkstock.dto.MkDtos.PinReset;
 import com.raaspal.robotrecommendation.mkstock.dto.MkDtos.ViewSession;
 import com.raaspal.robotrecommendation.mkstock.entity.MkAccessPin;
 import com.raaspal.robotrecommendation.mkstock.entity.MkViewSession;
@@ -79,13 +80,32 @@ public class MkAccessService {
     @Transactional
     public AccessStatus setPin(String pin, String actor) {
         if (pin == null || !pin.matches("\\d{6,12}")) throw new BadRequestException("The PIN must be 6 to 12 digits");
-        if (pin.chars().distinct().count() == 1 || "0123456789".contains(pin) || "9876543210".contains(pin)) {
+        if (weak(pin)) {
             throw new BadRequestException("That PIN is too easy to guess - avoid repeated or sequential digits");
         }
         retireActivePin();
         pins.saveAndFlush(MkAccessPin.builder().pinHash(passwordEncoder.encode(pin)).createdBy(actor).build());
         log.info("MK view PIN set by {}", actor);
         return status();
+    }
+
+    /**
+     * Replaces the PIN with a random 6-digit one and returns it - the only time it can be seen.
+     * Like setting a PIN, the old one stops working and every MK session ends.
+     */
+    @Transactional
+    public PinReset resetPin(String actor) {
+        String pin;
+        do {
+            pin = String.format("%06d", random.nextInt(1_000_000));
+        } while (weak(pin));
+        AccessStatus status = setPin(pin, actor);
+        log.info("MK view PIN reset by {}", actor);
+        return new PinReset(pin, status);
+    }
+
+    static boolean weak(String pin) {
+        return pin.chars().distinct().count() == 1 || "0123456789".contains(pin) || "9876543210".contains(pin);
     }
 
     /** Turns MK access off: no PIN works until a new one is set. */

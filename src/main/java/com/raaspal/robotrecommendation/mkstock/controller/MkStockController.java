@@ -85,6 +85,13 @@ public class MkStockController {
         return ApiResponse.success("PIN set - share it with MK", access.setPin(req.pin(), actor(me)));
     }
 
+    /** Makes a new random PIN and returns it once, to hand to MK. */
+    @PostMapping("/access/pin/reset")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<PinReset> resetPin(@AuthenticationPrincipal UserPrincipal me) {
+        return ApiResponse.success("New PIN made - share it with MK", access.resetPin(actor(me)));
+    }
+
     @DeleteMapping("/access/pin")
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<AccessStatus> disable(@AuthenticationPrincipal UserPrincipal me) {

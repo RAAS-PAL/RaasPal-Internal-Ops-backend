@@ -81,6 +81,10 @@ public final class MkDtos {
                                long activeSessions) {
     }
 
+    /** A freshly generated PIN - returned this once, never stored in plain text. */
+    public record PinReset(String pin, AccessStatus status) {
+    }
+
     public record ViewLoginRequest(@NotBlank @Size(max = 20) String pin) {
     }
 
