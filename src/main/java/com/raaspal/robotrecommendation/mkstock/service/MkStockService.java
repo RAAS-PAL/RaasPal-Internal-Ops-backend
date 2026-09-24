@@ -2,12 +2,17 @@ package com.raaspal.robotrecommendation.mkstock.service;
 
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
+import com.raaspal.robotrecommendation.inventory.service.StoredImage;
 import com.raaspal.robotrecommendation.mkstock.dto.MkDtos.*;
+import com.raaspal.robotrecommendation.mkstock.entity.MkPartImage;
 import com.raaspal.robotrecommendation.mkstock.entity.MkSparePart;
 import com.raaspal.robotrecommendation.mkstock.entity.MkStockMovement;
+import com.raaspal.robotrecommendation.mkstock.repository.MkPartImageRepository;
 import com.raaspal.robotrecommendation.mkstock.repository.MkSparePartRepository;
 import com.raaspal.robotrecommendation.mkstock.repository.MkStockMovementRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,22 +44,24 @@ public class MkStockService {
 
     private final MkSparePartRepository parts;
     private final MkStockMovementRepository movements;
+    private final MkPartImageRepository images;
 
     /* ─── Parts ──────────────────────────────────────────────────────────── */
 
     @Transactional(readOnly = true)
     public List<PartView> listParts(boolean includeRetired) {
         Map<UUID, LocalDate> lastMoved = lastMovementDays();
+        Set<UUID> withImage = withImage();
         return parts.findAllByOrderByActiveDescPartNoAsc().stream()
                 .filter(p -> includeRetired || p.isActive())
-                .map(p -> view(p, lastMoved.get(p.getId())))
+                .map(p -> view(p, lastMoved.get(p.getId()), withImage.contains(p.getId())))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public PartView getPart(UUID id) {
         MkSparePart p = parts.findById(id).orElseThrow(() -> new ResourceNotFoundException("Part", "id", id));
-        return view(p, lastMovementDays().get(id));
+        return view(p, lastMovementDays().get(id), images.existsById(id));
     }
 
     @Transactional
@@ -97,7 +104,41 @@ public class MkStockService {
         p.setNote(blank(req.note()));
         if (req.active() != null) p.setActive(req.active());
         p.setUpdatedAt(Instant.now());
-        return view(parts.save(p), lastMovementDays().get(id));
+        return view(parts.save(p), lastMovementDays().get(id), images.existsById(id));
+    }
+
+    /* ─── Photo ──────────────────────────────────────────────────────────── */
+
+    /** The largest photo accepted, as characters of base64 (~1 MB of image). RIMS shrinks photos first. */
+    static final int MAX_IMAGE_CHARS = 1_400_000;
+
+    @Transactional
+    public PartView setImage(UUID id, String image) {
+        MkSparePart p = parts.findById(id).orElseThrow(() -> new ResourceNotFoundException("Part", "id", id));
+        String data = image == null ? "" : image.trim();
+        if (!data.matches("(?s)^data:image/(png|jpeg|webp|gif);base64,.+")) {
+            throw new BadRequestException("The photo must be a PNG, JPEG, WebP or GIF image");
+        }
+        if (data.length() > MAX_IMAGE_CHARS) {
+            throw new BadRequestException("The photo is too large - use one under about 1 MB");
+        }
+        Instant now = Instant.now();
+        images.save(MkPartImage.builder().partId(id).imageData(data).updatedAt(now).build());
+        p.setUpdatedAt(now);   // changes the photo's URL, so browsers fetch the new one
+        return view(parts.save(p), lastMovementDays().get(id), true);
+    }
+
+    @Transactional
+    public PartView removeImage(UUID id) {
+        MkSparePart p = parts.findById(id).orElseThrow(() -> new ResourceNotFoundException("Part", "id", id));
+        images.deleteById(id);
+        p.setUpdatedAt(Instant.now());
+        return view(parts.save(p), lastMovementDays().get(id), false);
+    }
+
+    @Transactional(readOnly = true)
+    public ResponseEntity<Resource> image(UUID id) {
+        return StoredImage.serve(images.findById(id).map(MkPartImage::getImageData).orElse(null), "Part photo", id);
     }
 
     /* ─── Movements ──────────────────────────────────────────────────────── */
@@ -180,6 +221,7 @@ public class MkStockService {
         List<MkSparePart> active = all.stream().filter(MkSparePart::isActive).toList();
         Map<UUID, MkSparePart> byId = all.stream().collect(Collectors.toMap(MkSparePart::getId, Function.identity()));
         Map<UUID, LocalDate> lastMoved = lastMovementDays();
+        Set<UUID> withImage = withImage();
 
         List<MkStockMovement> inPeriod = movements.findByMovedOnBetween(start, end);
         int unitsIn = inPeriod.stream().filter(m -> MkStockMovement.IN.equals(m.getMovementType()))
@@ -235,7 +277,7 @@ public class MkStockService {
         List<PartView> attention = active.stream()
                 .filter(p -> !"OK".equals(p.stockStatus()))
                 .sorted(Comparator.comparing(MkSparePart::getQuantityOnHand).thenComparing(MkSparePart::getPartNo))
-                .map(p -> view(p, lastMoved.get(p.getId())))
+                .map(p -> view(p, lastMoved.get(p.getId()), withImage.contains(p.getId())))
                 .toList();
         List<MovementView> recent = movements.findTop15ByOrderByMovedOnDescCreatedAtDesc().stream()
                 .map(m -> view(m, byId.get(m.getPartId()), viewer))
@@ -273,10 +315,14 @@ public class MkStockService {
         };
     }
 
-    static PartView view(MkSparePart p, LocalDate lastMovementOn) {
+    static PartView view(MkSparePart p, LocalDate lastMovementOn, boolean hasImage) {
         return new PartView(p.getId(), p.getPartNo(), p.getName(), p.getRobotModel(), p.getUnit(), p.getMinLevel(),
                 p.getLocation(), p.getNote(), p.getQuantityOnHand(), p.stockStatus(), p.isActive(), lastMovementOn,
-                p.getUpdatedAt());
+                p.getUpdatedAt(), hasImage);
+    }
+
+    private Set<UUID> withImage() {
+        return new HashSet<>(images.partIdsWithImage());
     }
 
     static MovementView view(MkStockMovement m, MkSparePart p, boolean viewer) {

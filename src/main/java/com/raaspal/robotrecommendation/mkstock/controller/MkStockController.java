@@ -7,7 +7,9 @@ import com.raaspal.robotrecommendation.mkstock.service.MkAccessService;
 import com.raaspal.robotrecommendation.mkstock.service.MkStockService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -47,6 +49,21 @@ public class MkStockController {
     @PutMapping("/parts/{id}")
     public ApiResponse<PartView> updatePart(@PathVariable UUID id, @Valid @RequestBody PartRequest req) {
         return ApiResponse.success("Part updated", stock.updatePart(id, req));
+    }
+
+    @GetMapping("/parts/{id}/image")
+    public ResponseEntity<Resource> image(@PathVariable UUID id) {
+        return stock.image(id);
+    }
+
+    @PutMapping("/parts/{id}/image")
+    public ApiResponse<PartView> setImage(@PathVariable UUID id, @Valid @RequestBody ImageRequest req) {
+        return ApiResponse.success("Photo saved", stock.setImage(id, req.image()));
+    }
+
+    @DeleteMapping("/parts/{id}/image")
+    public ApiResponse<PartView> removeImage(@PathVariable UUID id) {
+        return ApiResponse.success("Photo removed", stock.removeImage(id));
     }
 
     @PostMapping("/parts/{id}/movements")

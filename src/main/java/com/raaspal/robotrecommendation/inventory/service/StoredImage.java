@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  * <p>Returning real bytes rather than the data URI is the whole point — a data URI in
  * JSON cannot be cached, cannot be lazy-loaded, and blocks the page until it arrives.
  */
-final class StoredImage {
+public final class StoredImage {
 
     /** {@code data:image/jpeg;base64,/9j/4AAQ...} — type and payload captured separately. */
     private static final Pattern DATA_URI = Pattern.compile("^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", Pattern.DOTALL);
@@ -47,7 +47,7 @@ final class StoredImage {
      * @param stored the {@code image_url} column value
      * @param what   named in the 404 when there is no photo — "InventoryItem image"
      */
-    static ResponseEntity<Resource> serve(String stored, String what, Object id) {
+    public static ResponseEntity<Resource> serve(String stored, String what, Object id) {
         if (stored == null || stored.isBlank()) {
             throw new ResourceNotFoundException(what, "id", id);
         }

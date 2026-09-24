@@ -6,6 +6,7 @@ import com.raaspal.robotrecommendation.mkstock.dto.MkDtos.MovementRequest;
 import com.raaspal.robotrecommendation.mkstock.dto.MkDtos.MovementView;
 import com.raaspal.robotrecommendation.mkstock.entity.MkSparePart;
 import com.raaspal.robotrecommendation.mkstock.entity.MkStockMovement;
+import com.raaspal.robotrecommendation.mkstock.repository.MkPartImageRepository;
 import com.raaspal.robotrecommendation.mkstock.repository.MkSparePartRepository;
 import com.raaspal.robotrecommendation.mkstock.repository.MkStockMovementRepository;
 import com.raaspal.robotrecommendation.mkstock.service.MkStockService;
@@ -25,7 +26,8 @@ class MkStockServiceTest {
 
     private final MkSparePartRepository parts = mock(MkSparePartRepository.class);
     private final MkStockMovementRepository movements = mock(MkStockMovementRepository.class);
-    private final MkStockService service = new MkStockService(parts, movements);
+    private final MkPartImageRepository images = mock(MkPartImageRepository.class);
+    private final MkStockService service = new MkStockService(parts, movements, images);
 
     private final UUID id = UUID.randomUUID();
     private final MkSparePart part = MkSparePart.builder().id(id).partNo("MK-001").name("Tray sensor")
@@ -137,5 +139,21 @@ class MkStockServiceTest {
     private static MkStockMovement mv(MkSparePart p, String type, int change, LocalDate on, String reason) {
         return MkStockMovement.builder().id(UUID.randomUUID()).partId(p.getId()).movementType(type)
                 .quantityChange(change).balanceAfter(0).reason(reason).movedOn(on).createdBy("t").build();
+    }
+
+    @Test
+    void aPhotoMustBeARealImageOfSensibleSize() {
+        when(parts.findById(id)).thenReturn(Optional.of(part));
+        when(parts.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(movements.lastMovedPerPart()).thenReturn(List.of());
+
+        assertThat(service.setImage(id, "data:image/jpeg;base64,/9j/4AAQ").hasImage()).isTrue();
+        verify(images).save(any());
+        assertThatThrownBy(() -> service.setImage(id, "https://example.com/x.jpg")).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.setImage(id, "data:text/html;base64,PGgxPg==")).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.setImage(id, "data:image/png;base64," + "A".repeat(1_400_000)))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("too large");
+        assertThat(service.removeImage(id).hasImage()).isFalse();
+        verify(images).deleteById(id);
     }
 }

@@ -31,7 +31,11 @@ public final class MkDtos {
     /** {@code status}: OK | LOW | OUT. */
     public record PartView(UUID id, String partNo, String name, String robotModel, String unit, int minLevel,
                            String location, String note, int quantityOnHand, String status, boolean active,
-                           LocalDate lastMovementOn, Instant updatedAt) {
+                           LocalDate lastMovementOn, Instant updatedAt, boolean hasImage) {
+    }
+
+    /** {@code image}: a base64 {@code data:image/...} URI (RIMS resizes photos before sending). */
+    public record ImageRequest(@NotBlank String image) {
     }
 
     /* ─── Movements ──────────────────────────────────────────────────────── */

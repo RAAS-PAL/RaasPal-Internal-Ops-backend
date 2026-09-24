@@ -7,6 +7,7 @@ import com.raaspal.robotrecommendation.mkstock.service.MkStockService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -59,6 +60,13 @@ public class MkViewController {
                                                    @RequestHeader(value = TOKEN_HEADER, required = false) String token) {
         access.requireSession(token);
         return ApiResponse.success(stock.partHistory(id, true));
+    }
+
+    @GetMapping("/parts/{id}/image")
+    public ResponseEntity<Resource> image(@PathVariable UUID id,
+                                          @RequestHeader(value = TOKEN_HEADER, required = false) String token) {
+        access.requireSession(token);
+        return stock.image(id);
     }
 
     @GetMapping("/dashboard")
