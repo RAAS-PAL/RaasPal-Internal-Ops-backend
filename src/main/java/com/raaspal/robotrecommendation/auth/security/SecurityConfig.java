@@ -62,6 +62,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login").permitAll()
                         // Public customer report links (the monthly email URL) — no account
                         .requestMatchers("/api/v1/reports/public/**").permitAll()
+                        // MK's read-only stock view: no staff login, but every read needs the
+                        // view token a correct PIN returns (checked in MkViewController).
+                        .requestMatchers("/api/v1/public/mk-stock/**").permitAll()
                         // The container health check. Docker polls this every 30s with
                         // no credentials; left authenticated it answered 401 and logged a
                         // WARN each time -- roughly 2,900 lines a day, enough to bury the
