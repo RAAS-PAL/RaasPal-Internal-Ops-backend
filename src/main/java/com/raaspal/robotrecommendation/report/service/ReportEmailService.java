@@ -15,9 +15,6 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
-import java.time.Month;
-import java.time.YearMonth;
-import java.time.format.TextStyle;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -98,8 +95,9 @@ public class ReportEmailService {
     }
 
     /**
-     * Emails a customer a single link covering ALL of their robots for the month
-     * (the combined report bundle page). Used by the automated monthly scheduler.
+     * Emails a customer a single link covering ALL of their robots for the period
+     * (the combined report bundle page). Used by the automated monthly and weekly
+     * deliveries; {@code month} is a period key, "2026-08" or "2026-W38".
      */
     public SentEmail sendBundle(UUID customerProfileId, String month) {
         CustomerProfile customer = customerProfileRepository.findById(customerProfileId)
@@ -108,7 +106,7 @@ public class ReportEmailService {
         List<String> recipients = recipientsOf(customer);
         String token = customerReportLinkService.createOrGetToken(customerProfileId, month);
         String url = baseUrl.replaceAll("/+$", "") + "/" + reportLocale + "/report/customer/" + token;
-        String periodPhrase = MONTH_WORD + periodLabel(month);
+        String periodPhrase = periodPhrase(ReportPeriod.parse(month));
         String subject = SUBJECT_PREFIX + periodPhrase;
         String html = buildHtml(periodPhrase, url);
 
@@ -253,16 +251,6 @@ public class ReportEmailService {
                        width="560" style="display:block; width:100%%; max-width:560px; height:auto; border:0;">
                 </div>
                 """.formatted(escape(periodPhrase), url, url, url, FOOTER_IMAGE_CID);
-    }
-
-    /** "2026-06" → "June 2026". */
-    private String periodLabel(String month) {
-        try {
-            YearMonth ym = YearMonth.parse(month);
-            return Month.of(ym.getMonthValue()).getDisplayName(TextStyle.FULL, Locale.ENGLISH) + " " + ym.getYear();
-        } catch (Exception e) {
-            return month;
-        }
     }
 
     private String escape(String s) {

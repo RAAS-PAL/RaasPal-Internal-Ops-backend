@@ -17,7 +17,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.YearMonth;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -83,7 +82,7 @@ public class ReportDeliveryService {
         runningMonth = month;
         runExecutor.submit(() -> {
             try {
-                lastRunSummary = deliverForMonth(month, excludedCustomerIds);
+                lastRunSummary = deliverForPeriod(month, excludedCustomerIds);
             } catch (Exception e) {
                 log.error("Background delivery run for {} crashed: {}", month, e.getMessage(), e);
             } finally {
@@ -131,29 +130,46 @@ public class ReportDeliveryService {
         runExecutor.shutdownNow();
     }
 
-    /** Delivers to every eligible customer, no exclusions. Used by the cron scheduler. */
+    /** Delivers to every eligible customer, no exclusions. Used by the monthly cron scheduler. */
     public RunSummary deliverForMonth(String month) {
-        return deliverForMonth(month, Set.of());
+        return deliverForPeriod(month, Set.of());
+    }
+
+    /** A whole-month run with some customers held back — see {@link #deliverForPeriod}. */
+    public RunSummary deliverForMonth(String month, Set<UUID> excludedCustomerIds) {
+        return deliverForPeriod(month, excludedCustomerIds);
     }
 
     /**
-     * Delivers the monthly bundle to every customer with an active MONTHLY-cadence
-     * robot for {@code month} ("YYYY-MM"), except those in {@code excludedCustomerIds}
+     * Delivers the weekly bundle for an ISO week ("YYYY-Www") to every customer with an
+     * active WEEKLY-cadence robot. Used by the Monday cron scheduler. A malformed week
+     * is rejected before anything is sent.
+     */
+    public RunSummary deliverForWeek(String week) {
+        return deliverForPeriod(ReportPeriod.ofWeek(week).key(), Set.of());
+    }
+
+    /**
+     * Delivers the period's bundle — a month ("YYYY-MM") or an ISO week ("YYYY-Www") —
+     * to every customer with an active robot on the matching cadence (MONTHLY for a
+     * month, WEEKLY for a week), except those in {@code excludedCustomerIds}
      * — held back entirely for this run (not synced, not emailed, not recorded),
      * so they remain eligible for a later run once ready. Each customer's robots
      * are synced right before sending them (not excluded/already-sent customers'
      * robots are never touched, saving time when a large site is held back).
-     * Idempotent: customers already SENT for the month are skipped. Never throws
-     * for a single customer — failures are logged/recorded and the run continues.
+     * Idempotent: customers already SENT for the period are skipped, so a re-run —
+     * or the scheduler firing after someone already ran it by hand — never
+     * double-sends. Never throws for a single customer — failures are
+     * logged/recorded and the run continues.
      */
-    public RunSummary deliverForMonth(String month, Set<UUID> excludedCustomerIds) {
-        log.info("Report delivery run starting for month {}{}", month,
+    public RunSummary deliverForPeriod(String month, Set<UUID> excludedCustomerIds) {
+        log.info("Report delivery run starting for {}{}", month,
                 excludedCustomerIds.isEmpty() ? "" : " (excluding " + excludedCustomerIds.size() + " customer(s))");
 
         int sent = 0;
         int skipped = 0;
         int failed = 0;
-        for (UUID customerId : eligibleCustomerIds()) {
+        for (UUID customerId : eligibleCustomerIds(ReportPeriod.parse(month))) {
             if (excludedCustomerIds.contains(customerId) || isAlreadySent(customerId, month)) {
                 skipped++;
                 continue;
@@ -230,16 +246,13 @@ public class ReportDeliveryService {
         }
     }
 
-    /** Pulls fresh telemetry for one customer's robots for the month, robot by robot. */
+    /** Pulls fresh telemetry for one customer's robots for the period, robot by robot. */
     private void syncCustomer(UUID customerProfileId, String month) {
-        LocalDate from;
-        LocalDate to;
-        try {
-            YearMonth ym = YearMonth.parse(month);
-            from = ym.atDay(1);
-            to = ym.atEndOfMonth();
-        } catch (Exception e) {
-            log.error("Invalid month '{}' for customer {} sync; sending with existing data.", month, customerProfileId);
+        ReportPeriod period = ReportPeriod.parse(month);
+        LocalDate from = period.startDate();
+        LocalDate to = period.endDate();
+        if (from == null || to == null) {
+            log.error("Invalid period '{}' for customer {} sync; sending with existing data.", month, customerProfileId);
             return;
         }
         for (RobotUnitResponse robot : robotUnitService.listByCustomer(customerProfileId)) {
@@ -255,22 +268,28 @@ public class ReportDeliveryService {
         }
     }
 
-    /** Delivery history for a month, newest first. */
+    /** Delivery history for a period (month or ISO week key), newest first. */
     public List<ReportSend> historyForMonth(String month) {
         return reportSendRepository.findByReportMonthOrderBySentAtDesc(month);
     }
 
-    private Set<UUID> eligibleCustomerIds() {
+    /**
+     * Customers with at least one active cleaning robot on the cadence this period
+     * serves: MONTHLY for a month, WEEKLY for a week. The cadence setting is one value
+     * per robot, so a robot set to WEEKLY leaves the monthly run and joins the weekly one.
+     */
+    private Set<UUID> eligibleCustomerIds(ReportPeriod period) {
+        ReportCadence cadence = period.type() == ReportPeriod.Type.WEEK ? ReportCadence.WEEKLY : ReportCadence.MONTHLY;
         Set<UUID> customerIds = new LinkedHashSet<>();
         for (Deployment deployment : deploymentRepository.findByIsActiveTrue()) {
             // A customer whose only robots are delivery robots has nothing in the cleaning
             // bundle; making them eligible would send an empty email.
             if (deployment.getRobotUnit().getRobotType() == RobotType.DELIVERY) continue;
-            if (deployment.getReportCadence() == ReportCadence.MONTHLY) {
+            if (deployment.getReportCadence() == cadence) {
                 customerIds.add(deployment.getCustomerProfile().getId());
             }
         }
-        log.info("{} customer(s) eligible for monthly report", customerIds.size());
+        log.info("{} customer(s) eligible for the {} report", customerIds.size(), cadence);
         return customerIds;
     }
 

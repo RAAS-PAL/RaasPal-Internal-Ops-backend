@@ -6,6 +6,7 @@ import com.raaspal.robotrecommendation.customer.repository.CustomerProfileReposi
 import com.raaspal.robotrecommendation.report.dto.ReportSendResponse;
 import com.raaspal.robotrecommendation.report.entity.ReportSend;
 import com.raaspal.robotrecommendation.report.service.ReportDeliveryService;
+import com.raaspal.robotrecommendation.report.service.ReportPeriod;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +22,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Admin endpoints for the automated report delivery: run a month now (manual
+ * Admin endpoints for the automated report delivery: run a month or ISO week now (manual
  * trigger / resend), send a single customer, and view delivery history for the
  * "Manage report automation" tab. All authenticated (not under /public).
  */
@@ -34,7 +35,7 @@ public class ReportDeliveryController {
     private final CustomerProfileRepository customerProfileRepository;
 
     /**
-     * Start the whole-month delivery in the background and return immediately
+     * Start a whole-period delivery (one of {@code month} or {@code week}) in the background and return immediately
      * (the run syncs each customer's robots as it sends them, which takes
      * minutes). Idempotent per customer, and at most one run executes at a
      * time — starting while a run is in progress is rejected with a clear
@@ -44,12 +45,14 @@ public class ReportDeliveryController {
      */
     @PostMapping("/run")
     public ApiResponse<ReportDeliveryService.RunStatus> runMonth(
-            @RequestParam String month,
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false) String week,
             @RequestParam(required = false) List<UUID> excludedCustomerIds) {
+        String period = ReportPeriod.fromRequest(month, week).key();
         Set<UUID> excluded = excludedCustomerIds == null ? Set.of() : new HashSet<>(excludedCustomerIds);
-        boolean started = reportDeliveryService.startRunAsync(month, excluded);
+        boolean started = reportDeliveryService.startRunAsync(period, excluded);
         String message = started
-                ? "Delivery run started for " + month
+                ? "Delivery run started for " + period
                         + (excluded.isEmpty() ? "" : " (excluding " + excluded.size() + " customer(s))")
                 : "A delivery run is already in progress";
         return ApiResponse.success(message, reportDeliveryService.status());
@@ -70,10 +73,12 @@ public class ReportDeliveryController {
     @PostMapping("/send")
     public ApiResponse<ReportDeliveryService.RunStatus> sendCustomer(
             @RequestParam UUID customerProfileId,
-            @RequestParam String month) {
-        boolean started = reportDeliveryService.startSendAsync(customerProfileId, month);
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false) String week) {
+        String period = ReportPeriod.fromRequest(month, week).key();
+        boolean started = reportDeliveryService.startSendAsync(customerProfileId, period);
         String message = started
-                ? "Send started for " + customerName(customerProfileId) + " (" + month
+                ? "Send started for " + customerName(customerProfileId) + " (" + period
                         + ") — the result will appear in the history below."
                 : "A delivery is already in progress — try again when it finishes.";
         return ApiResponse.success(message, reportDeliveryService.status());
@@ -81,8 +86,10 @@ public class ReportDeliveryController {
 
     /** Delivery history for a month, newest first. */
     @GetMapping("/history")
-    public ApiResponse<List<ReportSendResponse>> history(@RequestParam String month) {
-        List<ReportSend> sends = reportDeliveryService.historyForMonth(month);
+    public ApiResponse<List<ReportSendResponse>> history(
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false) String week) {
+        List<ReportSend> sends = reportDeliveryService.historyForMonth(ReportPeriod.fromRequest(month, week).key());
         Map<UUID, String> names = new HashMap<>();
         List<ReportSendResponse> rows = sends.stream()
                 .map(s -> ReportSendResponse.of(s,
