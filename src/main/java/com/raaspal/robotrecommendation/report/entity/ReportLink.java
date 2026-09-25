@@ -9,8 +9,12 @@ import java.util.UUID;
 
 /**
  * A shareable, public report link: an unguessable {@code token} that maps to one
- * robot ({@code serialNumber}) and {@code reportMonth}. The public report page
- * and the customer's monthly email both use {@code /report/{token}}.
+ * robot ({@code serialNumber}) and one report period. The public report page and
+ * the customer's report email both use {@code /report/{token}}.
+ *
+ * <p>{@code reportMonth} keeps its name, but since V59 it holds a <em>period key</em>:
+ * a month ("2026-08") or an ISO week ("2026-W38"). The key's shape says which;
+ * {@link com.raaspal.robotrecommendation.report.service.ReportPeriod#parse} reads it.
  */
 @Entity
 @Table(name = "report_links")
@@ -31,7 +35,7 @@ public class ReportLink {
     @Column(name = "serial_number", nullable = false, length = 100)
     private String serialNumber;
 
-    @Column(name = "report_month", nullable = false, length = 7)
+    @Column(name = "report_month", nullable = false, length = 8)
     private String reportMonth;
 
     @CreationTimestamp

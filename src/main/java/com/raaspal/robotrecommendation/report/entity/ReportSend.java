@@ -43,7 +43,7 @@ public class ReportSend {
     @Column(name = "customer_profile_id", nullable = false)
     private UUID customerProfileId;
 
-    @Column(name = "report_month", nullable = false, length = 7)
+    @Column(name = "report_month", nullable = false, length = 8)
     private String reportMonth;
 
     @Enumerated(EnumType.STRING)
