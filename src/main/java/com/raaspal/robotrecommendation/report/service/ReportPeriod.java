@@ -101,6 +101,33 @@ public record ReportPeriod(Type type, String key, LocalDate startDate, LocalDate
         return new ReportPeriod(Type.WEEK, week, monday, sunday, weekLabel(monday, sunday));
     }
 
+    /**
+     * Reads a period key back into a period: "YYYY-Www" is a week, anything else is
+     * a month. This is how a stored key — a report link's, the report cache's — is
+     * turned back into the window it stands for.
+     *
+     * <p>The two branches keep their own strictness: a malformed week is a 400, a
+     * malformed month still falls through to {@link #ofMonth}'s tolerant path, so
+     * every caller that only ever passed months behaves exactly as before.
+     */
+    public static ReportPeriod parse(String key) {
+        return key != null && key.contains("-W") ? ofWeek(key) : ofMonth(key);
+    }
+
+    /**
+     * The period an endpoint was asked for, from its {@code month} and {@code week}
+     * request parameters. Exactly one is required: both together is a 400 rather
+     * than a silent winner, so a caller never gets a period it did not ask for.
+     */
+    public static ReportPeriod fromRequest(String month, String week) {
+        boolean hasMonth = month != null && !month.isBlank();
+        boolean hasWeek = week != null && !week.isBlank();
+        if (hasMonth == hasWeek) {
+            throw new BadRequestException("Provide exactly one of 'month' (YYYY-MM) or 'week' (YYYY-Www)");
+        }
+        return hasWeek ? ofWeek(week.trim()) : ofMonth(month.trim());
+    }
+
     /** First instant covered, in the business timezone. */
     public Instant startInstant(ZoneId zone) {
         return startDate.atStartOfDay(zone).toInstant();

@@ -210,19 +210,22 @@ public class ReportDeliveryService {
      * attempted and leaves no row — there was no send to record. Unlike the bundle
      * path this rethrows: the person pressing Send is waiting for the answer.
      */
-    public ReportEmailService.SentEmail sendRobotReport(String serialNumber, String month) {
+    public ReportEmailService.SentEmail sendRobotReport(String serialNumber, ReportPeriod period) {
         RobotUnitResponse robot = robotUnitService.getBySerialNumber(serialNumber);
         if (robot.deployment() == null) {
             throw new BadRequestException("Robot " + serialNumber + " is not deployed to a customer.");
         }
         UUID customerId = robot.deployment().customerProfileId();
+        // Recorded under the period's own key — "2026-W38" for a week — so a weekly send
+        // can never be mistaken for the month's deliverable.
+        String key = period.key();
         try {
-            ReportEmailService.SentEmail sent = reportEmailService.send(serialNumber, month);
-            record(customerId, month, ReportSend.Kind.ROBOT_REPORT, serialNumber, ReportSend.Status.SENT, sent.recipient(), null);
+            ReportEmailService.SentEmail sent = reportEmailService.send(serialNumber, period);
+            record(customerId, key, ReportSend.Kind.ROBOT_REPORT, serialNumber, ReportSend.Status.SENT, sent.recipient(), null);
             return sent;
         } catch (RuntimeException e) {
-            log.error("Robot report email failed for {} ({}): {}", serialNumber, month, e.getMessage(), e);
-            record(customerId, month, ReportSend.Kind.ROBOT_REPORT, serialNumber, ReportSend.Status.FAILED, null, e.getMessage());
+            log.error("Robot report email failed for {} ({}): {}", serialNumber, key, e.getMessage(), e);
+            record(customerId, key, ReportSend.Kind.ROBOT_REPORT, serialNumber, ReportSend.Status.FAILED, null, e.getMessage());
             throw e;
         }
     }

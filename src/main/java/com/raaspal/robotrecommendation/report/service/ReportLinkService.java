@@ -12,8 +12,8 @@ import java.security.SecureRandom;
 import java.util.Base64;
 
 /**
- * Mints and resolves public report links. One stable token per robot+month, so
- * re-sharing the same month returns the same URL (the monthly email reuses it).
+ * Mints and resolves public report links. One stable token per robot+period, so
+ * re-sharing the same month or week returns the same URL (the report email reuses it).
  */
 @Service
 @RequiredArgsConstructor
@@ -24,15 +24,21 @@ public class ReportLinkService {
     private final ReportLinkRepository reportLinkRepository;
     private final ReportCacheService reportCacheService;
 
-    /** Returns the shareable token for a robot+month, creating it on first use. */
+    /**
+     * Returns the shareable token for a robot and period (a month or an ISO week),
+     * creating it on first use. Taking a {@link ReportPeriod} rather than a raw string
+     * means the key has already been validated — a malformed week never becomes a
+     * stored link that resolves to nothing.
+     */
     @Transactional
-    public String createOrGetToken(String serialNumber, String month) {
-        return reportLinkRepository.findBySerialNumberAndReportMonth(serialNumber, month)
+    public String createOrGetToken(String serialNumber, ReportPeriod period) {
+        String key = period.key();
+        return reportLinkRepository.findBySerialNumberAndReportMonth(serialNumber, key)
                 .map(ReportLink::getToken)
                 .orElseGet(() -> reportLinkRepository.save(ReportLink.builder()
                         .token(generateToken())
                         .serialNumber(serialNumber)
-                        .reportMonth(month)
+                        .reportMonth(key)
                         .build()).getToken());
     }
 

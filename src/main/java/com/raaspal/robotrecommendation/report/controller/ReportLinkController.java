@@ -3,6 +3,7 @@ package com.raaspal.robotrecommendation.report.controller;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse;
 import com.raaspal.robotrecommendation.report.service.ReportLinkService;
+import com.raaspal.robotrecommendation.report.service.ReportPeriod;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  * Shareable report links. {@code POST /links} (authenticated) mints the token a
  * staff member shares; {@code GET /public/{token}} is whitelisted in
  * SecurityConfig so the customer can open it without an account — the same URL
- * the monthly email links to.
+ * the report email links to.
  */
 @RestController
 @RequestMapping("/api/v1/reports")
@@ -28,11 +29,14 @@ public class ReportLinkController {
     public record TokenResponse(String token) {
     }
 
+    /** Mints (or reuses) the link for a robot and one of {@code month} or {@code week}. */
     @PostMapping("/links")
     public ApiResponse<TokenResponse> createLink(
             @RequestParam String serialNumber,
-            @RequestParam String month) {
-        return ApiResponse.success(new TokenResponse(reportLinkService.createOrGetToken(serialNumber, month)));
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false) String week) {
+        ReportPeriod period = ReportPeriod.fromRequest(month, week);
+        return ApiResponse.success(new TokenResponse(reportLinkService.createOrGetToken(serialNumber, period)));
     }
 
     @GetMapping("/public/{token}")

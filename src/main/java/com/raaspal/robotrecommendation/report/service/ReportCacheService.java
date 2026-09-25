@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
  *       always reflects a fresh sync.</li>
  * </ul>
  *
- * The cache key is {@code serialNumber|month}, so each robot+month is computed
+ * The cache key is {@code serialNumber|periodKey}, so each robot+period is computed
  * once and reused until it expires (TTL) or is evicted (on telemetry sync).
  */
 @Service
@@ -32,10 +32,14 @@ public class ReportCacheService {
 
     private final ReportPreviewService reportPreviewService;
 
-    /** Returns the (cached) computed report for one robot and month. */
-    @Cacheable(cacheNames = CacheConfig.ROBOT_MONTHLY_REPORTS, key = "#serialNumber + '|' + #month")
-    public ReportPreviewResponse getRobotReport(String serialNumber, String month) {
-        return reportPreviewService.build(serialNumber, month);
+    /**
+     * Returns the (cached) computed report for one robot and period. The key is a
+     * month ("2026-08") or an ISO week ("2026-W38"); the two never collide, so they
+     * share one cache.
+     */
+    @Cacheable(cacheNames = CacheConfig.ROBOT_MONTHLY_REPORTS, key = "#serialNumber + '|' + #periodKey")
+    public ReportPreviewResponse getRobotReport(String serialNumber, String periodKey) {
+        return reportPreviewService.build(serialNumber, ReportPeriod.parse(periodKey));
     }
 
     /**

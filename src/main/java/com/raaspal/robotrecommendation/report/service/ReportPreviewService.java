@@ -72,7 +72,13 @@ public class ReportPreviewService {
         return build(serialNumber, ReportPeriod.ofWeek(week));
     }
 
-    private ReportPreviewResponse build(String serialNumber, ReportPeriod period) {
+    /**
+     * Builds the report for a robot and any {@link ReportPeriod} — the entry point for
+     * callers holding a stored period key (report links, the report cache), which may
+     * be either a month or a week.
+     */
+    @Transactional(readOnly = true)
+    public ReportPreviewResponse build(String serialNumber, ReportPeriod period) {
         RobotUnitResponse robot = robotUnitService.getBySerialNumber(serialNumber);
         List<RobotTaskReport> reports = load(robot, period);
         reports = clipToContract(reports, robot, period);

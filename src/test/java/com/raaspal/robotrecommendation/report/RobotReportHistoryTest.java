@@ -8,6 +8,7 @@ import com.raaspal.robotrecommendation.report.repository.ReportSendRepository;
 import com.raaspal.robotrecommendation.report.service.ReportDeliveryService;
 import com.raaspal.robotrecommendation.report.service.ReportEmailService;
 import com.raaspal.robotrecommendation.report.service.ReportEmailService.SentEmail;
+import com.raaspal.robotrecommendation.report.service.ReportPeriod;
 import com.raaspal.robotrecommendation.robotunit.entity.Deployment;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnit;
 import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
@@ -67,7 +68,7 @@ class RobotReportHistoryTest {
                 .robotUnit(unit).customerProfile(customer).site("Site A")
                 .isActive(true).deployedAt(LocalDateTime.now()).build());
 
-        when(emailService.send(anyString(), anyString()))
+        when(emailService.send(anyString(), any(ReportPeriod.class)))
                 .thenReturn(new SentEmail("ops@history.test", "History Test Co", "https://x/report/t"));
         when(emailService.sendBundle(any(), anyString()))
                 .thenReturn(new SentEmail("ops@history.test", "History Test Co", "https://x/report/customer/t"));
@@ -79,7 +80,7 @@ class RobotReportHistoryTest {
 
     @Test
     void aPreviewSendIsRecordedAsARobotReportWithItsSerial() {
-        deliveryService.sendRobotReport(SERIAL, MONTH);
+        deliveryService.sendRobotReport(SERIAL, ReportPeriod.ofMonth(MONTH));
 
         List<ReportSend> rows = rowsFor(customer.getId());
         assertThat(rows).hasSize(1);
@@ -94,7 +95,7 @@ class RobotReportHistoryTest {
     /** The whole point: a robot report by hand must not make the run skip the bundle. */
     @Test
     void aRobotReportDoesNotCountAsTheMonthsBundle() {
-        deliveryService.sendRobotReport(SERIAL, MONTH);
+        deliveryService.sendRobotReport(SERIAL, ReportPeriod.ofMonth(MONTH));
 
         ReportDeliveryService.RunSummary run = deliveryService.deliverForMonth(MONTH);
 
@@ -119,9 +120,9 @@ class RobotReportHistoryTest {
 
     @Test
     void aFailedPreviewSendIsRecordedAndStillReportedToTheCaller() {
-        when(emailService.send(anyString(), anyString())).thenThrow(new IllegalStateException("SMTP down"));
+        when(emailService.send(anyString(), any(ReportPeriod.class))).thenThrow(new IllegalStateException("SMTP down"));
 
-        assertThatThrownBy(() -> deliveryService.sendRobotReport(SERIAL, MONTH))
+        assertThatThrownBy(() -> deliveryService.sendRobotReport(SERIAL, ReportPeriod.ofMonth(MONTH)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("SMTP down");
 
@@ -138,10 +139,10 @@ class RobotReportHistoryTest {
         robotUnits.save(RobotUnit.builder()
                 .serialNumber("GS-HIST-LOOSE").brand("Gausium").model("M50").name("loose").build());
 
-        assertThatThrownBy(() -> deliveryService.sendRobotReport("GS-HIST-LOOSE", MONTH))
+        assertThatThrownBy(() -> deliveryService.sendRobotReport("GS-HIST-LOOSE", ReportPeriod.ofMonth(MONTH)))
                 .isInstanceOf(BadRequestException.class);
 
-        verify(emailService, never()).send(anyString(), anyString());
+        verify(emailService, never()).send(anyString(), any(ReportPeriod.class));
         assertThat(reportSends.findByReportMonthOrderBySentAtDesc(MONTH)).isEmpty();
     }
 

@@ -24,7 +24,7 @@ import java.util.Locale;
 import java.util.UUID;
 
 /**
- * Emails a customer a link to their monthly report (the public token page). The
+ * Emails a customer a link to their monthly or weekly report (the public token page). The
  * report itself is the web page — the email just carries the link, so there is
  * no attachment. Sending fails clearly (BadRequestException) until SMTP
  * credentials are configured or when the customer has no contact email.
@@ -33,6 +33,13 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ReportEmailService {
+
+    /** "Robot performance summary report" — every report email's subject starts with it. */
+    private static final String SUBJECT_PREFIX = "รายงานสรุปผลการใช้งานหุ่นยนต์ ";
+    /** "For the month of" — followed by e.g. "August 2026". */
+    private static final String MONTH_WORD = "ประจำเดือน ";
+    /** "For the week of" — followed by e.g. "14 – 20 September 2026". */
+    private static final String WEEK_WORD = "ประจำสัปดาห์ ";
 
     private final RobotUnitService robotUnitService;
     private final CustomerProfileRepository customerProfileRepository;
@@ -64,8 +71,12 @@ public class ReportEmailService {
     public record SentEmail(String recipient, String customerName, String url) {
     }
 
-    /** Builds the report link for a robot+month and emails it to its customer. */
-    public SentEmail send(String serialNumber, String month) {
+    /**
+     * Builds the report link for a robot and period — a month or an ISO week — and
+     * emails it to its customer. The subject and body name the period the way the
+     * report does: "ประจำเดือน August 2026" or "ประจำสัปดาห์ 14 – 20 September 2026".
+     */
+    public SentEmail send(String serialNumber, ReportPeriod period) {
         RobotUnitResponse robot = robotUnitService.getBySerialNumber(serialNumber);
         if (robot.deployment() == null) {
             throw new BadRequestException("Robot " + serialNumber + " is not deployed to a customer.");
@@ -74,11 +85,11 @@ public class ReportEmailService {
                 .orElseThrow(() -> new ResourceNotFoundException("CustomerProfile", "id", robot.deployment().customerProfileId()));
 
         List<String> recipients = recipientsOf(customer);
-        String token = reportLinkService.createOrGetToken(serialNumber, month);
+        String token = reportLinkService.createOrGetToken(serialNumber, period);
         String url = baseUrl.replaceAll("/+$", "") + "/" + reportLocale + "/report/" + token;
-        String periodLabel = periodLabel(month);
-        String subject = "รายงานสรุปผลการใช้งานหุ่นยนต์ ประจำเดือน " + periodLabel;
-        String html = buildHtml(periodLabel, url);
+        String periodPhrase = periodPhrase(period);
+        String subject = SUBJECT_PREFIX + periodPhrase;
+        String html = buildHtml(periodPhrase, url);
 
         sendToAll(recipients, subject, html, "report for " + serialNumber);
 
@@ -97,9 +108,9 @@ public class ReportEmailService {
         List<String> recipients = recipientsOf(customer);
         String token = customerReportLinkService.createOrGetToken(customerProfileId, month);
         String url = baseUrl.replaceAll("/+$", "") + "/" + reportLocale + "/report/customer/" + token;
-        String periodLabel = periodLabel(month);
-        String subject = "รายงานสรุปผลการใช้งานหุ่นยนต์ ประจำเดือน " + periodLabel;
-        String html = buildHtml(periodLabel, url);
+        String periodPhrase = MONTH_WORD + periodLabel(month);
+        String subject = SUBJECT_PREFIX + periodPhrase;
+        String html = buildHtml(periodPhrase, url);
 
         sendToAll(recipients, subject, html, "bundle for customer " + customerProfileId);
 
@@ -202,14 +213,22 @@ public class ReportEmailService {
         return recipients;
     }
 
-    private String buildHtml(String periodLabel, String url) {
+    /**
+     * "ประจำเดือน August 2026" or "ประจำสัปดาห์ 14 – 20 September 2026" — the Thai
+     * "for the month of" / "for the week of" plus the same label the report page shows.
+     */
+    private static String periodPhrase(ReportPeriod period) {
+        return (period.type() == ReportPeriod.Type.WEEK ? WEEK_WORD : MONTH_WORD) + period.label();
+    }
+
+    private String buildHtml(String periodPhrase, String url) {
         return """
                 <div style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; color:#16243a; max-width:560px; line-height:1.7;">
                   <p style="color:#1d4ed8; font-weight:bold; font-size:18px; margin:0 0 16px;">RAAS PAL</p>
                   <p style="margin:0 0 14px;">เรียน&nbsp;&nbsp;&nbsp;ผู้บริหารโครงการและผู้ที่เกี่ยวข้อง</p>
                   <p style="margin:0 0 14px;">เพื่อให้ท่านสามารถติดตามประสิทธิภาพการทำงานของหุ่นยนต์ได้อย่างต่อเนื่อง
                      RAASPAL ขอส่ง <strong>รายงานสรุปผลการใช้งานหุ่นยนต์ (Executive Robot Performance Report)
-                     ประจำเดือน %s</strong> มาเพื่อประกอบการพิจารณา</p>
+                     %s</strong> มาเพื่อประกอบการพิจารณา</p>
                   <p style="margin:0 0 6px;">รายงานฉบับนี้สรุปข้อมูลสำคัญ ได้แก่</p>
                   <ul style="margin:0 0 16px; padding-left:22px;">
                     <li>ภาพรวมผลการปฏิบัติงานของหุ่นยนต์</li>
@@ -233,7 +252,7 @@ public class ReportEmailService {
                   <img src="cid:%s" alt="RAAS PAL — Leader in Service Robot Design Solutions"
                        width="560" style="display:block; width:100%%; max-width:560px; height:auto; border:0;">
                 </div>
-                """.formatted(escape(periodLabel), url, url, url, FOOTER_IMAGE_CID);
+                """.formatted(escape(periodPhrase), url, url, url, FOOTER_IMAGE_CID);
     }
 
     /** "2026-06" → "June 2026". */

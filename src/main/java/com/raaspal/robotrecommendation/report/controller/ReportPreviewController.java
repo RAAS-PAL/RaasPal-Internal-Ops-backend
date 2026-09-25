@@ -1,8 +1,8 @@
 package com.raaspal.robotrecommendation.report.controller;
 
-import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.report.dto.ReportPreviewResponse;
+import com.raaspal.robotrecommendation.report.service.ReportPeriod;
 import com.raaspal.robotrecommendation.report.service.ReportPreviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,14 +33,7 @@ public class ReportPreviewController {
             @RequestParam(required = false) String month,
             @RequestParam(required = false) String week) {
 
-        boolean hasMonth = month != null && !month.isBlank();
-        boolean hasWeek = week != null && !week.isBlank();
-        if (hasMonth == hasWeek) {
-            throw new BadRequestException("Provide exactly one of 'month' (YYYY-MM) or 'week' (YYYY-Www)");
-        }
-
-        return ApiResponse.success(hasWeek
-                ? reportPreviewService.buildForWeek(serialNumber, week)
-                : reportPreviewService.build(serialNumber, month));
+        return ApiResponse.success(
+                reportPreviewService.build(serialNumber, ReportPeriod.fromRequest(month, week)));
     }
 }
