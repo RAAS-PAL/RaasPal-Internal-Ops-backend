@@ -1,0 +1,13 @@
+-- The automated weekly delivery sends each WEEKLY-cadence customer one email
+-- linking to a bundle of their weekly robots, so a customer's bundle link must
+-- hold an ISO week key ("2026-W38", 8 chars) as well as a month ("2026-08").
+--
+-- Same shape as V59, which did this for per-robot links and send history: the
+-- column keeps its name and now holds a period key whose own shape says which
+-- kind it is. Widening only rewrites the column definition in Postgres, and the
+-- deployed code keeps working against it.
+--
+-- customer_report_exclusions stays VARCHAR(7): holding a robot back is a
+-- monthly review step with no weekly equivalent, and a weekly lookup against it
+-- simply finds nothing.
+ALTER TABLE customer_report_links ALTER COLUMN report_month TYPE VARCHAR(8);
