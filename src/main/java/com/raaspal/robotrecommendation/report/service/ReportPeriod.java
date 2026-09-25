@@ -128,6 +128,15 @@ public record ReportPeriod(Type type, String key, LocalDate startDate, LocalDate
         return hasWeek ? ofWeek(week.trim()) : ofMonth(month.trim());
     }
 
+    /**
+     * The ISO week containing {@code date} — how the weekly scheduler names "the
+     * week that just ended". Formatted with the same week-based-year fields it is
+     * parsed with, so 1 January 2027 is "2026-W53", not a week that does not exist.
+     */
+    public static ReportPeriod weekContaining(LocalDate date) {
+        return ofWeek(ISO_WEEK.format(date));
+    }
+
     /** First instant covered, in the business timezone. */
     public Instant startInstant(ZoneId zone) {
         return startDate.atStartOfDay(zone).toInstant();

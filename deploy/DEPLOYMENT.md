@@ -40,6 +40,7 @@ Five values differ from Render and are easy to miss:
 | `TELEMETRY_SYNC_ENABLED` | `false` until Render is off, then `true` |
 | `CASE_REPORT_SYNC_ENABLED` | `false` until Render is off, then `true` |
 | `REPORT_EMAIL_SCHEDULER_ENABLED` | `false` — permanently, see below |
+| `REPORT_WEEKLY_SCHEDULER_ENABLED` | `true` — the weekly send is automatic by decision, see below |
 | `AI_PROVIDER` | `claude` — it defaults to `mock`, which fabricates proposals |
 
 Telemetry sync is the one with effects outside the company during the overlap: two
@@ -48,6 +49,13 @@ live deployments would pull the same robots twice.
 **The report email scheduler stays off for good.** Monthly reports are reviewed and
 sent by hand, one customer at a time. Enabling the cron would mail unreviewed
 reports to customers, which is worse than sending none.
+
+**The weekly scheduler is the deliberate exception** (decided 2026-09-25). Every
+Monday 08:00 Bangkok it emails the week that just ended to each customer with a robot
+set to *Weekly* in Tools → Robots — Pandora first. Nobody reviews a weekly report
+before it goes: that was the point of asking for it. It has its own switch, so turning
+it on leaves the monthly rule above untouched; and the robot's setting is the brake —
+set a robot back to *Monthly* or *Off* and it drops out of the next Monday's run.
 
 `AI_PROVIDER` is the quiet one. Omit it and the app starts happily on
 [[MockAiService]], producing proposals that look real and are invented — the
@@ -115,7 +123,7 @@ URL. No DNS change, no wait — the frontends address the backend directly.
 
 ```bash
 nano deploy/api.env     # TELEMETRY_SYNC_ENABLED=true, CASE_REPORT_SYNC_ENABLED=true, DB_POOL_MAX=10
-                        # REPORT_EMAIL_SCHEDULER_ENABLED stays false
+                        # REPORT_EMAIL_SCHEDULER_ENABLED stays false; REPORT_WEEKLY_SCHEDULER_ENABLED=true
 bash deploy/deploy.sh
 ```
 
