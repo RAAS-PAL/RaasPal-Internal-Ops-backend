@@ -97,6 +97,14 @@ public record CaseReportRow(
         String board,
 
         /**
+         * Not printed. Whose hold a held case is — {@link #HELD_BY_CUSTOMER} when the
+         * board's Status says On Hold, {@link #HELD_BY_RAASPAL} when only Sup Status does
+         * (see {@code SlaCalculator.heldBy}). Drives the summary's two on-hold counts. Null
+         * when the case is not held, and on rows frozen before the field existed.
+         */
+        String heldBy,
+
+        /**
          * Not printed. Links a row back to the ticket a correction belongs on. A row a
          * person added by hand has no ticket and carries a {@link #MANUAL_PREFIX} id
          * instead, which is how it is told apart from a board row.
@@ -126,6 +134,10 @@ public record CaseReportRow(
     public static final String BOARD_CLEANING = "CLEANING";
     public static final String BOARD_DELIVERY = "DELIVERY";
 
+    /** {@link #heldBy} values, strings for the same reason as {@link #board}. */
+    public static final String HELD_BY_CUSTOMER = "CUSTOMER";
+    public static final String HELD_BY_RAASPAL = "RAASPAL";
+
     /**
      * True for a row a person added, which no board read can produce or remove.
      *
@@ -154,7 +166,7 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, branch, robot, serialNumber, problem, solution,
                 openDate, reOnSite, days, sla, sla == null ? "" : sla.label(),
                 null, null, null, null, null,
-                province, null, sourceItemId, false, false);
+                province, null, null, sourceItemId, false, false);
     }
 
     /**
@@ -178,7 +190,7 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, null, robot, serialNumber, problem, null,
                 openDate, null, days, sla, sla == null ? "" : sla.label(),
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                null, null, sourceItemId, false, false);
+                null, null, null, sourceItemId, false, false);
     }
 
     /** The same row under a different number, for renumbering after rows come and go. */
@@ -186,7 +198,7 @@ public record CaseReportRow(
         return new CaseReportRow(newNo, project, branch, robot, serialNumber, problem,
                 solution, openDate, reOnSite, days, sla, slaLabel,
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                province, board, sourceItemId, edited, removed);
+                province, board, heldBy, sourceItemId, edited, removed);
     }
 
     /** The same row stamped with the board it came from, for the On Hold sheet. */
@@ -194,7 +206,15 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, branch, robot, serialNumber, problem,
                 solution, openDate, reOnSite, days, sla, slaLabel,
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                province, newBoard, sourceItemId, edited, removed);
+                province, newBoard, heldBy, sourceItemId, edited, removed);
+    }
+
+    /** The same row marked with whose hold it is, from the board's two status columns. */
+    public CaseReportRow withHeldBy(String newHeldBy) {
+        return new CaseReportRow(no, project, branch, robot, serialNumber, problem,
+                solution, openDate, reOnSite, days, sla, slaLabel,
+                requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
+                province, board, newHeldBy, sourceItemId, edited, removed);
     }
 
     /** The same row, taken off the sheet or put back on it. */
@@ -202,6 +222,6 @@ public record CaseReportRow(
         return new CaseReportRow(no, project, branch, robot, serialNumber, problem,
                 solution, openDate, reOnSite, days, sla, slaLabel,
                 requiredPart, waiting, waitingFrom, partReceived, agingAfterReceived,
-                province, board, sourceItemId, edited, nowRemoved);
+                province, board, heldBy, sourceItemId, edited, nowRemoved);
     }
 }

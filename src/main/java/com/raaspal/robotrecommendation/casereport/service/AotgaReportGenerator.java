@@ -150,7 +150,9 @@ public class AotgaReportGenerator {
                     partReceived == null || partReceived.isAfter(asOf)
                             ? null
                             : SlaCalculator.daysOpen(partReceived, asOf),
-                    item.id()));
+                    item.id())
+                    .withHeldBy(SlaCalculator.heldBy(
+                            item.columnText(C_STATUS), item.columnText(C_SUP_STATUS))));
         }
 
         unordered.sort(Comparator.comparing(CaseReportRow::openDate,

@@ -188,7 +188,9 @@ public class MkPendingReportGenerator {
                     openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf),
                     sla,
                     province,
-                    item.id()));
+                    item.id())
+                    .withHeldBy(SlaCalculator.heldBy(
+                            item.columnText(C_STATUS), item.columnText(C_SUP_STATUS))));
         }
 
         List<CaseReportRow> unordered = new ArrayList<>(solutions.buildAll(pending));

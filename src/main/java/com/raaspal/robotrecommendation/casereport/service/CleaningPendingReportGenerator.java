@@ -166,7 +166,9 @@ public class CleaningPendingReportGenerator {
                     openDate == null ? null : SlaCalculator.daysOpen(openDate, asOf),
                     sla,
                     null,
-                    item.id()));
+                    item.id())
+                    .withHeldBy(SlaCalculator.heldBy(
+                            item.columnText(C_STATUS), item.columnText(C_SUP_STATUS))));
         }
 
         List<CaseReportRow> unordered = new ArrayList<>(solutions.buildAll(pending));

@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.casereport.service;
 
+import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -164,6 +165,22 @@ public class SlaCalculator {
         // a near-miss like "Bangkokk" would fall through to the upcountry threshold and
         // read as on time for two extra days.
         return slaDaysUpcountry;
+    }
+
+    /**
+     * Whose hold a held case is, for the summary's two on-hold counts; null when the case
+     * is not held.
+     *
+     * <p>The board has no "whose" label, only "On Hold" in two places, and the team reads
+     * them as two owners: Status is the customer's hold, Sup Status is RAASPAL's own. A
+     * case held in both counts as the customer's, because Status is the column the customer
+     * conversation is recorded in and Sup Status is the internal follow-up beneath it.
+     */
+    public static String heldBy(String status, String supStatus) {
+        if (isOnHold(status)) {
+            return CaseReportRow.HELD_BY_CUSTOMER;
+        }
+        return isOnHold(supStatus) ? CaseReportRow.HELD_BY_RAASPAL : null;
     }
 
     private static boolean isOnHold(String value) {

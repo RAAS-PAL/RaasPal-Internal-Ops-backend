@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.casereport;
 
+import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
 import com.raaspal.robotrecommendation.casereport.service.SlaCalculator;
 import com.raaspal.robotrecommendation.casereport.service.SlaStatus;
 import org.junit.jupiter.api.Test;
@@ -179,6 +180,19 @@ class SlaCalculatorTest {
     void onHoldIsDecidedBeforeTheProvinceIsNeeded() {
         assertThat(calculator.evaluate("On Hold", null, null, openedFor(9), AS_OF, 3, 5))
                 .isEqualTo(SlaStatus.ON_HOLD);
+    }
+
+    /**
+     * The summary counts the customer's holds apart from RAASPAL's: Status is the
+     * customer's, Sup Status is ours, and a case held in both is the customer's.
+     */
+    @Test
+    void statusIsTheCustomersHoldAndSupStatusIsOurs() {
+        assertThat(SlaCalculator.heldBy("On Hold", null)).isEqualTo(CaseReportRow.HELD_BY_CUSTOMER);
+        assertThat(SlaCalculator.heldBy("Pending", "On Hold")).isEqualTo(CaseReportRow.HELD_BY_RAASPAL);
+        assertThat(SlaCalculator.heldBy("On Hold", "On Hold")).isEqualTo(CaseReportRow.HELD_BY_CUSTOMER);
+        assertThat(SlaCalculator.heldBy("Pending", "รออะไหล่")).isNull();
+        assertThat(SlaCalculator.heldBy(null, null)).isNull();
     }
 
     /** No open date, no day count, no verdict. */

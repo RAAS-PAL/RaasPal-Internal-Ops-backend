@@ -89,6 +89,25 @@ class MkPendingReportGeneratorTest {
                 .extracting(CaseReportRow::sourceItemId).containsExactly("2", "4");
     }
 
+    /** Each held row says whose hold it is, read from the column that says On Hold. */
+    @Test
+    void aHeldRowSaysWhoseHoldItIs() {
+        MondayBoardReader boardReader = mock(MondayBoardReader.class);
+        CaseSolutionAiService solutionAi = mock(CaseSolutionAiService.class);
+        when(solutionAi.summariseProgress(any())).thenReturn("");
+        when(boardReader.readGroupItems(any(), any(), any())).thenReturn(List.of(
+                ticket("1", "#MK", "On Hold", null),
+                ticket("2", "#MK", "Pending", "On Hold"),
+                ticket("3", "#MK", "Pending", null)));
+
+        List<CaseReportRow> rows = new MkPendingReportGenerator(
+                boardReader, new SlaCalculator(List.of("Bangkok")), new SolutionLineWriter(solutionAi))
+                .generate(MkPendingReportGenerator.Scope.MK, LocalDate.of(2026, 9, 16));
+
+        assertThat(rows).extracting(CaseReportRow::heldBy)
+                .containsExactly(CaseReportRow.HELD_BY_CUSTOMER, CaseReportRow.HELD_BY_RAASPAL, null);
+    }
+
     /** A ticket nobody has commented on gets the RE team's opener, dated the day it opened. */
     @Test
     void aSilentTicketGetsTheOpenerDatedTheOpenDate() {
@@ -106,12 +125,17 @@ class MkPendingReportGeneratorTest {
     }
 
     private static MondayItem ticket(String id, String project, String status) {
+        return ticket(id, project, status, null);
+    }
+
+    private static MondayItem ticket(String id, String project, String status, String supStatus) {
         return new MondayItem(id, "ticket " + id, null, null,
                 // Five components since this branch: main's fourth is the raw
                 // value, and the column ref it carries is the fifth.
                 List.of(new MondayColumnValue("asset_owner", "status", project, null, null),
                         new MondayColumnValue("date5", "date", "2026-09-10", null, null),
-                        new MondayColumnValue("status", "status", status, null, null)),
+                        new MondayColumnValue("status", "status", status, null, null),
+                        new MondayColumnValue("status_1", "status", supStatus, null, null)),
                 List.of(), null);
     }
 }

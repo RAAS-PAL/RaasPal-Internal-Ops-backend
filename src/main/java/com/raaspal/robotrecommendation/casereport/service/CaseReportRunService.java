@@ -395,6 +395,9 @@ public class CaseReportRunService {
                 // Carried like the part fields: the form has no Board control, and an
                 // edited On Hold row must not drop out of the reviewer's filter.
                 previous == null ? null : previous.board(),
+                // Whose hold it is comes from the board, which the form cannot see: kept
+                // while the row stays held, dropped once the editor takes it off hold.
+                sla == SlaStatus.ON_HOLD && previous != null ? previous.heldBy() : null,
                 sourceItemId,
                 true,
                 previous != null && previous.removed());
