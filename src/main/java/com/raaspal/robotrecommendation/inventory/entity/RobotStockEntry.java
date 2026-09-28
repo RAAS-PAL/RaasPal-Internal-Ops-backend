@@ -133,6 +133,11 @@ public class RobotStockEntry {
      * naming their linked robots too; two assemblies would eventually differ.
      */
     public String displayName() {
+        return displayName(brand, model, version);
+    }
+
+    /** The same, for a query that selected the three columns without loading the row. */
+    public static String displayName(String brand, String model, String version) {
         return (brand + " " + model
                 + (version == null || version.isBlank() ? "" : " " + version)).trim();
     }

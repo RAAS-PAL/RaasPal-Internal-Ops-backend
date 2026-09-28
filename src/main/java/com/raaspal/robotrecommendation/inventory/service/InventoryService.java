@@ -306,7 +306,8 @@ public class InventoryService {
                 .toList();
         if (ids.isEmpty()) return Map.of();
         Map<UUID, String> out = new HashMap<>();
-        robotStockRepository.findAllById(ids).forEach(r -> out.put(r.getId(), r.displayName()));
+        // Rows without the photo column: only the name is needed here.
+        robotStockRepository.findRowsByIdIn(ids).forEach(r -> out.put(r.id(), r.displayName()));
         return out;
     }
 
@@ -331,9 +332,7 @@ public class InventoryService {
     private Set<UUID> validatedRobotStockIds(List<UUID> requested) {
         if (requested == null || requested.isEmpty()) return new HashSet<>();
         Set<UUID> unique = new HashSet<>(requested);
-        Set<UUID> known = robotStockRepository.findAllById(unique).stream()
-                .map(com.raaspal.robotrecommendation.inventory.entity.RobotStockEntry::getId)
-                .collect(Collectors.toSet());
+        Set<UUID> known = new HashSet<>(robotStockRepository.findExistingIds(unique));
         for (UUID id : unique) {
             if (!known.contains(id)) {
                 throw new BadRequestException("Unknown robot: " + id);

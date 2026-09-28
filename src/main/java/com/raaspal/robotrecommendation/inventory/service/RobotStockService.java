@@ -40,11 +40,9 @@ public class RobotStockService {
         String term = blankToNull(keyword);
         String pattern = term == null ? "%%" : "%" + term.toLowerCase() + "%";
 
-        List<RobotStockEntry> found = status == null
+        return status == null
                 ? repository.search(pattern)
                 : repository.searchByStatus(pattern, status);
-
-        return found.stream().map(RobotStockEntryResponse::from).toList();
     }
 
     @Transactional(readOnly = true)
