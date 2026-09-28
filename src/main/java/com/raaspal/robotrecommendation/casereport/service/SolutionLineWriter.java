@@ -1,5 +1,7 @@
 package com.raaspal.robotrecommendation.casereport.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.raaspal.robotrecommendation.ai.service.CaseSolutionAiService;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayUpdate;
@@ -8,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -50,6 +53,23 @@ public class SolutionLineWriter {
     private static final DateTimeFormatter ENTRY_DATE = DateTimeFormatter.ofPattern("dd-MMM", Locale.ENGLISH);
 
     private final CaseSolutionAiService solutionAi;
+
+    /**
+     * The model's answers, by the exact thread and context it was given.
+     *
+     * <p>The sheets regenerate every few minutes through the day, and between two runs
+     * almost no ticket gets a new comment. {@link CaseProgressRequest} is a record of
+     * records, so it is equal exactly when the thread, the statuses, the site and the
+     * report date are — a new comment or a status change is a new key and is asked
+     * again; an unchanged ticket costs nothing. The report date is part of the key, so
+     * every ticket is summarised afresh once each morning. Bounded and expiring, so a
+     * long-running server does not accumulate old threads. In memory: a restart simply
+     * re-asks once. A blank or failed answer is never kept.
+     */
+    private final Cache<CaseProgressRequest, String> summaries = Caffeine.newBuilder()
+            .maximumSize(5_000)
+            .expireAfterWrite(Duration.ofHours(36))
+            .build();
 
     /**
      * Where the model calls run. One call per ticket, and a sheet has dozens of tickets:
@@ -126,7 +146,7 @@ public class SolutionLineWriter {
             return SolutionLine.oneEntryPerLine(typed);
         }
         List<CaseProgressRequest.Comment> comments = commentsOf(item);
-        String line = comments.isEmpty() ? null : solutionAi.summariseProgress(
+        String line = comments.isEmpty() ? null : summarise(
                 new CaseProgressRequest(branch, problem, status, supStatus, asOf, comments));
 
         // A blank cell used to be the honest answer for a ticket with nothing in it. The
@@ -141,6 +161,19 @@ public class SolutionLineWriter {
         // layout, which the model is not asked for at all.
         return SolutionLine.oneEntryPerLine(
                 SolutionLine.splitCrossMonthRanges(line, asOf.getYear()));
+    }
+
+    /** The model's line for this thread, from {@link #summaries} when it has been asked before. */
+    private String summarise(CaseProgressRequest request) {
+        String known = summaries.getIfPresent(request);
+        if (known != null) {
+            return known;
+        }
+        String line = solutionAi.summariseProgress(request);
+        if (line != null && !line.isBlank()) {
+            summaries.put(request, line);
+        }
+        return line;
     }
 
     /**

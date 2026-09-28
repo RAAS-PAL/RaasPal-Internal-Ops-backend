@@ -1,5 +1,7 @@
 package com.raaspal.robotrecommendation.casereport.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.raaspal.robotrecommendation.ai.service.CasePartsAiService;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayItem;
 import com.raaspal.robotrecommendation.casereport.dto.CasePartsSummary;
@@ -7,6 +9,7 @@ import com.raaspal.robotrecommendation.casereport.dto.CaseProgressRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -28,6 +31,23 @@ import java.util.List;
 public class PartsLineWriter {
 
     private final CasePartsAiService partsAi;
+
+    /**
+     * The model's answers, by the exact thread and context it was given.
+     *
+     * <p>The sheets regenerate every few minutes through the day, and between two runs
+     * almost no ticket gets a new comment. {@link CaseProgressRequest} is a record of
+     * records, so it is equal exactly when the thread, the statuses, the site and the
+     * report date are — a new comment or a status change is a new key and is asked
+     * again; an unchanged ticket costs nothing. The report date is part of the key, so
+     * every ticket is summarised afresh once each morning. Bounded and expiring, so a
+     * long-running server does not accumulate old threads. In memory: a restart simply
+     * re-asks once. A failed (null) answer is never kept.
+     */
+    private final Cache<CaseProgressRequest, CasePartsSummary> reads = Caffeine.newBuilder()
+            .maximumSize(5_000)
+            .expireAfterWrite(Duration.ofHours(36))
+            .build();
 
     /**
      * @param typedPart     the board's Spare Parts Name cell, used as-is when not blank
@@ -65,8 +85,14 @@ public class PartsLineWriter {
             return typed;
         }
 
-        CasePartsSummary read = partsAi.extractParts(new CaseProgressRequest(
-                site, problem, status, supStatus, asOf, comments));
+        CaseProgressRequest request = new CaseProgressRequest(site, problem, status, supStatus, asOf, comments);
+        CasePartsSummary read = reads.getIfPresent(request);
+        if (read == null) {
+            read = partsAi.extractParts(request);
+            if (read != null) {
+                reads.put(request, read);
+            }
+        }
         if (read == null) {
             read = CasePartsSummary.EMPTY;
         }
