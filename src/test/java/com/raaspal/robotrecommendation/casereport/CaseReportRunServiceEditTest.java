@@ -1,5 +1,7 @@
 package com.raaspal.robotrecommendation.casereport;
 
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.raaspal.robotrecommendation.casereport.dto.CaseReportRow;
@@ -70,12 +72,15 @@ class CaseReportRunServiceEditTest {
                 row(1, "1001", "โลตัส จันทบุรี", TODAY.minusDays(6), SlaStatus.BREACHED),
                 row(2, "1002", "บิ๊กซี-กัลปพฤกษ์", TODAY.minusDays(2), SlaStatus.WITHIN))));
         when(runs.findByDefinitionIdAndRunDate(DEFINITION_ID, TODAY)).thenReturn(Optional.of(run));
+        when(runs.findForUpdate(DEFINITION_ID, TODAY)).thenReturn(Optional.of(run));
         when(runs.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service = new CaseReportRunService(definitions, runs, generator,
                 mock(CleaningPendingReportGenerator.class), mock(AotgaReportGenerator.class),
                 mock(OnHoldReportGenerator.class),
-                new SlaCalculator(List.of("Bangkok")), json, new CaseReportExcelWriter());
+                new SlaCalculator(List.of("Bangkok")), json, new CaseReportExcelWriter(),
+                // No database here: a template over a mock manager just runs the callback.
+                new TransactionTemplate(mock(PlatformTransactionManager.class)));
     }
 
     /** The case that prompted this: the team counts from a later date than the ticket's. */
@@ -147,6 +152,42 @@ class CaseReportRunServiceEditTest {
     }
 
     /**
+     * An edit saved while a regeneration is still reading the board survives it. The
+     * regeneration used to merge edits from the copy it read when it started, minutes
+     * earlier, and so wrote over a correction made in the meantime — routine once the
+     * sheets refresh themselves every few minutes.
+     */
+    @Test
+    void anEditSavedDuringARegenerationIsKept() {
+        // A plain read hands out the run as it was before the edit, as a separate
+        // transaction opened at the start of the regeneration would have seen it.
+        CaseReportRun startOfRun = CaseReportRun.builder()
+                .definitionId(DEFINITION_ID)
+                .runDate(TODAY)
+                .status(CaseRunStatus.AWAITING_APPROVAL)
+                .build();
+        startOfRun.setRowsJson(run.getRowsJson());
+        when(runs.findByDefinitionIdAndRunDate(DEFINITION_ID, TODAY)).thenReturn(Optional.of(startOfRun));
+
+        when(generator.generate(MkPendingReportGenerator.Scope.MK, TODAY)).thenAnswer(inv -> {
+            // A reviewer corrects 1001 while the board is being read.
+            service.editRow(CaseReportDefinition.MK_PENDING, TODAY, "1001",
+                    edit("M154 โลตัส จันทบุรี", TODAY.minusDays(2), null, null));
+            return List.of(
+                    row(1, "1001", "โลตัส จันทบุรี", TODAY.minusDays(6), SlaStatus.BREACHED),
+                    row(2, "1002", "บิ๊กซี-กัลปพฤกษ์", TODAY.minusDays(2), SlaStatus.WITHIN));
+        });
+
+        List<CaseReportRow> regenerated =
+                service.rowsFor(CaseReportDefinition.MK_PENDING, TODAY, true);
+
+        assertThat(regenerated.get(0).branch()).isEqualTo("M154 โลตัส จันทบุรี");
+        assertThat(regenerated.get(0).edited()).isTrue();
+        assertThat(rows()).extracting(CaseReportRow::branch)
+                .containsExactly("M154 โลตัส จันทบุรี", "บิ๊กซี-กัลปพฤกษ์");
+    }
+
+    /**
      * Yesterday's draft can still be corrected but not re-read: the board describes
      * today. The refusal must say that, not claim nothing was generated.
      */
@@ -155,6 +196,7 @@ class CaseReportRunServiceEditTest {
         LocalDate yesterday = TODAY.minusDays(1);
         run.setRunDate(yesterday);
         when(runs.findByDefinitionIdAndRunDate(DEFINITION_ID, yesterday)).thenReturn(Optional.of(run));
+        when(runs.findForUpdate(DEFINITION_ID, yesterday)).thenReturn(Optional.of(run));
 
         assertThatThrownBy(() -> service.rowsFor(CaseReportDefinition.MK_PENDING, yesterday, true))
                 .isInstanceOf(BadRequestException.class)

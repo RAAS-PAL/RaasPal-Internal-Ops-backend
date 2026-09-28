@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -64,6 +65,7 @@ public class CaseReportRunService {
     private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
     private final CaseReportExcelWriter excelWriter;
+    private final TransactionTemplate transactions;
 
     /**
      * The generations running right now, by sheet and date.
@@ -102,8 +104,14 @@ public class CaseReportRunService {
      *
      * @param refresh regenerate even though a run exists. Ignored for a sent run, which
      *                cannot be replaced — the caller is told rather than silently obeyed.
+     *
+     * <p>Deliberately not {@code @Transactional}. A generation is minutes of monday and
+     * model calls; wrapped in one transaction it held a database connection (production
+     * has five) for all of that, and it merged people's edits from the copy it read at
+     * the start — so an edit saved mid-generation was overwritten. The reads here are
+     * each their own short transaction, and {@link #storeGenerated} does the merge and
+     * the save together under a row lock, against the run as it is at that moment.
      */
-    @Transactional
     public List<CaseReportRow> rowsFor(String definitionCode, LocalDate asOf, boolean refresh) {
         CaseReportDefinition definition = requireDefinition(definitionCode);
         LocalDate today = LocalDate.now(ZoneId.of(definition.getScheduleZone()));
@@ -178,11 +186,8 @@ public class CaseReportRunService {
             }
         }
         try {
-            List<CaseReportRow> rows = generate(definitionCode, definition, asOf);
-            if (existing != null) {
-                rows = keepEditedRows(parse(existing.getRowsJson()), rows);
-            }
-            freeze(definition, asOf, existing, rows);
+            List<CaseReportRow> rows = storeGenerated(definition, asOf,
+                    generate(definitionCode, definition, asOf));
             mine.complete(rows);
             return rows;
         } catch (RuntimeException e) {
@@ -328,7 +333,9 @@ public class CaseReportRunService {
     private CaseReportRun requireDraft(String definitionCode,
                                        CaseReportDefinition definition,
                                        LocalDate asOf) {
-        CaseReportRun run = runs.findByDefinitionIdAndRunDate(definition.getId(), asOf)
+        // Locked: the caller is a @Transactional read-modify-write of the rows, and a
+        // regeneration storing its result at the same moment must wait its turn.
+        CaseReportRun run = runs.findForUpdate(definition.getId(), asOf)
                 .orElseThrow(() -> new BadRequestException(
                         "There is no generated " + definitionCode + " report for " + asOf
                                 + " to change. Generate it first."));
@@ -521,6 +528,31 @@ public class CaseReportRunService {
             case CaseReportDefinition.ON_HOLD_PENDING -> onHoldGenerator.generate(asOf);
             default -> throw new BadRequestException("No generator is wired for report " + code);
         };
+    }
+
+    /**
+     * Stores freshly generated rows, merged with the run as it stands now — not as it
+     * stood when the generation began. An edit, an added row or a removal made while the
+     * board was being read is therefore kept, and a run sent in the meantime is refused
+     * rather than overwritten. One short transaction, under the run's row lock.
+     */
+    private List<CaseReportRow> storeGenerated(CaseReportDefinition definition,
+                                               LocalDate asOf,
+                                               List<CaseReportRow> generated) {
+        return transactions.execute(status -> {
+            CaseReportRun current = runs.findForUpdate(definition.getId(), asOf).orElse(null);
+            if (current != null && !current.getStatus().isReplaceable()) {
+                throw new BadRequestException(
+                        "The " + asOf + " report was sent while it was being regenerated, "
+                                + "so the regeneration was not stored. What was delivered "
+                                + "to the customer is the record.");
+            }
+            List<CaseReportRow> rows = current == null
+                    ? generated
+                    : keepEditedRows(parse(current.getRowsJson()), generated);
+            freeze(definition, asOf, current, rows);
+            return rows;
+        });
     }
 
     private void freeze(CaseReportDefinition definition,
