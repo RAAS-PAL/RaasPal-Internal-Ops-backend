@@ -281,7 +281,10 @@ public class ReportDeliveryService {
     private Set<UUID> eligibleCustomerIds(ReportPeriod period) {
         ReportCadence cadence = period.type() == ReportPeriod.Type.WEEK ? ReportCadence.WEEKLY : ReportCadence.MONTHLY;
         Set<UUID> customerIds = new LinkedHashSet<>();
-        for (Deployment deployment : deploymentRepository.findByIsActiveTrue()) {
+        // Robot and customer fetched with the deployment: the schedulers call this on a
+        // thread with no open session, where touching a lazy robot throws. That is how the
+        // first weekly run (2026-09-28) died before sending anything.
+        for (Deployment deployment : deploymentRepository.findActiveWithRobotAndCustomer()) {
             // A customer whose only robots are delivery robots has nothing in the cleaning
             // bundle; making them eligible would send an empty email.
             if (deployment.getRobotUnit().getRobotType() == RobotType.DELIVERY) continue;
