@@ -200,7 +200,11 @@ public class CaseReportController {
                 "exists", true,
                 "status", run.getStatus().name(),
                 "ticketCount", run.getTicketCount(),
-                "generatedAt", String.valueOf(run.getGeneratedAt()),
+                // With its offset: generatedAt is stored as the server's wall-clock time,
+                // which on the production container is UTC, so a bare LocalDateTime
+                // cannot be shown as Bangkok time by the page that reads it.
+                "generatedAt", run.getGeneratedAt() == null ? ""
+                        : run.getGeneratedAt().atZone(ZoneId.systemDefault()).toOffsetDateTime().toString(),
                 "replaceable", run.getStatus().isReplaceable()));
     }
 
