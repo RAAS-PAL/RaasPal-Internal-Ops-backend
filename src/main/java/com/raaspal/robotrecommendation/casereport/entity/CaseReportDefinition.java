@@ -6,6 +6,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -39,6 +40,10 @@ public class CaseReportDefinition {
     public static final String DELIVERY_PENDING = "DELIVERY_PENDING";
     /** Held cases from both boards, except the airports'. The only two-board sheet. */
     public static final String ON_HOLD_PENDING = "ON_HOLD_PENDING";
+
+    /** Every sheet, in tab order: what the daily freeze and the intraday refresh walk. */
+    public static final List<String> SHEETS = List.of(
+            MK_PENDING, CLEANING_PENDING, MAKRO_PENDING, AOTGA_PENDING, DELIVERY_PENDING, ON_HOLD_PENDING);
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

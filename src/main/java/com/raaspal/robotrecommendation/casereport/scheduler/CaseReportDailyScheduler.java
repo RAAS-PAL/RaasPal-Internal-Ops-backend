@@ -83,13 +83,7 @@ public class CaseReportDailyScheduler {
      * Overwriting it would discard whatever a reviewer had already looked at.
      */
     private void freezeTodaysReports() {
-        for (String code : new String[] {
-                CaseReportDefinition.MK_PENDING,
-                CaseReportDefinition.CLEANING_PENDING,
-                CaseReportDefinition.MAKRO_PENDING,
-                CaseReportDefinition.AOTGA_PENDING,
-                CaseReportDefinition.DELIVERY_PENDING,
-                CaseReportDefinition.ON_HOLD_PENDING }) {
+        for (String code : CaseReportDefinition.SHEETS) {
             try {
                 LocalDate today = LocalDate.now(ZoneId.of("Asia/Bangkok"));
                 int rows = runService.rowsFor(code, today, false).size();
