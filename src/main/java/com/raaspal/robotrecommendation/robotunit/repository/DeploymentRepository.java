@@ -39,6 +39,16 @@ public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
     List<Deployment> findByRobotUnitIdAndIsActiveTrue(UUID robotUnitId);
 
     /**
+     * Serial numbers of one brand's robots on an active deployment: the robots RAASPAL
+     * monitors. The AutoXing fault poller watches only these, because the AutoXing account
+     * also holds robots whose data RAASPAL has agreed not to collect (Nikon's, 2026-09-28)
+     * — deactivating a customer's deployments is how that agreement is kept.
+     */
+    @Query("select distinct u.serialNumber from Deployment d join d.robotUnit u "
+            + "where d.isActive = true and upper(u.brand) = upper(:brand)")
+    List<String> findActiveSerialNumbersByBrand(@Param("brand") String brand);
+
+    /**
      * The active deployments on the same contract as one: same customer, same start
      * and end dates. What "also attach to the other robots" means. Two queries rather
      * than one with {@code (:start IS NULL AND ...)}: PostgreSQL cannot type a bare

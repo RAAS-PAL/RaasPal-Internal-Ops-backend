@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.telemetry.adapters.autoxing;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.raaspal.robotrecommendation.robotunit.repository.DeploymentRepository;
 import com.raaspal.robotrecommendation.telemetry.entity.RobotFaultEvent;
 import com.raaspal.robotrecommendation.telemetry.entity.RobotFaultEvent.Kind;
 import com.raaspal.robotrecommendation.telemetry.repository.RobotFaultEventRepository;
@@ -9,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,6 +33,12 @@ import java.util.concurrent.ConcurrentHashMap;
  *       response is not evidence that a fault cleared.</li>
  *   <li>A <b>failed</b> call changes nothing. The next poll starts from the same open rows.</li>
  * </ul>
+ *
+ * <p><b>Only monitored robots.</b> The fleet call lists every robot on the RAAS PAL AutoXing
+ * account, and some of those are robots RAASPAL has agreed not to collect data from. A
+ * poll therefore keeps only robots registered in Tools -> Robots with an active deployment
+ * ({@link #onlyMonitored}): anything else is never compared, recorded or asked about.
+ * Deactivating a customer's deployments stops their robots here as it does everywhere else.
  */
 @Slf4j
 @Service
@@ -42,6 +50,18 @@ public class AutoxingFaultPollService {
     private final AutoxingApiClient apiClient;
     private final AutoxingReportService reportService;
     private final RobotFaultEventRepository faults;
+    private final DeploymentRepository deployments;
+
+    /** How long the list of monitored robots is trusted before it is read again. */
+    private static final Duration MONITORED_TTL = Duration.ofMinutes(5);
+
+    /**
+     * The robot IDs this poller may watch, and when they were read. The poll runs every
+     * few seconds and is built to touch the database rarely, so the list is re-read only
+     * every {@link #MONITORED_TTL}; a newly deactivated robot drops out within that.
+     */
+    private Set<String> monitored;
+    private Instant monitoredAt = Instant.EPOCH;
 
     /** Error code -> the robot's message for it. Codes mean the same thing on every robot. */
     private final Map<Integer, Message> messages = new ConcurrentHashMap<>();
@@ -107,6 +127,11 @@ public class AutoxingFaultPollService {
         if (!apiClient.isConfigured()) {
             return null;
         }
+        Set<String> watch = monitoredRobots();
+        if (watch == null) {
+            // Not knowing which robots may be watched means watching none, not all.
+            return null;
+        }
         JsonNode fleet;
         try {
             fleet = reportService.withReauth(apiClient::getRobotFleet);
@@ -122,11 +147,12 @@ public class AutoxingFaultPollService {
             return null;
         }
 
-        List<RobotSnapshot> robots = new ArrayList<>();
+        List<RobotSnapshot> listed = new ArrayList<>();
         fleet.forEach(n -> {
             RobotSnapshot s = RobotSnapshot.of(n);
-            if (s.robotId() != null) robots.add(s);
+            if (s.robotId() != null) listed.add(s);
         });
+        List<RobotSnapshot> robots = onlyMonitored(listed, watch);
 
         if (open == null) {
             open = new HashMap<>();
@@ -239,6 +265,34 @@ public class AutoxingFaultPollService {
             }
         }
         return new Plan(toOpen, toClose, business);
+    }
+
+    /**
+     * The fleet as this poller may see it: only robots RAASPAL monitors. Everything after
+     * this - comparing, recording, asking a robot for its error text - works on the result,
+     * so a robot outside it is never looked at.
+     */
+    static List<RobotSnapshot> onlyMonitored(List<RobotSnapshot> fleet, Set<String> monitored) {
+        return fleet.stream().filter(r -> monitored.contains(r.robotId())).toList();
+    }
+
+    /**
+     * Registered AutoXing robots on an active deployment, re-read every
+     * {@link #MONITORED_TTL}. A failed read keeps the last list; with no list yet it
+     * returns null and the poll does nothing.
+     */
+    private Set<String> monitoredRobots() {
+        Instant now = Instant.now();
+        if (monitored == null || monitoredAt.isBefore(now.minus(MONITORED_TTL))) {
+            try {
+                monitored = Set.copyOf(deployments.findActiveSerialNumbersByBrand(BRAND));
+                monitoredAt = now;
+            } catch (RuntimeException e) {
+                log.warn("Could not read the monitored AutoXing robots; {}: {}",
+                        monitored == null ? "skipping this poll" : "keeping the last list", e.getMessage());
+            }
+        }
+        return monitored;
     }
 
     /**

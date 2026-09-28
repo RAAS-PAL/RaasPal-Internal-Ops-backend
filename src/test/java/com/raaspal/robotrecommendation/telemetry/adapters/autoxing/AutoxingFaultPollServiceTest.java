@@ -76,6 +76,23 @@ class AutoxingFaultPollServiceTest {
         assertThat(plan.toOpen()).isEmpty();
     }
 
+    /**
+     * The account lists robots RAASPAL must not collect from (Nikon's). Only registered
+     * robots on an active deployment survive the filter, so nothing else is compared,
+     * recorded or asked about - even one with a fault showing.
+     */
+    @Test
+    void onlyMonitoredRobotsAreWatched() {
+        List<RobotSnapshot> fleet = List.of(online("OURS", false, 9504), online("NIKON-1", true, 2008),
+                offline("NOT-REGISTERED"));
+
+        List<RobotSnapshot> watched = AutoxingFaultPollService.onlyMonitored(fleet, Set.of("OURS"));
+
+        assertThat(watched).extracting(RobotSnapshot::robotId).containsExactly("OURS");
+        assertThat(AutoxingFaultPollService.plan(Set.of(), watched).toOpen())
+                .containsExactly(new Key("OURS", Kind.ERROR, 9504));
+    }
+
     @Test
     void aChangeIsWrittenOnlyWhenSeenOnTwoPollsInARowAndKeepsItsFirstSighting() {
         Map<Key, Instant> pending = new HashMap<>();
