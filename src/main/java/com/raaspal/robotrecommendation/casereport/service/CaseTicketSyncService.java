@@ -83,7 +83,7 @@ public class CaseTicketSyncService {
     public static final List<String> DELIVERY_COLUMNS = List.of(
             "asset_owner", "text6", "tags2", "status_139", "tags42",
             "main_issue_key_word3", "text", "date5", "date_18",
-            "color_mm6mwh74", "status", "status_1",
+            "dropdown_mm7g8vbc", "status", "status_1",
             "status_10", "color_mksn4t14", "color_mkyh88bs", "status_136", "text23", "status_169");
 
     /** The open group on the delivery board; a ticket anywhere else has left it. */
@@ -361,7 +361,7 @@ public class CaseTicketSyncService {
             ticket.setProjectRaw(item.columnText("asset_owner"));
             ticket.setBranchRaw(item.columnText("text6"));
             ticket.setBranchCodeRaw(item.columnText("tags2"));
-            ticket.setProvinceRaw(item.columnText("color_mm6mwh74"));
+            ticket.setProvinceRaw(item.columnText("dropdown_mm7g8vbc"));
             ticket.setRobotModel(item.columnText("status_139"));
             ticket.setSerialNumbers(item.columnText("tags42"));
             ticket.setMainIssue(item.columnText("main_issue_key_word3"));
