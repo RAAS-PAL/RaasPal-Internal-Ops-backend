@@ -35,91 +35,95 @@ import java.util.Map;
 public class MondayBoardReader {
 
     /**
-     * Rows matching a filter, from every group on the board.
+     * Rows matching a filter, from every group on the board - but only what it takes to
+     * tell whether a row changed: its {@code updated_at}, its group, and the ids of its
+     * newest comments and their replies. A comment does not always move
+     * {@code updated_at} (28 of Gausium's tickets had a newer comment than their
+     * {@code updated_at} on 2026-09-29), so the ids are what catch a thread that moved.
      *
      * <p>Two queries because monday's cursor pagination changes shape after the
      * first page: {@code items_page} hangs off the board and takes the filter,
      * while every later page comes from the root-level {@code next_items_page},
      * which takes only the cursor - the filter is baked into it.
-     *
-     * <p>Replies are requested here and not in the group query below: the brand
-     * export shows whole threads, and the pending reports never needed them.
      */
-    private static final String FILTERED_ITEMS_QUERY = """
-            query BoardFilteredItems(
-              $boardId: ID!,
-              $query: ItemsQuery,
-              $columnIds: [String!],
-              $limit: Int!,
-              $updatesLimit: Int!
-            ) {
+    private static final String FILTERED_STAMPS_QUERY = """
+            query BoardFilteredStamps($boardId: ID!, $query: ItemsQuery, $limit: Int!) {
               boards(ids: [$boardId]) {
                 id
                 items_page(limit: $limit, query_params: $query) {
                   cursor
                   items {
                     id
-                    name
                     updated_at
                     group { id title }
-                    column_values(ids: $columnIds) {
-                      id
-                      type
-                      text
-                    }
-                    updates(limit: $updatesLimit) {
-                      id
-                      text_body
-                      created_at
-                      creator { id name }
-                      replies {
-                        id
-                        text_body
-                        created_at
-                        creator { id name }
-                      }
-                    }
+                    updates(limit: 3) { id replies { id } }
                   }
                 }
               }
             }
             """;
 
-    private static final String NEXT_FILTERED_ITEMS_QUERY = """
-            query NextFilteredItems(
-              $cursor: String!,
-              $columnIds: [String!],
-              $limit: Int!,
-              $updatesLimit: Int!
-            ) {
+    private static final String NEXT_FILTERED_STAMPS_QUERY = """
+            query NextFilteredStamps($cursor: String!, $limit: Int!) {
               next_items_page(limit: $limit, cursor: $cursor) {
                 cursor
                 items {
                   id
-                  name
                   updated_at
                   group { id title }
-                  column_values(ids: $columnIds) {
-                    id
-                    type
-                    text
-                  }
-                  updates(limit: $updatesLimit) {
+                  updates(limit: 3) { id replies { id } }
+                }
+              }
+            }
+            """;
+
+    /**
+     * Whole rows by id, with their threads. Replies are requested here and not in the
+     * group query below: the brand page shows whole threads, and the pending reports
+     * never needed them.
+     */
+    private static final String ITEMS_BY_ID_QUERY = """
+            query ItemsById(
+              $ids: [ID!],
+              $columnIds: [String!],
+              $limit: Int!,
+              $updatesLimit: Int!
+            ) {
+              items(ids: $ids, limit: $limit) {
+                id
+                name
+                updated_at
+                group { id title }
+                column_values(ids: $columnIds) {
+                  id
+                  type
+                  text
+                }
+                updates(limit: $updatesLimit) {
+                  id
+                  text_body
+                  created_at
+                  creator { id name }
+                  replies {
                     id
                     text_body
                     created_at
                     creator { id name }
-                    replies {
-                      id
-                      text_body
-                      created_at
-                      creator { id name }
-                    }
                   }
                 }
               }
             }
             """;
+
+    /** monday's cap on ids in one {@code items(ids:)} call. */
+    public static final int MAX_ITEMS_BY_ID = 100;
+
+    /**
+     * Page size for the stamp listing. Larger than the configured page size because a
+     * stamp carries no columns and no comment text; 200 held monday's complexity budget
+     * with five comment ids a row when measured.
+     */
+    private static final int STAMP_PAGE_SIZE = 200;
 
     /** A status column's label set, to turn label text into the indexes a filter rule wants. */
     private static final String STATUS_LABELS_QUERY = """
@@ -354,15 +358,18 @@ public class MondayBoardReader {
     }
 
     /**
-     * Every item on the board matching <em>any</em> of the rules, from every group.
+     * Every item on the board matching <em>any</em> of the rules, from every group, as
+     * stamps: id, {@code updated_at}, group, and the newest comment and reply ids - no
+     * columns and no comment text. {@link #readItems} fetches the rows that changed.
      *
-     * <p>One request for the whole answer instead of paging the board: the Delivery
-     * Tickets board holds 5,400 rows across eight groups, and the brand this was
-     * written for owns 76 of them. Reading it all to keep 76 cost 55 calls a night.
+     * <p>One filtered listing instead of paging the board: the Delivery Tickets board
+     * holds 5,400 rows across eight groups, and AutoXing owns 76 of them. And stamps,
+     * not whole rows: Gausium owns 2,600 tickets and 10,000 comments, and nearly all of
+     * them are the same as last night.
      *
      * @throws MondayApiException if the board is not visible to the configured token
      */
-    public List<MondayItem> readFilteredItems(String boardId, List<FilterRule> rules, List<String> columnIds) {
+    public List<MondayItem> readFilteredStamps(String boardId, List<FilterRule> rules) {
         Map<String, Object> query = new HashMap<>();
         query.put("rules", rules.stream().map(FilterRule::toVariable).toList());
         query.put("operator", "or");
@@ -370,13 +377,11 @@ public class MondayBoardReader {
         Map<String, Object> variables = new HashMap<>();
         variables.put("boardId", boardId);
         variables.put("query", query);
-        variables.put("columnIds", columnIds);
-        variables.put("limit", pageSize);
-        variables.put("updatesLimit", updatesPerItem);
+        variables.put("limit", STAMP_PAGE_SIZE);
 
         List<MondayItem> allItems = new ArrayList<>();
         MondayItemPage itemPage = toItemPage(
-                boardItemsPage(client.execute(FILTERED_ITEMS_QUERY, variables), boardId), boardId);
+                boardItemsPage(client.execute(FILTERED_STAMPS_QUERY, variables), boardId), boardId);
         if (itemPage.items() != null) allItems.addAll(itemPage.items());
         String cursor = itemPage.cursor();
         int page = 1;
@@ -384,11 +389,9 @@ public class MondayBoardReader {
         while (cursor != null && page < maxPages) {
             Map<String, Object> next = new HashMap<>();
             next.put("cursor", cursor);
-            next.put("columnIds", columnIds);
-            next.put("limit", pageSize);
-            next.put("updatesLimit", updatesPerItem);
+            next.put("limit", STAMP_PAGE_SIZE);
 
-            itemPage = toItemPage(client.execute(NEXT_FILTERED_ITEMS_QUERY, next).path("next_items_page"), boardId);
+            itemPage = toItemPage(client.execute(NEXT_FILTERED_STAMPS_QUERY, next).path("next_items_page"), boardId);
             if (itemPage.items() != null) allItems.addAll(itemPage.items());
             cursor = itemPage.cursor();
             page++;
@@ -398,8 +401,37 @@ public class MondayBoardReader {
             log.warn("Stopped reading filtered monday board {} after {} pages with a cursor still open; "
                     + "results are incomplete - raise app.monday.api.max-pages-per-group", boardId, maxPages);
         }
-        log.info("Read {} filtered items from monday board {} in {} page(s)", allItems.size(), boardId, page);
+        log.info("Listed {} filtered items on monday board {} in {} page(s)", allItems.size(), boardId, page);
         return allItems;
+    }
+
+    /**
+     * Whole rows by id - columns, comments and replies - at most {@link #MAX_ITEMS_BY_ID}
+     * per call. An id monday no longer has (deleted, or archived) is simply absent from
+     * the result.
+     *
+     * @param columnIds the columns to fetch; ids are board-specific
+     */
+    public List<MondayItem> readItems(List<String> ids, List<String> columnIds) {
+        if (ids.isEmpty()) return List.of();
+        if (ids.size() > MAX_ITEMS_BY_ID) {
+            throw new IllegalArgumentException("monday takes at most " + MAX_ITEMS_BY_ID + " ids per call, got " + ids.size());
+        }
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("ids", ids);
+        variables.put("columnIds", columnIds);
+        variables.put("limit", ids.size());
+        variables.put("updatesLimit", updatesPerItem);
+
+        JsonNode items = client.execute(ITEMS_BY_ID_QUERY, variables).path("items");
+        if (!items.isArray()) {
+            throw new MondayApiException("monday returned no items for " + ids.size() + " ids");
+        }
+        try {
+            return objectMapper.readerForListOf(MondayItem.class).readValue(items);
+        } catch (Exception e) {
+            throw new MondayApiException("Failed to parse the monday items response: " + e.getMessage(), e);
+        }
     }
 
     /**

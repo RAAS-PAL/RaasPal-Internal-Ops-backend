@@ -64,10 +64,15 @@ public class CaseTicketSyncService {
      * Columns worth mapping onto their own fields. Everything else still arrives, in
      * {@code raw_columns}, so a column nobody thought to map is already there rather than
      * needing a re-sync that cannot recover what has since changed.
+     *
+     * <p>The last row is unmapped and lands only in {@code raw_columns}, for the brand
+     * analytics: Root Cause, RE (a people column here, a status column on delivery), Type
+     * of case, Under Warranty, Channel. Issue Level is {@code status_1}, already above.
      */
-    private static final List<String> CLEANING_COLUMNS = List.of(
+    public static final List<String> CLEANING_COLUMNS = List.of(
             "asset_owner3__1", "text6", "status_17", "text0", "text", "long_text",
-            "date8", "date_1", "status", "status7", "status_1");
+            "date8", "date_1", "status", "status7", "status_1",
+            "status6", "people3", "color_mkyj4ncq", "status_15", "status08");
 
     /**
      * The last row is unmapped and lands only in {@code raw_columns}: Root Cause, RE
@@ -116,6 +121,51 @@ public class CaseTicketSyncService {
                     "status", "status_1", "date5"),
             new BoardSpec(CLEANING_BOARD, CLEANING_GROUP, CLEANING_COLUMNS,
                     "status", "status7", "date8"));
+
+    /**
+     * A board's column mapping, for a sync that reads one of these boards some other way.
+     * The brand sync uses it so both syncs request the same columns from the same board.
+     */
+    public static Optional<BoardSpec> boardSpec(String boardId) {
+        return BOARDS.stream().filter(spec -> spec.boardId().equals(boardId)).findFirst();
+    }
+
+    /**
+     * What is stored for one board, for the brand sync to compare monday against:
+     * each row's last-seen {@code updated_at} and group by item id, and every comment id.
+     */
+    public record Baseline(Map<String, Stamp> tickets, Set<String> commentIds) {
+    }
+
+    public record Stamp(LocalDateTime sourceUpdatedAt, String sourceGroupId) {
+    }
+
+    /** Three queries, whatever the board's size. */
+    @Transactional(readOnly = true)
+    public Baseline baseline(String boardId) {
+        Map<String, Stamp> stamps = new HashMap<>();
+        for (Object[] row : tickets.findSyncStamps(CaseSource.MONDAY, boardId)) {
+            stamps.put((String) row[0], new Stamp((LocalDateTime) row[1], (String) row[2]));
+        }
+        return new Baseline(stamps, new HashSet<>(updates.findSourceUpdateIdsOnBoard(boardId)));
+    }
+
+    /** Move {@code last_synced_at} on rows a sync checked but did not need to rewrite. */
+    @Transactional
+    public int touchSynced(String boardId, List<String> itemIds, LocalDateTime at) {
+        int touched = 0;
+        for (int i = 0; i < itemIds.size(); i += LOOKUP_CHUNK) {
+            touched += tickets.touchSynced(CaseSource.MONDAY, boardId,
+                    itemIds.subList(i, Math.min(i + LOOKUP_CHUNK, itemIds.size())), at);
+        }
+        return touched;
+    }
+
+    /**
+     * Largest id list sent in one {@code IN}. A single unchunked list is what stalled the
+     * telemetry backfill on 2026-09-15: across regions, one oversized query never returned.
+     */
+    private static final int LOOKUP_CHUNK = 500;
 
     /**
      * One board, by spec.
@@ -183,34 +233,49 @@ public class CaseTicketSyncService {
      * subset of the board, so a row it did not return has not necessarily left the
      * board - it just did not match. {@code is_present} is instead set from the group
      * the row is in: true in the open group, false anywhere else.
+     *
+     * <p>The caller reads monday and hands the rows over a chunk at a time, each chunk its
+     * own transaction: a brand's first load is thousands of rows, and one long transaction
+     * would throw all of them away over a failure near the end. The chunk's stored rows
+     * and their comment ids are looked up once, not once per row - each lookup is a round
+     * trip to a database in another region, about 100 ms.
      */
     @Transactional
-    public SyncResult syncFiltered(String boardId,
-                                   String openGroupId,
-                                   List<MondayBoardReader.FilterRule> rules,
-                                   List<String> columnIds,
-                                   String statusColumn,
-                                   String supStatusColumn,
-                                   String openDateColumn) {
-
-        List<MondayItem> items = boardReader.readFilteredItems(boardId, rules, columnIds);
+    public SyncResult upsertFiltered(String boardId,
+                                     String openGroupId,
+                                     List<MondayItem> items,
+                                     String statusColumn,
+                                     String supStatusColumn,
+                                     String openDateColumn) {
 
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
         Counters counters = new Counters();
 
-        for (MondayItem item : items) {
-            String groupId = item.group() == null ? null : item.group().id();
-            boolean open = openGroupId.equals(groupId);
-            upsert(item, boardId, groupId, open, statusColumn, supStatusColumn, openDateColumn,
-                    now, today, counters);
+        Map<String, CaseTicket> stored = new HashMap<>();
+        Map<UUID, Set<String>> knownComments = new HashMap<>();
+        if (!items.isEmpty()) {
+            tickets.findBySourceAndSourceItemIdIn(CaseSource.MONDAY, items.stream().map(MondayItem::id).toList())
+                    .forEach(t -> stored.put(t.getSourceItemId(), t));
+        }
+        if (!stored.isEmpty()) {
+            for (Object[] row : updates.findSourceUpdateIdsByTicketIds(
+                    stored.values().stream().map(CaseTicket::getId).toList())) {
+                knownComments.computeIfAbsent((UUID) row[0], id -> new HashSet<>()).add((String) row[1]);
+            }
         }
 
-        SyncResult result = counters.result(boardId, items.size(), 0);
-        log.info("Synced filtered board {}: {} seen, {} new, {} updated, {} new comments, {} status changes",
-                boardId, result.seen(), result.created(), result.updated(),
-                result.newComments(), result.statusChanges());
-        return result;
+        for (MondayItem item : items) {
+            String groupId = item.group() == null ? null : item.group().id();
+            CaseTicket existing = stored.get(item.id());
+            Set<String> known = existing == null
+                    ? new HashSet<>()
+                    : knownComments.getOrDefault(existing.getId(), new HashSet<>());
+            upsert(item, existing, known, boardId, groupId, openGroupId.equals(groupId),
+                    statusColumn, supStatusColumn, openDateColumn, now, today, counters);
+        }
+
+        return counters.result(boardId, items.size(), 0);
     }
 
     /** Running totals for one sync, so the two entry points share the loop body. */
@@ -230,6 +295,19 @@ public class CaseTicketSyncService {
         CaseTicket ticket = tickets
                 .findBySourceAndSourceItemId(CaseSource.MONDAY, item.id())
                 .orElse(null);
+        upsert(item, ticket, null, boardId, groupId, present,
+                statusColumn, supStatusColumn, openDateColumn, now, today, counters);
+    }
+
+    /**
+     * @param ticket         the stored row, or null for a ticket not seen before
+     * @param knownComments  the row's stored comment ids when the caller already has them;
+     *                       null to look them up here
+     */
+    private void upsert(MondayItem item, CaseTicket ticket, Set<String> knownComments,
+                        String boardId, String groupId, boolean present,
+                        String statusColumn, String supStatusColumn, String openDateColumn,
+                        LocalDateTime now, LocalDate today, Counters counters) {
 
         boolean isNew = ticket == null;
         if (isNew) {
@@ -263,8 +341,11 @@ public class CaseTicketSyncService {
         tickets.save(ticket);
         if (isNew) counters.created++; else counters.updated++;
 
-        counters.newComments += storeNewComments(ticket, item);
-        if (recordStatus(ticket, status, supStatus, today)) counters.statusChanges++;
+        // A new ticket has no comments and no history yet; asking the database would
+        // only cost two round trips to hear so.
+        Set<String> known = isNew ? new HashSet<>() : knownComments;
+        counters.newComments += storeNewComments(ticket, item, known);
+        if (recordStatus(ticket, isNew, status, supStatus, today)) counters.statusChanges++;
     }
 
     /**
@@ -307,10 +388,12 @@ public class CaseTicketSyncService {
      * no work, and letting the insert fail would abort the whole board's sync over a row
      * carrying nothing new.
      */
-    private int storeNewComments(CaseTicket ticket, MondayItem item) {
+    private int storeNewComments(CaseTicket ticket, MondayItem item, Set<String> knownIds) {
         if (item.updates() == null || item.updates().isEmpty()) return 0;
 
-        Set<String> known = new HashSet<>(updates.findSourceUpdateIds(ticket.getId()));
+        Set<String> known = knownIds != null
+                ? knownIds
+                : new HashSet<>(updates.findSourceUpdateIds(ticket.getId()));
         int stored = 0;
 
         for (MondayUpdate update : item.updates()) {
@@ -359,11 +442,12 @@ public class CaseTicketSyncService {
      * must not trip {@code uq_case_ticket_status_day}, and a status flipped twice in an
      * afternoon should leave one line carrying the latest value.
      */
-    private boolean recordStatus(CaseTicket ticket, String status, String supStatus,
+    private boolean recordStatus(CaseTicket ticket, boolean isNew, String status, String supStatus,
                                  LocalDate today) {
 
-        CaseTicketStatusHistory todays =
-                history.findByCaseTicketIdAndObservedOn(ticket.getId(), today).orElse(null);
+        CaseTicketStatusHistory todays = isNew
+                ? null
+                : history.findByCaseTicketIdAndObservedOn(ticket.getId(), today).orElse(null);
 
         if (todays != null) {
             if (same(todays.getStatus(), status) && same(todays.getSupStatus(), supStatus)) {
@@ -375,9 +459,10 @@ public class CaseTicketSyncService {
             return true;
         }
 
-        CaseTicketStatusHistory previous = history
-                .findFirstByCaseTicketIdOrderByObservedOnDescObservedAtDesc(ticket.getId())
-                .orElse(null);
+        CaseTicketStatusHistory previous = isNew
+                ? null
+                : history.findFirstByCaseTicketIdOrderByObservedOnDescObservedAtDesc(ticket.getId())
+                        .orElse(null);
 
         if (previous != null
                 && same(previous.getStatus(), status)

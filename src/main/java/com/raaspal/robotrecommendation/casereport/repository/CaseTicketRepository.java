@@ -23,6 +23,39 @@ public interface CaseTicketRepository extends JpaRepository<CaseTicket, UUID> {
     /** Everything the sync needs to compare a board against, in one query. */
     List<CaseTicket> findBySourceAndSourceBoardId(CaseSource source, String sourceBoardId);
 
+    /** One sync chunk's stored rows in one round trip. Callers keep the id list to a few hundred. */
+    List<CaseTicket> findBySourceAndSourceItemIdIn(CaseSource source, Collection<String> sourceItemIds);
+
+    /**
+     * {@code [sourceItemId, sourceUpdatedAt, sourceGroupId]} for every row on a board -
+     * what the brand sync compares monday's listing against to decide which tickets to
+     * fetch in full. Three columns, not whole rows: {@code raw_columns} is most of a row.
+     */
+    @Query("""
+           SELECT t.sourceItemId, t.sourceUpdatedAt, t.sourceGroupId FROM CaseTicket t
+            WHERE t.source = :source
+              AND t.sourceBoardId = :boardId
+           """)
+    List<Object[]> findSyncStamps(@Param("source") CaseSource source, @Param("boardId") String boardId);
+
+    /**
+     * Stamp rows the brand sync checked and found unchanged. {@code last_synced_at}
+     * still has to move, or "Board synced" on the page would show the last day
+     * anything changed rather than the last time anyone looked.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+           UPDATE CaseTicket t
+              SET t.lastSyncedAt = :syncedAt
+            WHERE t.source = :source
+              AND t.sourceBoardId = :boardId
+              AND t.sourceItemId IN :itemIds
+           """)
+    int touchSynced(@Param("source") CaseSource source,
+                    @Param("boardId") String boardId,
+                    @Param("itemIds") Collection<String> itemIds,
+                    @Param("syncedAt") LocalDateTime syncedAt);
+
     long countBySourceBoardIdAndIsPresentTrue(String sourceBoardId);
 
     /** What a report actually reads: the open cases on one board. */
