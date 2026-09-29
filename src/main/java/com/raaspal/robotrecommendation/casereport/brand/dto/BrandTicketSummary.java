@@ -49,8 +49,10 @@ public record BrandTicketSummary(
             /** Open Date to RE Action, median over tickets with both. */
             Double medianDaysToAction,
             int actionSample,
-            /** Share of tickets whose RE Action fell within 7 days of Open Date. */
-            Double slaWithin7Pct,
+            /** The brand's SLA: RE Action within this many days of Open Date is on time. */
+            int slaDays,
+            /** Share of tickets whose RE Action fell within {@code slaDays} of Open Date. */
+            Double slaWithinPct,
             /** Share of tickets followed by another on the same serial within 14 days. */
             Double repeatRatePct,
             int repeatSample

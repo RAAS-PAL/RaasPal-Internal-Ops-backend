@@ -65,8 +65,36 @@ public class BrandTicketProperties {
         /** Item-name fragments that mark the brand when the model label is missing or wrong. */
         private List<String> nameTerms = new ArrayList<>();
 
+        /**
+         * RE Action within this many days of Open Date is on time. The RE team's rule
+         * differs by board: 7 on delivery, 3 on cleaning (the pending reports use 3 too).
+         */
+        private int slaDays = 7;
+
+        /** Which tickets count as open; see {@link OpenRule}. */
+        private OpenRule openRule = OpenRule.NOT_DONE;
+
         public void setKey(String key) {
             this.key = key == null ? null : key.trim().toLowerCase(Locale.ROOT);
         }
+    }
+
+    /**
+     * What "open" means for a brand. Chosen by the RE team per brand, not derived:
+     * the two boards file unfinished work differently.
+     */
+    public enum OpenRule {
+        /**
+         * Not in a Done group and status not Done - so Check and On Hold count as open.
+         * AutoXing's rule.
+         */
+        NOT_DONE,
+        /**
+         * Only what sits in the board's open group (All Case), as the pending-case
+         * reports count it. Gausium's rule (2026-09-29), so the page agrees with the
+         * Cleaning pending report; the wider rule would add the Check, AOTGA, Demo and
+         * Refurbished groups, about 300 more.
+         */
+        OPEN_GROUP
     }
 }

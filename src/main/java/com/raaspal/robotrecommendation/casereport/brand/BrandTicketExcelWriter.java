@@ -63,7 +63,7 @@ public class BrandTicketExcelWriter {
             new Column("Under warranty", 12, BrandTicket::underWarranty),
             new Column("Main issue", 40, BrandTicket::mainIssue),
             new Column("Solution", 40, BrandTicket::solution),
-            new Column("Comments (count)", 9, t -> t.comments().size()),
+            new Column("Comments (count)", 9, BrandTicket::commentCount),
             new Column("Comments (chronological)", 80, BrandTicketExcelWriter::threadText),
             new Column("monday link", 30, BrandTicket::mondayUrl));
 
@@ -118,8 +118,8 @@ public class BrandTicketExcelWriter {
         kpi.createCell(0).setCellValue("Median days to RE action");
         setNumber(kpi.createCell(1), sum.kpis().medianDaysToAction(), s);
         kpi = sheet.createRow(r++);
-        kpi.createCell(0).setCellValue("Within 7-day SLA (%)");
-        setNumber(kpi.createCell(1), sum.kpis().slaWithin7Pct(), s);
+        kpi.createCell(0).setCellValue("Within " + sum.kpis().slaDays() + "-day SLA (%)");
+        setNumber(kpi.createCell(1), sum.kpis().slaWithinPct(), s);
         kpi = sheet.createRow(r++);
         kpi.createCell(0).setCellValue("Repeat within 14 days (%)");
         setNumber(kpi.createCell(1), sum.kpis().repeatRatePct(), s);

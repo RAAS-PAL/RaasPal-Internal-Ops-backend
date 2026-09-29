@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Per-brand service-ticket analytics: {@code /api/v1/tickets/{brand}}.
@@ -52,8 +53,9 @@ public class BrandTicketController {
     }
 
     /**
-     * The tickets themselves, with threads. {@code scope=open} keeps only the ones still
-     * being worked; the date range applies either way.
+     * The tickets themselves, with comment counts but not the threads - those come one
+     * at a time from {@link #thread}. {@code scope=open} keeps only the open ones; the
+     * date range applies either way.
      */
     @GetMapping
     public ApiResponse<List<BrandTicket>> tickets(
@@ -76,7 +78,7 @@ public class BrandTicketController {
         List<BrandTicket> all = query.all(b);
         BrandTicketSummary summary = analytics.summarise(b, all, from, to,
                 LocalDate.now(BrandTicketQueryService.BUSINESS_ZONE));
-        byte[] bytes = excel.write(summary, select(all, from, to, false));
+        byte[] bytes = excel.write(summary, query.withThreads(select(all, from, to, false)));
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + excel.filename(summary) + "\"")
                 .contentType(MediaType.parseMediaType(
@@ -84,11 +86,31 @@ public class BrandTicketController {
                 .body(bytes);
     }
 
-    /** Pull the brand's rows from monday now. One API call; a few seconds. */
+    /** One ticket's comment thread, oldest first, for the row the page just opened. */
+    @GetMapping("/{ticketId}/comments")
+    public ApiResponse<List<BrandTicket.Comment>> thread(@PathVariable String brand, @PathVariable UUID ticketId) {
+        BrandTicketProperties.Brand b = brand(brand);
+        try {
+            return ApiResponse.success(query.thread(b, ticketId));
+        } catch (NoSuchElementException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+    }
+
+    /**
+     * Bring the brand's rows up to date with monday now: a listing, then only the
+     * tickets that changed. Seconds on a normal day; a brand's first load is minutes.
+     */
     @PostMapping("/sync")
     public ApiResponse<SyncStatus> sync(@PathVariable String brand) {
         BrandTicketProperties.Brand b = brand(brand);
+        if (sync.isRunning(b.getKey())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, BrandTicketSyncService.ALREADY_RUNNING);
+        }
         BrandTicketSyncService.LastRun run = sync.sync(b);
+        if (BrandTicketSyncService.ALREADY_RUNNING.equals(run.error())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, run.error());
+        }
         if (!run.ok()) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "monday sync failed: " + run.error());
         }

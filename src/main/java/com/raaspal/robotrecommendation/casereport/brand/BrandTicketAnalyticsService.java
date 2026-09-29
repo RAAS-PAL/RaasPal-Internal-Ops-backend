@@ -16,13 +16,13 @@ import java.util.stream.Collectors;
  *
  * <p>Pure: every figure is computed from the list it is given, so a test can hand it
  * six tickets and check the maths. The rules are the RE team's own (2026-09-08): an RE
- * Action within 7 days of Open Date is on time, and a second ticket on the same serial
- * within 14 days is a repeat rather than a new fault.
+ * Action within the brand's SLA days of Open Date is on time (7 on delivery, 3 on
+ * cleaning), and a second ticket on the same serial within 14 days is a repeat rather
+ * than a new fault.
  */
 @Service
 public class BrandTicketAnalyticsService {
 
-    static final int SLA_DAYS = 7;
     static final int REPEAT_DAYS = 14;
     private static final int TOP_N = 8;
 
@@ -42,6 +42,7 @@ public class BrandTicketAnalyticsService {
 
         List<BrandTicket> openNow = all.stream().filter(BrandTicket::open).toList();
 
+        int slaDays = brand.getSlaDays();
         YearMonth thisMonth = YearMonth.from(today);
         int thisMonthCount = countInMonth(all, thisMonth);
         int lastMonthCount = countInMonth(all, thisMonth.minusMonths(1));
@@ -72,8 +73,9 @@ public class BrandTicketAnalyticsService {
                         .medianDaysToAction(median(inRange.stream().map(BrandTicket::daysToAction)
                                 .filter(Objects::nonNull).toList()))
                         .actionSample((int) inRange.stream().map(BrandTicket::daysToAction).filter(Objects::nonNull).count())
-                        .slaWithin7Pct(share(inRange.stream().map(BrandTicket::daysToAction).filter(Objects::nonNull).toList(),
-                                d -> d <= SLA_DAYS))
+                        .slaDays(slaDays)
+                        .slaWithinPct(share(inRange.stream().map(BrandTicket::daysToAction).filter(Objects::nonNull).toList(),
+                                d -> d <= slaDays))
                         .repeatRatePct(repeatRate(inRange, all))
                         .repeatSample((int) inRange.stream().filter(t -> t.serial() != null).count())
                         .build())
@@ -86,8 +88,10 @@ public class BrandTicketAnalyticsService {
                 .topSites(topSites(inRange))
                 .repeatRobots(repeatRobots(inRange))
                 .definitions(new Definitions(
-                        "Not in a Done group and status is not Done",
-                        "RE Action within " + SLA_DAYS + " days of Open Date",
+                        brand.getOpenRule() == BrandTicketProperties.OpenRule.OPEN_GROUP
+                                ? "In the All Case group, as the pending-case report counts it"
+                                : "Not in a Done group and status is not Done",
+                        "RE Action within " + slaDays + " days of Open Date",
                         "Another ticket on the same serial within " + REPEAT_DAYS + " days",
                         "Open Date, or the day the ticket was first synced when Open Date is blank"))
                 .build();

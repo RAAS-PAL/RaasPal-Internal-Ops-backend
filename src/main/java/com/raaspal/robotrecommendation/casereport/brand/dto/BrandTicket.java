@@ -9,8 +9,12 @@ import java.util.List;
 /**
  * One ticket as the brand page and the export see it: the mapped board fields, the
  * unmapped ones lifted out of {@code raw_columns}, and the comment thread.
+ *
+ * <p>The list endpoint sends {@code comments} empty and only {@code commentCount}: a
+ * year of Gausium is a thousand tickets and four thousand comments, and the page opens
+ * one thread at a time. The export and the thread endpoint fill it.
  */
-@Builder
+@Builder(toBuilder = true)
 public record BrandTicket(
         String id,
         String itemId,
@@ -45,6 +49,8 @@ public record BrandTicket(
         LocalDateTime lastSyncedAt,
         /** Deep link into monday, or null when {@code app.tickets.monday-web-url} is blank. */
         String mondayUrl,
+        /** Stored comments and replies, whether or not {@code comments} carries them. */
+        int commentCount,
         List<Comment> comments
 ) {
 
