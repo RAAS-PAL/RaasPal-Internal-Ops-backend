@@ -78,7 +78,7 @@ public class MkPendingReportGenerator {
     private static final String C_SOLUTION = "text";                 // Solution
     private static final String C_OPEN_DATE = "date5";               // Open Date
     private static final String C_RE_ON_SITE = "date_18";            // RE Action
-    private static final String C_PROVINCE = "color_mm6mwh74";       // Province
+    private static final String C_PROVINCE = "dropdown_mm7g8vbc";    // Province (was color_mm6mwh74 until the column was replaced on 2026-09-29)
     private static final String C_STATUS = "status";                 // Status
     private static final String C_SUP_STATUS = "status_1";           // Sup Status
     private static final String C_UNIT = "text_mksgzhzr";            // Unit — see branchCode()

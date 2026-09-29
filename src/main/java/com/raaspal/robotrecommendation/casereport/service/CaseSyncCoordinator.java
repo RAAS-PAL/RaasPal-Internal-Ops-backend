@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.casereport.service;
 
+import com.raaspal.robotrecommendation.casereport.aotsheet.AotSheetSyncService;
 import com.raaspal.robotrecommendation.casereport.brand.BrandTicketSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,14 +30,15 @@ public class CaseSyncCoordinator {
 
     private final CaseTicketSyncService syncService;
     private final BrandTicketSyncService brandSync;
+    private final AotSheetSyncService aotSheetSync;
 
     /**
-     * Every board, each in its own transaction.
+     * Every board, each in its own transaction, then the AOT sheet when its sync is on.
      *
      * <p>A board that throws is logged and skipped rather than aborting the run. The
      * snapshot for a given day cannot be taken later — monday cannot say what a ticket
      * looked like yesterday — so salvaging the boards that did work is strictly better
-     * than losing the day because one of them failed.
+     * than losing the day because one of them failed. The sheet is no different.
      */
     public List<CaseTicketSyncService.SyncResult> syncAll() {
         List<CaseTicketSyncService.SyncResult> results = new ArrayList<>();
@@ -47,6 +49,15 @@ public class CaseSyncCoordinator {
             } catch (Exception e) {
                 log.error("Sync failed for board {} — that board has no snapshot for today, "
                         + "and it cannot be backfilled later.", spec.boardId(), e);
+            }
+        }
+
+        if (aotSheetSync.isEnabled()) {
+            try {
+                results.add(aotSheetSync.sync());
+            } catch (Exception e) {
+                log.error("Sync failed for the AOT Google Sheet — it has no snapshot for today, "
+                        + "and the sheet keeps no history to backfill it from.", e);
             }
         }
 

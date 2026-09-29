@@ -160,7 +160,7 @@ public class SlaCalculator {
         // the remainder.
         //
         // ⚠️ This holds because Province on the delivery board is a dropdown
-        // (color_mm6mwh74), so its values come from 14 defined labels and cannot be
+        // (dropdown_mm7g8vbc; color_mm6mwh74 before 2026-09-29), so its values come from 14 defined labels and cannot be
         // misspelled. If a province ever arrives from free text, parsing or AI instead,
         // a near-miss like "Bangkokk" would fall through to the upcountry threshold and
         // read as on time for two extra days.

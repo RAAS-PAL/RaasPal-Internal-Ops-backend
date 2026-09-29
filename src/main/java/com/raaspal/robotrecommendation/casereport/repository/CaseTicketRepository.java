@@ -56,6 +56,10 @@ public interface CaseTicketRepository extends JpaRepository<CaseTicket, UUID> {
                     @Param("itemIds") Collection<String> itemIds,
                     @Param("syncedAt") LocalDateTime syncedAt);
 
+    /** When one source board (a monday board, or a Google Sheet by its id) was last synced; null if never. */
+    @Query("SELECT MAX(t.lastSyncedAt) FROM CaseTicket t WHERE t.source = :source AND t.sourceBoardId = :boardId")
+    LocalDateTime lastSyncedAt(@Param("source") CaseSource source, @Param("boardId") String boardId);
+
     long countBySourceBoardIdAndIsPresentTrue(String sourceBoardId);
 
     /** What a report actually reads: the open cases on one board. */

@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.casereport.scheduler;
 
+import com.raaspal.robotrecommendation.casereport.aotsheet.AotSheetAutoSync;
 import com.raaspal.robotrecommendation.casereport.entity.CaseReportDefinition;
 import com.raaspal.robotrecommendation.casereport.service.CaseReportRunService;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
@@ -35,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * ticket whose comments or status changed since it was last summarised (see the caches
  * in {@code SolutionLineWriter} and {@code PartsLineWriter}).
  *
+ * <p><b>AOT's Google Sheet</b> is synced at the end of each cycle too, when its sync is on.
+ *
  * <p><b>Its own thread.</b> Spring runs every {@code @Scheduled} method on one shared
  * thread, which also runs the CVTE poll every 30 seconds and Monday's weekly report
  * delivery. A cycle takes minutes, so it is handed to a single worker here and the
@@ -49,6 +52,7 @@ public class CaseReportRefreshScheduler {
     private static final ZoneId BANGKOK = ZoneId.of("Asia/Bangkok");
 
     private final CaseReportRunService runService;
+    private final AotSheetAutoSync aotSheet;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "case-report-refresh");
@@ -58,8 +62,9 @@ public class CaseReportRefreshScheduler {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    public CaseReportRefreshScheduler(CaseReportRunService runService) {
+    public CaseReportRefreshScheduler(CaseReportRunService runService, AotSheetAutoSync aotSheet) {
         this.runService = runService;
+        this.aotSheet = aotSheet;
     }
 
     @Scheduled(cron = "${app.casereport.refresh-cron:0 */15 7-23 * * *}", zone = "Asia/Bangkok")
@@ -98,5 +103,17 @@ public class CaseReportRefreshScheduler {
         }
         log.info("Case report refresh for {}: {} of {} sheets in {} s", day, refreshed,
                 CaseReportDefinition.SHEETS.size(), Duration.ofNanos(System.nanoTime() - started).toSeconds());
+
+        // AOT's Google Sheet in the same cycle, so it is never more than one cycle behind
+        // the boards. It skips itself when its sync is off or it ran moments ago (the AOT
+        // tab also syncs it on open).
+        try {
+            AotSheetAutoSync.Outcome sheet = aotSheet.syncIfDue(Duration.ofMinutes(1));
+            if (sheet.synced()) {
+                log.info("AOT sheet synced with the refresh: {} rows", sheet.result().seen());
+            }
+        } catch (Exception e) {
+            log.error("Syncing the AOT sheet with the refresh failed; the stored copy stands.", e);
+        }
     }
 }

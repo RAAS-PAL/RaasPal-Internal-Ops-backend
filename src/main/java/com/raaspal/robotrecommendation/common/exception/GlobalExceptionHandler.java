@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.common.exception;
 
+import com.raaspal.robotrecommendation.casereport.adapters.googlesheet.GoogleSheetException;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.MondayApiException;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import org.slf4j.Logger;
@@ -108,6 +109,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MondayApiException.class)
     public ResponseEntity<ApiResponse<Void>> handleMondayApi(MondayApiException ex) {
         log.warn("monday.com request failed: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    /** A Google Sheets failure is upstream too, and answered like monday's. */
+    @ExceptionHandler(GoogleSheetException.class)
+    public ResponseEntity<ApiResponse<Void>> handleGoogleSheet(GoogleSheetException ex) {
+        log.warn("Google Sheets request failed: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(ApiResponse.error(ex.getMessage()));
     }
