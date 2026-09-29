@@ -52,4 +52,17 @@ public class CaseSyncCoordinator {
 
         return results;
     }
+
+    /**
+     * Every configured brand's tickets ({@code app.tickets.brands}), incrementally.
+     *
+     * <p>Separate from {@link #syncAll} so the daily job can run it <em>after</em>
+     * freezing the reports - a brand's first load takes minutes, and the reports must not
+     * wait on it - and so the manual board-sync endpoint stays as quick as it was. Until
+     * 2026-09-29 this was never called: the brand sync ran only when someone pressed
+     * Refresh, and a ticket closed since then still showed as open.
+     */
+    public List<BrandTicketSyncService.LastRun> syncBrands() {
+        return brandSync.syncAll();
+    }
 }

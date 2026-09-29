@@ -58,6 +58,25 @@ public class CaseReportDailyScheduler {
     public void recordToday() {
         snapshotBoards();
         freezeTodaysReports();
+        syncBrandTickets();
+    }
+
+    /**
+     * The per-brand ticket history behind the Service Analysis page. Last, because the
+     * reports above are what the team reads at 08:00 and a brand's first load takes
+     * minutes. Each brand fails on its own and says so in its own log line.
+     */
+    private void syncBrandTickets() {
+        try {
+            syncCoordinator.syncBrands().forEach(run -> {
+                if (!run.ok()) {
+                    log.warn("Daily brand ticket sync failed: {}", run.error());
+                }
+            });
+        } catch (Exception e) {
+            log.error("Daily brand ticket sync failed; the Service Analysis page keeps "
+                    + "yesterday's tickets until someone presses Refresh.", e);
+        }
     }
 
     private void snapshotBoards() {
