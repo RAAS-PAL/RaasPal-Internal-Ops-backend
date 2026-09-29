@@ -1,0 +1,67 @@
+# Continuous integration: every push, to any branch, builds the backend and runs
+# the whole test suite on a fresh GitHub-hosted Linux machine. The result shows as
+# a green tick or red cross next to the commit on GitHub.
+#
+# It never deploys and never touches a real database: the tests run against
+# in-memory H2 with Flyway off (src/test/resources/application.properties), so no
+# secrets are needed and Supabase is out of reach.
+name: CI
+
+on:
+  # Any branch, so a feature branch is tested before it is merged into main. main
+  # itself is tested again when it moves; after a fast-forward merge that is the
+  # same commit, already green.
+  push:
+    branches: ['**']
+  # A "Run workflow" button on the Actions tab, for re-running by hand.
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run still going for the older one:
+# only the latest commit's result matters, and it saves minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read the code; nothing else. The job cannot push, comment or deploy.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    # The suite takes about 5 minutes; anything past 20 is a hang, not a slow test.
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      # JDK 21, as in pom.xml and the Dockerfile. Not 25: Mockito cannot mock
+      # concrete classes there, and every @MockitoBean test class fails to load.
+      # cache: maven keeps ~/.m2 between runs, so dependencies download once.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # mvnw is committed without the executable bit (mode 100644), as the
+      # Dockerfile also works around. verify = compile, run every test, then
+      # package the jar - the same jar the Docker image is built from.
+      # -B: no colour codes or prompts in the log. -ntp: no download progress lines.
+      - name: Build and run the tests
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp verify
+
+      # On failure, keep the per-test reports for a week so the failing test and
+      # its stack trace can be downloaded from the run page.
+      - name: Keep the test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          retention-days: 7
