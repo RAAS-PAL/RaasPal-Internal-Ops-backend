@@ -43,6 +43,7 @@ class PmApiSecurityTest {
         mockMvc.perform(patch(MOVE).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get(BASE + "/plan-changes")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(BASE + "/undated")).andExpect(status().isUnauthorized());
         mockMvc.perform(post(UNDO).with(csrf())).andExpect(status().isUnauthorized());
     }
 
@@ -55,6 +56,7 @@ class PmApiSecurityTest {
         mockMvc.perform(patch(MOVE).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get(BASE + "/plan-changes")).andExpect(status().isForbidden());
+        mockMvc.perform(get(BASE + "/undated")).andExpect(status().isForbidden());
         mockMvc.perform(post(UNDO).with(csrf())).andExpect(status().isForbidden());
     }
 
@@ -69,6 +71,8 @@ class PmApiSecurityTest {
     void allowsTheReTeam() throws Exception {
         mockMvc.perform(get(BASE + "/filters")).andExpect(status().isOk());
         mockMvc.perform(get(BASE + "/year")).andExpect(status().isOk());
+        mockMvc.perform(get(BASE + "/month")).andExpect(status().isOk());
+        mockMvc.perform(get(BASE + "/undated")).andExpect(status().isOk());
     }
 
     /**

@@ -70,18 +70,42 @@ public class PmPlanningService {
     public PmMonthResponse range(LocalDate from, LocalDate to, boolean includeUndated, PmFilter filter) {
         List<PmVisitRepository.VisitRow> found = query(from, to, includeUndated, filter);
         LocalDate today = LocalDate.now();
+        return new PmMonthResponse(from, to, summarise(found, filter, today),
+                found.stream().map(row -> toRow(row, today)).toList());
+    }
 
-        List<PmMonthResponse.Row> rows = found.stream()
-                .map(row -> new PmMonthResponse.Row(
-                        row.getVisitId(), row.getVisitName(), row.getPmSequence(), row.getPlanDate(),
-                        row.getActionDate(), row.getTimeText(), row.getStatusRaw(), row.getStatusBucket(),
-                        daysOverdue(row.getPlanDate(), row.getStatusBucket(), today), row.getOwnerNames(),
-                        row.getContractId(), row.getItemName(), row.getCustomerName(), row.getProject(),
-                        row.getServiceLine(), row.getProvince(), row.getRegion(), row.getZone(),
-                        row.getRobotModel(), row.getRobotCount(), row.getContractType()))
-                .toList();
+    /**
+     * The visits still owed that have no plan date, site by site in PM order: what the
+     * yellow banner counts, laid out for giving each one a date. No period, so no
+     * {@code from} and {@code to}.
+     */
+    public PmMonthResponse undated(PmFilter filter) {
+        List<PmVisitRepository.VisitRow> found = withoutExcludedCompanies(visitRepository.findUndated(
+                filter.serviceLine(), filter.region(), filter.zone(), filter.province(), filter.status(),
+                filter.owner(), filter.q()), filter);
+        LocalDate today = LocalDate.now();
+        return new PmMonthResponse(null, null, summarise(found, filter, today),
+                found.stream().map(row -> toRow(row, today)).toList());
+    }
 
-        return new PmMonthResponse(from, to, summarise(found, filter, today), rows);
+    private static PmMonthResponse.Row toRow(PmVisitRepository.VisitRow row, LocalDate today) {
+        return new PmMonthResponse.Row(
+                row.getVisitId(), row.getVisitName(), row.getPmSequence(), row.getPlanDate(),
+                row.getActionDate(), row.getTimeText(), row.getStatusRaw(), row.getStatusBucket(),
+                daysOverdue(row.getPlanDate(), row.getStatusBucket(), today), row.getOwnerNames(),
+                row.getContractId(), row.getItemName(), row.getCustomerName(), row.getProject(),
+                row.getServiceLine(), row.getProvince(), row.getRegion(), row.getZone(),
+                row.getRobotModel(), row.getRobotCount(), row.getContractType(),
+                row.getContractGroup(), contractEnded(row.getContractGroup()));
+    }
+
+    /**
+     * Whether a contract's monday group says it has ended. The PM boards file ended
+     * contracts under groups named หมดสัญญา ("contract ended"), sometimes with more
+     * words around it; the rest are live programmes.
+     */
+    static boolean contractEnded(String groupTitle) {
+        return groupTitle != null && groupTitle.contains("หมดสัญญา");
     }
 
     /** What the filter bar offers. */
@@ -100,10 +124,13 @@ public class PmPlanningService {
 
     private List<PmVisitRepository.VisitRow> query(LocalDate from, LocalDate to, boolean includeUndated,
                                                    PmFilter filter) {
-        List<PmVisitRepository.VisitRow> rows = visitRepository.findVisitsInRange(from, to, includeUndated,
+        return withoutExcludedCompanies(visitRepository.findVisitsInRange(from, to, includeUndated,
                 filter.serviceLine(), filter.region(), filter.zone(), filter.province(), filter.status(),
-                filter.owner(), filter.q());
+                filter.owner(), filter.q()), filter);
+    }
 
+    private static List<PmVisitRepository.VisitRow> withoutExcludedCompanies(List<PmVisitRepository.VisitRow> rows,
+                                                                            PmFilter filter) {
         // Excluded chains are dropped here rather than in the query. A NOT IN over a
         // variable-length list needs either an array function (Postgres-only, so the
         // H2 tests could not run it) or a rebuilt statement per request, and this

@@ -142,6 +142,27 @@ public class PmPlanningController {
                 planChangeService.undo(changeId, confirmed, actor(authentication))));
     }
 
+    /**
+     * Visits still owed that have no plan date, site by site in PM order: the list the
+     * yellow banner leads to, where each gets a date (through the move endpoint).
+     */
+    @GetMapping("/undated")
+    public ResponseEntity<ApiResponse<PmMonthResponse>> undated(
+            @RequestParam(required = false) String serviceLine,
+            @RequestParam(required = false) String region,
+            @RequestParam(required = false) String zone,
+            @RequestParam(required = false) String province,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String owner,
+            @RequestParam(required = false) String q,
+            @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
+            @RequestParam(name = "company", required = false) List<String> company) {
+
+        PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
+                excludeCompany, company);
+        return ResponseEntity.ok(ApiResponse.success(planningService.undated(filter)));
+    }
+
     /** Options for the filter bar. */
     @GetMapping("/filters")
     public ResponseEntity<ApiResponse<PmFilterOptions>> filters() {
