@@ -5,6 +5,7 @@ import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.pm.dto.*;
 import com.raaspal.robotrecommendation.pm.entity.PmSyncRun;
 import com.raaspal.robotrecommendation.pm.service.MondayPmSyncService;
+import com.raaspal.robotrecommendation.pm.service.PmPlanChangeService;
 import com.raaspal.robotrecommendation.pm.service.PmPlanningService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -18,13 +19,15 @@ import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * The PM 52-week planner.
  *
- * <p>Read-only over the mirrored monday data. Nothing here writes to monday or to
- * a planning layer: monday remains the single place PM is scheduled, and this is
- * the view of it that monday cannot give.
+ * <p>Reads the mirrored monday data. The one write is a visit's plan date - moved,
+ * or a move undone - and that goes to monday first: monday remains the single place
+ * PM is scheduled, with no planning layer of its own here, and this is the view of
+ * it that monday cannot give.
  */
 @RestController
 @RequestMapping("/api/v1/pm")
@@ -34,6 +37,7 @@ public class PmPlanningController {
 
     private final PmPlanningService planningService;
     private final MondayPmSyncService syncService;
+    private final PmPlanChangeService planChangeService;
 
     /** The 52-week grid for one ISO year. */
     @GetMapping("/year")
@@ -104,6 +108,40 @@ public class PmPlanningController {
                 planningService.range(rangeFrom, rangeTo, includeUndated, filter)));
     }
 
+    /**
+     * Moves one visit to a new plan date, on monday and then here. Open to everyone who
+     * can see the planner; who moved what is recorded in {@code pm_plan_change}.
+     */
+    @PatchMapping("/visits/{visitId}/plan-date")
+    public ResponseEntity<ApiResponse<PmPlanDateChange>> movePlanDate(
+            @PathVariable UUID visitId,
+            @RequestBody PmPlanDateRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success(planChangeService.move(
+                visitId, request.planDate(), request.seenPlanDate(), request.confirmed(), actor(authentication))));
+    }
+
+    /** The latest moves and undos, newest first: who moved what, and what can still be undone. */
+    @GetMapping("/plan-changes")
+    public ResponseEntity<ApiResponse<List<PmPlanChangeView>>> planChanges(
+            @RequestParam(required = false, defaultValue = "50") int limit) {
+        if (limit < 1 || limit > 200) {
+            throw new BadRequestException("limit must be between 1 and 200");
+        }
+        return ResponseEntity.ok(ApiResponse.success(planChangeService.recent(limit)));
+    }
+
+    /** Puts a moved visit back on its previous date, on monday and then here. */
+    @PostMapping("/plan-changes/{changeId}/undo")
+    public ResponseEntity<ApiResponse<PmPlanDateChange>> undoPlanChange(
+            @PathVariable UUID changeId,
+            @RequestBody(required = false) PmUndoRequest request,
+            Authentication authentication) {
+        boolean confirmed = request != null && request.confirmed();
+        return ResponseEntity.ok(ApiResponse.success(
+                planChangeService.undo(changeId, confirmed, actor(authentication))));
+    }
+
     /** Options for the filter bar. */
     @GetMapping("/filters")
     public ResponseEntity<ApiResponse<PmFilterOptions>> filters() {
@@ -126,6 +164,10 @@ public class PmPlanningController {
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "running", syncService.isRunning(),
                 "runs", runs)));
+    }
+
+    private static String actor(Authentication authentication) {
+        return authentication != null ? authentication.getName() : "unknown";
     }
 
     private static YearMonth parseMonth(String month) {

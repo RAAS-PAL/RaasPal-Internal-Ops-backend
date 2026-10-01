@@ -1,0 +1,19 @@
+package com.raaspal.robotrecommendation.pm.dto;
+
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+/**
+ * One row of the planner's "Recent moves".
+ *
+ * @param siteName  the contract's item name; null when the visit is no longer in the mirror
+ * @param undone    a later undo reversed this move
+ * @param undoable  a move that is the visit's latest change and not undone yet; whether
+ *                  monday still agrees is only known when the undo is tried
+ */
+public record PmPlanChangeView(UUID id, UUID visitId, String visitName, String siteName, String serviceLine,
+                               String action, LocalDate oldPlanDate, LocalDate newPlanDate,
+                               boolean confirmedCompleted, String changedBy, OffsetDateTime changedAt,
+                               boolean undone, boolean undoable) {
+}
