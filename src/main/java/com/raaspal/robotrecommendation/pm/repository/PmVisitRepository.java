@@ -31,6 +31,7 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
     /** The columns every visit listing returns, joined to its contract; see {@link VisitRow}. */
     String VISIT_SELECT = """
             SELECT v.id                        AS visitId,
+                   v.source_item_id            AS itemId,
                    v.visit_name                AS visitName,
                    v.pm_sequence               AS pmSequence,
                    v.plan_date                 AS planDate,
@@ -117,6 +118,8 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
     /** One visit as the month view lists it. */
     interface VisitRow {
         UUID getVisitId();
+        /** The monday subitem's id - what monday's "Item ID" column shows. */
+        String getItemId();
         String getVisitName();
         Integer getPmSequence();
         LocalDate getPlanDate();

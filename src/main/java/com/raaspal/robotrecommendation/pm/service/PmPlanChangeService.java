@@ -118,7 +118,7 @@ public class PmPlanChangeService {
             PmContract contract = visit == null ? null : contractsById.get(visit.getPmContractId());
             boolean isUndone = undone.contains(row.getId());
             out.add(new PmPlanChangeView(
-                    row.getId(), row.getPmVisitId(),
+                    row.getId(), row.getPmVisitId(), row.getSourceItemId(),
                     visit == null ? null : visit.getVisitName(),
                     contract == null ? null : contract.getItemName(),
                     contract == null || contract.getServiceLine() == null ? null : contract.getServiceLine().name(),

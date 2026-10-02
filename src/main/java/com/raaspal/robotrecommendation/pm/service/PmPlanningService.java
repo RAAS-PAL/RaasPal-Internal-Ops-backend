@@ -90,7 +90,7 @@ public class PmPlanningService {
 
     private static PmMonthResponse.Row toRow(PmVisitRepository.VisitRow row, LocalDate today) {
         return new PmMonthResponse.Row(
-                row.getVisitId(), row.getVisitName(), row.getPmSequence(), row.getPlanDate(),
+                row.getVisitId(), row.getItemId(), row.getVisitName(), row.getPmSequence(), row.getPlanDate(),
                 row.getActionDate(), row.getTimeText(), row.getStatusRaw(), row.getStatusBucket(),
                 daysOverdue(row.getPlanDate(), row.getStatusBucket(), today), row.getOwnerNames(),
                 row.getContractId(), row.getItemName(), row.getCustomerName(), row.getProject(),
