@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Board and column mapping for the monday PM boards.
@@ -35,6 +36,12 @@ public class PmMondayProperties {
     /** Whether the scheduled sync runs. The manual endpoint works regardless. */
     private boolean syncEnabled = false;
 
+    /**
+     * Whether the planner may change a visit's plan date on monday. The one switch
+     * that stops the planner writing to monday: the grid stays readable either way.
+     */
+    private boolean writeEnabled = true;
+
     private String syncCron = "0 30 2 * * *";
 
     private String syncZone = "Asia/Bangkok";
@@ -50,6 +57,11 @@ public class PmMondayProperties {
     private int maxPages = 200;
 
     private List<Board> boards = new ArrayList<>();
+
+    /** The configured board whose subitems live on {@code subitemBoardId}, if any. */
+    public Optional<Board> boardForSubitemBoard(String subitemBoardId) {
+        return boards.stream().filter(b -> b.getSubitemBoardId().equals(subitemBoardId)).findFirst();
+    }
 
     @Getter
     @Setter

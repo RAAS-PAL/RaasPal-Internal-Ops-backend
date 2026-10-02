@@ -6,11 +6,13 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -24,6 +26,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PmApiSecurityTest {
 
     private static final String BASE = "/api/v1/pm";
+    private static final String MOVE = BASE + "/visits/00000000-0000-0000-0000-000000000001/plan-date";
+    private static final String UNDO = BASE + "/plan-changes/00000000-0000-0000-0000-000000000001/undo";
+    private static final String MOVE_BODY = "{\"planDate\":\"2026-06-17\",\"seenPlanDate\":\"2026-06-10\"}";
 
     @Autowired
     private MockMvc mockMvc;
@@ -35,6 +40,11 @@ class PmApiSecurityTest {
         mockMvc.perform(get(BASE + "/month")).andExpect(status().isUnauthorized());
         mockMvc.perform(get(BASE + "/filters")).andExpect(status().isUnauthorized());
         mockMvc.perform(post(BASE + "/monday/sync").with(csrf())).andExpect(status().isUnauthorized());
+        mockMvc.perform(patch(MOVE).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get(BASE + "/plan-changes")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(BASE + "/undated")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(UNDO).with(csrf())).andExpect(status().isUnauthorized());
     }
 
     /** A customer login must not see other customers' schedules. */
@@ -43,6 +53,11 @@ class PmApiSecurityTest {
     void rejectsCustomerRole() throws Exception {
         mockMvc.perform(get(BASE + "/year")).andExpect(status().isForbidden());
         mockMvc.perform(get(BASE + "/filters")).andExpect(status().isForbidden());
+        mockMvc.perform(patch(MOVE).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get(BASE + "/plan-changes")).andExpect(status().isForbidden());
+        mockMvc.perform(get(BASE + "/undated")).andExpect(status().isForbidden());
+        mockMvc.perform(post(UNDO).with(csrf())).andExpect(status().isForbidden());
     }
 
     @Test
@@ -56,6 +71,21 @@ class PmApiSecurityTest {
     void allowsTheReTeam() throws Exception {
         mockMvc.perform(get(BASE + "/filters")).andExpect(status().isOk());
         mockMvc.perform(get(BASE + "/year")).andExpect(status().isOk());
+        mockMvc.perform(get(BASE + "/month")).andExpect(status().isOk());
+        mockMvc.perform(get(BASE + "/undated")).andExpect(status().isOk());
+    }
+
+    /**
+     * Moving, the record of moves and undo are open to the whole team, not only admins.
+     * An unknown visit or move stops before monday.
+     */
+    @Test
+    @WithMockUser(roles = "RAASPAL_TEAM")
+    void letsTheReTeamMoveAndUndo() throws Exception {
+        mockMvc.perform(patch(MOVE).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get(BASE + "/plan-changes")).andExpect(status().isOk());
+        mockMvc.perform(post(UNDO).with(csrf())).andExpect(status().isNotFound());
     }
 
     @Test

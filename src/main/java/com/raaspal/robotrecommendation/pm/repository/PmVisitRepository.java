@@ -28,15 +28,10 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
             """)
     int markAbsentBefore(@Param("boardId") String boardId, @Param("runStart") OffsetDateTime runStart);
 
-    /**
-     * Visits due in a date range, one row each, for the month view.
-     *
-     * <p>{@code planDate} may be null only when {@code includeUndated} is true: the
-     * unscheduled PM that the range cannot match by definition, surfaced on purpose
-     * rather than dropped.
-     */
-    @Query(value = """
+    /** The columns every visit listing returns, joined to its contract; see {@link VisitRow}. */
+    String VISIT_SELECT = """
             SELECT v.id                        AS visitId,
+                   v.source_item_id            AS itemId,
                    v.visit_name                AS visitName,
                    v.pm_sequence               AS pmSequence,
                    v.plan_date                 AS planDate,
@@ -56,13 +51,16 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
                    c.zone_resolved             AS zone,
                    c.robot_model               AS robotModel,
                    c.robot_count               AS robotCount,
-                   c.contract_type             AS contractType
+                   c.contract_type             AS contractType,
+                   c.group_title               AS contractGroup
               FROM pm_visit v
               JOIN pm_contract c ON c.id = v.pm_contract_id
              WHERE v.is_present = TRUE
                AND c.is_present = TRUE
-               AND ( (v.plan_date BETWEEN :from AND :to)
-                     OR (CAST(:includeUndated AS boolean) = TRUE AND v.plan_date IS NULL) )
+            """;
+
+    /** The filter bar, shared by every visit listing so the views cannot drift apart. */
+    String VISIT_FILTERS = """
                AND (CAST(:serviceLine AS text) IS NULL OR c.service_line = CAST(:serviceLine AS text))
                AND (CAST(:region AS text)      IS NULL OR c.region_resolved = CAST(:region AS text))
                AND (CAST(:zone AS text)        IS NULL OR c.zone_resolved = CAST(:zone AS text))
@@ -72,6 +70,19 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
                AND (CAST(:q AS text)           IS NULL OR c.item_name ILIKE CONCAT('%', CAST(:q AS text), '%')
                                                        OR c.customer_name_raw ILIKE CONCAT('%', CAST(:q AS text), '%')
                                                        OR c.project_raw ILIKE CONCAT('%', CAST(:q AS text), '%'))
+            """;
+
+    /**
+     * Visits due in a date range, one row each, for the month view.
+     *
+     * <p>{@code planDate} may be null only when {@code includeUndated} is true: the
+     * unscheduled PM that the range cannot match by definition, surfaced on purpose
+     * rather than dropped.
+     */
+    @Query(value = VISIT_SELECT + """
+               AND ( (v.plan_date BETWEEN :from AND :to)
+                     OR (CAST(:includeUndated AS boolean) = TRUE AND v.plan_date IS NULL) )
+            """ + VISIT_FILTERS + """
              ORDER BY v.plan_date NULLS LAST, c.region_resolved, c.province_resolved, c.item_name
             """, nativeQuery = true)
     List<VisitRow> findVisitsInRange(@Param("from") LocalDate from,
@@ -85,9 +96,30 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
                                      @Param("owner") String owner,
                                      @Param("q") String q);
 
+    /**
+     * Visits still owed that have no plan date - the ones the yellow banner counts, as
+     * {@link #countUndated} does - site by site and in PM order, for the No-date list.
+     */
+    @Query(value = VISIT_SELECT + """
+               AND v.plan_date IS NULL
+               AND v.status_bucket <> 'COMPLETED'
+            """ + VISIT_FILTERS + """
+             ORDER BY c.region_resolved, c.province_resolved, c.item_name, c.id,
+                      v.pm_sequence NULLS LAST, v.visit_name
+            """, nativeQuery = true)
+    List<VisitRow> findUndated(@Param("serviceLine") String serviceLine,
+                               @Param("region") String region,
+                               @Param("zone") String zone,
+                               @Param("province") String province,
+                               @Param("status") String status,
+                               @Param("owner") String owner,
+                               @Param("q") String q);
+
     /** One visit as the month view lists it. */
     interface VisitRow {
         UUID getVisitId();
+        /** The monday subitem's id - what monday's "Item ID" column shows. */
+        String getItemId();
         String getVisitName();
         Integer getPmSequence();
         LocalDate getPlanDate();
@@ -108,6 +140,8 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
         String getRobotModel();
         Integer getRobotCount();
         String getContractType();
+        /** The monday group the contract sits in, such as a contract state. */
+        String getContractGroup();
     }
 
     /**
