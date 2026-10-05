@@ -63,12 +63,24 @@ public class AuthService {
         userRepository.save(user);
     }
 
+    @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmailIgnoreCaseAndIsActiveTrue(request.email())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid email or password"));
+        boolean knowledge = "kc".equalsIgnoreCase(request.audience());
+        if (request.audience() != null && !knowledge) {
+            throw new com.raaspal.robotrecommendation.knowledge.KcAuthException("invalid");
+        }
+        String email = knowledge
+                ? com.raaspal.robotrecommendation.knowledge.KcAuthService.companyEmail(request.email())
+                : request.email().trim();
+        User user = userRepository.lockByEmail(email).filter(User::isActive)
+                .orElseThrow(() -> new com.raaspal.robotrecommendation.knowledge.KcAuthException("credentials", 401, 0));
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
-            throw new IllegalArgumentException("Invalid email or password");
+            throw new com.raaspal.robotrecommendation.knowledge.KcAuthException("credentials", 401, 0);
+        }
+
+        if (knowledge && user.getKcRole() == null) {
+            user.setKcRole(com.raaspal.robotrecommendation.knowledge.KcRole.VIEWER);
         }
 
         String token = jwtUtils.generateToken(user.getEmail());

@@ -56,10 +56,32 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex ->
-                        ex.authenticationEntryPoint(authEntryPointJwt))
+                        ex.authenticationEntryPoint((request, response, error) -> {
+                            if (request.getServletPath().startsWith("/api/v1/kc/")) {
+                                response.setStatus(401);
+                                response.setContentType("application/json");
+                                response.getWriter().write("{\"success\":false,\"message\":\"credentials\"}");
+                            } else {
+                                authEntryPointJwt.commence(request, response, error);
+                            }
+                        }))
                 .authorizeHttpRequests(auth -> auth
                         // Auth endpoints are public
                         .requestMatchers("/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/kc/auth/send-code", "/api/v1/kc/auth/verify-code",
+                                "/api/v1/kc/auth/signup", "/api/v1/kc/auth/reset").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/kc/auth/me").authenticated()
+                        // Before ALL legacy matchers, including public report/PIN routes.
+                        // AuthTokenFilter has already loaded the current database role.
+                        .requestMatchers(request -> {
+                            var caller = org.springframework.security.core.context.SecurityContextHolder
+                                    .getContext().getAuthentication();
+                            return caller != null && caller.getAuthorities().stream()
+                                    .anyMatch(a -> a.getAuthority().equals("ROLE_STAFF"));
+                        }).denyAll()
+                        // Future KC content endpoints need explicit domain/role authorization.
+                        .requestMatchers("/api/v1/kc/**").denyAll()
                         // Public customer report links (the monthly email URL) — no account
                         .requestMatchers("/api/v1/reports/public/**").permitAll()
                         // MK's read-only stock view: no staff login, but every read needs the

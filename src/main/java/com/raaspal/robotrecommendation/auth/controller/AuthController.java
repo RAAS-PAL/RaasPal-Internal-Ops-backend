@@ -28,7 +28,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ApiResponse.success("Login successful", authService.login(request));
+        return ApiResponse.success(authService.login(request));
     }
 
     @PostMapping("/verify-password")
