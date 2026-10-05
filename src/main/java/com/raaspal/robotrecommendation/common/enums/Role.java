@@ -12,5 +12,8 @@ public enum Role {
      * <p>No migration was needed to add this: {@code users.role} is a plain
      * {@code VARCHAR(20)} with no CHECK constraint, and the name fits.
      */
-    INVENTORY_STAFF
+    INVENTORY_STAFF,
+
+    /** Knowledge Center only; no Ops or RIMS access. */
+    STAFF
 }

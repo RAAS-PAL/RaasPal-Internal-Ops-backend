@@ -35,6 +35,10 @@ public class User {
     @Column(nullable = false, length = 20)
     private Role role;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "kc_role", length = 10)
+    private com.raaspal.robotrecommendation.knowledge.KcRole kcRole;
+
     @Builder.Default
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;

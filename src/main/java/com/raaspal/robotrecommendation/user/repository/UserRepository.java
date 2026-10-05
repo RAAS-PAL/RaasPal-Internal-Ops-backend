@@ -13,6 +13,10 @@ import java.util.UUID;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select u from User u where lower(u.email) = lower(:email)")
+    Optional<User> lockByEmail(@org.springframework.data.repository.query.Param("email") String email);
+
     /*
      * Email lookups are case-INSENSITIVE, and must stay that way.
      *
