@@ -26,6 +26,20 @@ public class AuthController {
     private final AuthService authService;
     private final UserService userService;
 
+    @org.springframework.web.bind.annotation.ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public org.springframework.http.ResponseEntity<ApiResponse<Void>> invalidInput(
+            org.springframework.web.bind.MethodArgumentNotValidException ex) {
+        // Login has a single translation code even when both fields are missing.
+        // Preserve the other shared account endpoints' existing validation contract.
+        String message = ex.getBindingResult().getFieldErrors().stream()
+                .map(org.springframework.validation.FieldError::getDefaultMessage)
+                .collect(java.util.stream.Collectors.joining(", "));
+        if (ex.getParameter().getMethod() != null && ex.getParameter().getMethod().getName().equals("login")) {
+            message = ex.getBindingResult().hasFieldErrors("email") ? "invalid" : "credentials";
+        }
+        return org.springframework.http.ResponseEntity.badRequest().body(ApiResponse.error(message));
+    }
+
     @PostMapping("/login")
     public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.success(authService.login(request));

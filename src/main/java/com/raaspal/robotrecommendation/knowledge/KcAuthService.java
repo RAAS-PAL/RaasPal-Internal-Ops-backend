@@ -60,6 +60,8 @@ public class KcAuthService {
     public String sendCode(String rawPurpose, String input) {
         EmailCode.Purpose purpose = purpose(rawPurpose, "invalid");
         String email = companyEmail(input);
+        Optional<User> user = users.findByEmailIgnoreCase(email);
+        if (purpose == EmailCode.Purpose.SIGNUP && user.isPresent()) throw new KcAuthException("exists");
         // Two concurrent inserts may race; the winner's row is then locked below.
         try { slots.ensure(email); }
         catch (DataIntegrityViolationException ex) {
@@ -74,9 +76,6 @@ public class KcAuthService {
                 && slot.getSendCount() >= 5) {
             throw throttled(now, slot.getWindowStartedAt().plusSeconds(3600));
         }
-        Optional<User> user = users.findByEmailIgnoreCase(email);
-        if (purpose == EmailCode.Purpose.SIGNUP && user.isPresent()) throw new KcAuthException("exists");
-
         String code = String.format(Locale.ROOT, "%06d", RANDOM.nextInt(1_000_000));
         slot.setPurpose(purpose);
         slot.setCodeHash(passwords.encode(code));
@@ -174,7 +173,11 @@ public class KcAuthService {
     public record Me(String name, String email, KcRole kc_role) {}
 
     public Me me(String email) {
-        try { companyEmail(email); }
+        try {
+            // Unlike form input, a stored principal must contain an actual company address.
+            if (email == null || !email.contains("@")) throw new KcAuthException("domain");
+            companyEmail(email);
+        }
         catch (KcAuthException ex) { throw new KcAuthException("domain", 403, 0); }
         User user = users.lockByEmail(email).filter(User::isActive)
                 .orElseThrow(() -> new KcAuthException("credentials", 401, 0));

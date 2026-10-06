@@ -57,7 +57,7 @@ public class SecurityConfig {
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex ->
                         ex.authenticationEntryPoint((request, response, error) -> {
-                            if (request.getServletPath().startsWith("/api/v1/kc/")) {
+                            if (request.getRequestURI().startsWith(request.getContextPath() + "/api/v1/kc/")) {
                                 response.setStatus(401);
                                 response.setContentType("application/json");
                                 response.getWriter().write("{\"success\":false,\"message\":\"credentials\"}");
