@@ -22,8 +22,9 @@ class KcAuthServiceTest {
     final JwtUtils jwt = mock(JwtUtils.class);
     final KcCodeMailer mail = mock(KcCodeMailer.class);
     final KcCodeEmailBudget budget = mock(KcCodeEmailBudget.class);
+    final KcRoleInitializer roles = mock(KcRoleInitializer.class);
     final KcAuthService service = new KcAuthService(codes, slots, users, passwords, jwt, mail, new KcAccountsGate(true),
-            budget, Clock.fixed(NOW, ZoneOffset.UTC));
+            budget, roles, Clock.fixed(NOW, ZoneOffset.UTC));
 
     void fails(String code, org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
         assertThatThrownBy(call).isInstanceOf(KcAuthException.class).hasMessage(code);
@@ -31,7 +32,7 @@ class KcAuthServiceTest {
 
     @Test void disabledServiceCannotAccessAccountsCodesOrMail() {
         var disabled = new KcAuthService(codes, slots, users, passwords, jwt, mail,
-                new KcAccountsGate(false), budget, Clock.fixed(NOW, ZoneOffset.UTC));
+                new KcAccountsGate(false), budget, roles, Clock.fixed(NOW, ZoneOffset.UTC));
         for (org.assertj.core.api.ThrowableAssert.ThrowingCallable call : java.util.List.<org.assertj.core.api.ThrowableAssert.ThrowingCallable>of(
                 () -> disabled.sendCode("signup", EMAIL),
                 () -> disabled.verifyCode("signup", EMAIL, "123456"),
@@ -42,7 +43,7 @@ class KcAuthServiceTest {
                 assertThat(ex.getStatus()).isEqualTo(503);
             });
         }
-        verifyNoInteractions(codes, slots, users, passwords, jwt, mail, budget);
+        verifyNoInteractions(codes, slots, users, passwords, jwt, mail, budget, roles);
     }
 
     @Test void localPartAndCaseNormalizeWithRootLocale() {
@@ -117,5 +118,13 @@ class KcAuthServiceTest {
         assertThat(slot.getTries()).isEqualTo(1);
         assertThat(slot.getTicketHash()).isNull();
         assertThat(slot.getUsedAt()).isNull();
+    }
+
+    @Test void meReadsAnEstablishedUserWithoutLockingTheRepository() {
+        var user = com.raaspal.robotrecommendation.user.entity.User.builder().email(EMAIL)
+                .fullName("Test employee").kcRole(KcRole.EDITOR).build();
+        when(users.findByEmailIgnoreCaseAndIsActiveTrue(EMAIL)).thenReturn(Optional.of(user));
+        assertThat(service.me(EMAIL).kc_role()).isEqualTo(KcRole.EDITOR);
+        verify(users, never()).lockByEmail(anyString());
     }
 }

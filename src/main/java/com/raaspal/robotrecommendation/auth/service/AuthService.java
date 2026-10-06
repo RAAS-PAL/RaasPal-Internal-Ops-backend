@@ -22,6 +22,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
+    private final com.raaspal.robotrecommendation.knowledge.KcRoleInitializer kcRoles;
 
     public void verifyPassword(String email, VerifyPasswordRequest request) {
         User user = userRepository.findByEmailIgnoreCaseAndIsActiveTrue(email)
@@ -72,7 +73,7 @@ public class AuthService {
         String email = knowledge
                 ? com.raaspal.robotrecommendation.knowledge.KcAuthService.companyEmail(request.email())
                 : request.email().trim();
-        User user = userRepository.lockByEmail(email).filter(User::isActive)
+        User user = userRepository.findByEmailIgnoreCaseAndIsActiveTrue(email)
                 .orElseThrow(() -> new com.raaspal.robotrecommendation.knowledge.KcAuthException("credentials", 401, 0));
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
@@ -80,7 +81,12 @@ public class AuthService {
         }
 
         if (knowledge && user.getKcRole() == null) {
-            user.setKcRole(com.raaspal.robotrecommendation.knowledge.KcRole.VIEWER);
+            kcRoles.initialize(user);
+            // Initialization refreshed the row under a lock; a concurrent reset
+            // must not let the previously valid password mint a new session.
+            if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+                throw new com.raaspal.robotrecommendation.knowledge.KcAuthException("credentials", 401, 0);
+            }
         }
 
         String token = jwtUtils.generateToken(user.getEmail());

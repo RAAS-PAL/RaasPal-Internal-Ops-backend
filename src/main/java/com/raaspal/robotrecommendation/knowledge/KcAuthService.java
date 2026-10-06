@@ -32,21 +32,23 @@ public class KcAuthService {
     private final KcCodeMailer mail;
     private final KcAccountsGate gate;
     private final KcCodeEmailBudget budget;
+    private final KcRoleInitializer roles;
     private final Clock clock;
 
     @Autowired
     public KcAuthService(EmailCodeRepository codes, EmailCodeSlot slots, UserRepository users,
                          PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, KcAccountsGate gate,
-                         KcCodeEmailBudget budget) {
-        this(codes, slots, users, passwords, jwt, mail, gate, budget, Clock.systemUTC());
+                         KcCodeEmailBudget budget, KcRoleInitializer roles) {
+        this(codes, slots, users, passwords, jwt, mail, gate, budget, roles, Clock.systemUTC());
     }
 
     KcAuthService(EmailCodeRepository codes, EmailCodeSlot slots, UserRepository users,
                   PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, KcAccountsGate gate,
-                  KcCodeEmailBudget budget, Clock clock) {
+                  KcCodeEmailBudget budget, KcRoleInitializer roles, Clock clock) {
         this.codes = codes; this.slots = slots; this.users = users;
         this.passwords = passwords; this.jwt = jwt; this.mail = mail; this.gate = gate; this.clock = clock;
         this.budget = budget;
+        this.roles = roles;
     }
 
     public static String companyEmail(String input) {
@@ -191,9 +193,9 @@ public class KcAuthService {
             companyEmail(email);
         }
         catch (KcAuthException ex) { throw new KcAuthException("domain", 403, 0); }
-        User user = users.lockByEmail(email).filter(User::isActive)
+        User user = users.findByEmailIgnoreCaseAndIsActiveTrue(email)
                 .orElseThrow(() -> new KcAuthException("credentials", 401, 0));
-        if (user.getKcRole() == null) user.setKcRole(KcRole.VIEWER);
+        roles.initialize(user);
         return new Me(user.getFullName(), user.getEmail(), user.getKcRole());
     }
 
