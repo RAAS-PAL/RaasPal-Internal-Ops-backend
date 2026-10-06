@@ -255,6 +255,17 @@ class KcAccountsTest {
         signup(ticket, "Test employee", PASSWORD).andExpect(status().isOk());
     }
 
+    @Test void globalCapDoesNotReplaceAnAlreadyVerifiedTicket() throws Exception {
+        String ticket = ticket("signup");
+        allowResend();
+        EmailCode budget = codes.findById(KcCodeEmailBudget.KEY).orElseThrow();
+        budget.setSendCount(60); codes.saveAndFlush(budget);
+        send("signup", email).andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.message").value("unavailable"));
+        signup(ticket, "Test employee", PASSWORD).andExpect(status().isOk());
+        org.mockito.Mockito.verify(mail, times(1)).send(eq(email), any(), anyString());
+    }
+
     @Test void malformedBodiesNeverEchoSecrets() throws Exception {
         error(postJson(BASE + "/send-code", Map.of()), "invalid");
         error(postJson(BASE + "/verify-code", Map.of()), "wrong");

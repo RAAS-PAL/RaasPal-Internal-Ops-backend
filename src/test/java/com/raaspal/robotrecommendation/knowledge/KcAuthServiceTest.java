@@ -21,8 +21,9 @@ class KcAuthServiceTest {
     final PasswordEncoder passwords = mock(PasswordEncoder.class);
     final JwtUtils jwt = mock(JwtUtils.class);
     final KcCodeMailer mail = mock(KcCodeMailer.class);
+    final KcCodeEmailBudget budget = mock(KcCodeEmailBudget.class);
     final KcAuthService service = new KcAuthService(codes, slots, users, passwords, jwt, mail, new KcAccountsGate(true),
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            budget, Clock.fixed(NOW, ZoneOffset.UTC));
 
     void fails(String code, org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
         assertThatThrownBy(call).isInstanceOf(KcAuthException.class).hasMessage(code);
@@ -30,7 +31,7 @@ class KcAuthServiceTest {
 
     @Test void disabledServiceCannotAccessAccountsCodesOrMail() {
         var disabled = new KcAuthService(codes, slots, users, passwords, jwt, mail,
-                new KcAccountsGate(false), Clock.fixed(NOW, ZoneOffset.UTC));
+                new KcAccountsGate(false), budget, Clock.fixed(NOW, ZoneOffset.UTC));
         for (org.assertj.core.api.ThrowableAssert.ThrowingCallable call : java.util.List.<org.assertj.core.api.ThrowableAssert.ThrowingCallable>of(
                 () -> disabled.sendCode("signup", EMAIL),
                 () -> disabled.verifyCode("signup", EMAIL, "123456"),
@@ -41,7 +42,7 @@ class KcAuthServiceTest {
                 assertThat(ex.getStatus()).isEqualTo(503);
             });
         }
-        verifyNoInteractions(codes, slots, users, passwords, jwt, mail);
+        verifyNoInteractions(codes, slots, users, passwords, jwt, mail, budget);
     }
 
     @Test void localPartAndCaseNormalizeWithRootLocale() {

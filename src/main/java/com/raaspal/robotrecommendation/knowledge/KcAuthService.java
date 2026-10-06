@@ -31,18 +31,22 @@ public class KcAuthService {
     private final JwtUtils jwt;
     private final KcCodeMailer mail;
     private final KcAccountsGate gate;
+    private final KcCodeEmailBudget budget;
     private final Clock clock;
 
     @Autowired
     public KcAuthService(EmailCodeRepository codes, EmailCodeSlot slots, UserRepository users,
-                         PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, KcAccountsGate gate) {
-        this(codes, slots, users, passwords, jwt, mail, gate, Clock.systemUTC());
+                         PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, KcAccountsGate gate,
+                         KcCodeEmailBudget budget) {
+        this(codes, slots, users, passwords, jwt, mail, gate, budget, Clock.systemUTC());
     }
 
     KcAuthService(EmailCodeRepository codes, EmailCodeSlot slots, UserRepository users,
-                  PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, KcAccountsGate gate, Clock clock) {
+                  PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, KcAccountsGate gate,
+                  KcCodeEmailBudget budget, Clock clock) {
         this.codes = codes; this.slots = slots; this.users = users;
         this.passwords = passwords; this.jwt = jwt; this.mail = mail; this.gate = gate; this.clock = clock;
+        this.budget = budget;
     }
 
     public static String companyEmail(String input) {
@@ -78,6 +82,9 @@ public class KcAuthService {
                 && slot.getSendCount() >= 5) {
             throw throttled(now, slot.getWindowStartedAt().plusSeconds(3600));
         }
+        boolean sendsEmail = purpose == EmailCode.Purpose.SIGNUP || user.filter(User::isActive).isPresent();
+        // Reserve before modifying the old code/ticket: a cap denial must preserve them.
+        budget.reserve(sendsEmail);
         String code = String.format(Locale.ROOT, "%06d", RANDOM.nextInt(1_000_000));
         slot.setPurpose(purpose);
         slot.setCodeHash(passwords.encode(code));
@@ -95,7 +102,7 @@ public class KcAuthService {
         slot.setSendCount(slot.getSendCount() + 1);
         // Missing and disabled accounts get the same response and rate-limit state.
         // A transport exception rolls back the replacement; the previous code stays valid.
-        if (purpose == EmailCode.Purpose.SIGNUP || user.filter(User::isActive).isPresent()) {
+        if (sendsEmail) {
             mail.send(email, purpose, code);
         }
         return email;
