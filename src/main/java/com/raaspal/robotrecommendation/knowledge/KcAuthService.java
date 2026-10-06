@@ -30,18 +30,19 @@ public class KcAuthService {
     private final PasswordEncoder passwords;
     private final JwtUtils jwt;
     private final KcCodeMailer mail;
+    private final KcAccountsGate gate;
     private final Clock clock;
 
     @Autowired
     public KcAuthService(EmailCodeRepository codes, EmailCodeSlot slots, UserRepository users,
-                         PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail) {
-        this(codes, slots, users, passwords, jwt, mail, Clock.systemUTC());
+                         PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, KcAccountsGate gate) {
+        this(codes, slots, users, passwords, jwt, mail, gate, Clock.systemUTC());
     }
 
     KcAuthService(EmailCodeRepository codes, EmailCodeSlot slots, UserRepository users,
-                  PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, Clock clock) {
+                  PasswordEncoder passwords, JwtUtils jwt, KcCodeMailer mail, KcAccountsGate gate, Clock clock) {
         this.codes = codes; this.slots = slots; this.users = users;
-        this.passwords = passwords; this.jwt = jwt; this.mail = mail; this.clock = clock;
+        this.passwords = passwords; this.jwt = jwt; this.mail = mail; this.gate = gate; this.clock = clock;
     }
 
     public static String companyEmail(String input) {
@@ -58,6 +59,7 @@ public class KcAuthService {
     }
 
     public String sendCode(String rawPurpose, String input) {
+        gate.requireEnabled();
         EmailCode.Purpose purpose = purpose(rawPurpose, "invalid");
         String email = companyEmail(input);
         Optional<User> user = users.findByEmailIgnoreCase(email);
@@ -104,6 +106,7 @@ public class KcAuthService {
     }
 
     public String verifyCode(String rawPurpose, String input, String code) {
+        gate.requireEnabled();
         EmailCode.Purpose purpose = purpose(rawPurpose, "wrong");
         String email;
         try { email = companyEmail(input); }
@@ -128,6 +131,7 @@ public class KcAuthService {
     }
 
     public AuthResponse signUp(String ticket, String name, String password, String confirm) {
+        gate.requireEnabled();
         String normalizedName = name == null ? "" : name.strip().replaceAll("\\s+", " ");
         if (normalizedName.isBlank() || normalizedName.length() > 255) throw new KcAuthException("name");
         validatePassword(password, confirm);
@@ -140,6 +144,7 @@ public class KcAuthService {
     }
 
     public AuthResponse reset(String ticket, String password, String confirm) {
+        gate.requireEnabled();
         validatePassword(password, confirm);
         EmailCode slot = ticket(ticket, EmailCode.Purpose.RESET);
         User user = users.lockByEmail(slot.getEmail()).filter(User::isActive)

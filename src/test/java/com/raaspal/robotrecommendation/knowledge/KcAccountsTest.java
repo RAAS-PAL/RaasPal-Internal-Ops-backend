@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** Real H2 transactions (no enclosing rollback) pin counters and single-use under races. */
-@SpringBootTest
+@SpringBootTest(properties = "app.kc.accounts.enabled=true")
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class KcAccountsTest {
