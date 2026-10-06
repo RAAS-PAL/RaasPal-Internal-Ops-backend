@@ -1,18 +1,17 @@
 package com.raaspal.robotrecommendation.knowledge;
 
 import jakarta.mail.MessagingException;
-import org.springframework.beans.factory.annotation.Value;
+import jakarta.mail.internet.InternetAddress;
+import java.io.UnsupportedEncodingException;
 import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
-import org.springframework.stereotype.Service;
 
-@Service
 public class SmtpKcCodeMailer implements KcCodeMailer {
     private final JavaMailSender sender;
     private final String from;
 
-    public SmtpKcCodeMailer(JavaMailSender sender, @Value("${app.mail.from}") String from) {
+    public SmtpKcCodeMailer(JavaMailSender sender, String from) {
         this.sender = sender;
         this.from = from;
     }
@@ -22,7 +21,7 @@ public class SmtpKcCodeMailer implements KcCodeMailer {
         try {
             var message = sender.createMimeMessage();
             var helper = new MimeMessageHelper(message, false, "UTF-8");
-            helper.setFrom(from);
+            helper.setFrom(new InternetAddress(from).getAddress(), "RAASPAL Knowledge Center");
             helper.setTo(email);
             helper.setSubject("RAAS PAL Knowledge Center — รหัสยืนยัน / Verification code");
             String action = purpose == EmailCode.Purpose.SIGNUP
@@ -34,7 +33,7 @@ public class SmtpKcCodeMailer implements KcCodeMailer {
                     + "Ignore this email if you did not request it.\n", false);
             // Deliberately no shared reporting CC and no body/recipient logging.
             sender.send(message);
-        } catch (MessagingException ex) {
+        } catch (MessagingException | UnsupportedEncodingException ex) {
             throw new MailPreparationException("unavailable");
         }
     }
