@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
@@ -57,11 +58,40 @@ public class AotSheetSyncService {
     /** Bangkok, for the reason {@code CaseTicketSyncService} gives: the snapshot's day. */
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Bangkok");
 
+    /**
+     * The sup status of a row whose status says closed but whose colour does not: fixed,
+     * and waiting for AOTGA to return the broken part. Contains "On hold" on purpose -
+     * that is what the SLA rules look for to stop a case's clock.
+     */
+    public static final String WAITING_FOR_PART = "On hold: waiting for AOTGA to return the part";
+
+    /** The key the sync adds to a row's raw cells for its colour. */
+    static final String RAW_COLOUR = "_colour";
+
+    /** How many row numbers the preview lists for rows without an id or with a repeated one. */
+    private static final int PREVIEW_ROW_LIST = 50;
+
     private final GoogleSheetReader reader;
     private final GoogleSheetApiClient client;
     private final AotSheetSettingsService settings;
     private final CaseTicketRepository tickets;
     private final CaseTicketStatusHistoryRepository history;
+    private final AotgaClaimRepository claims;
+
+    /**
+     * The rows of the last sync that have no case id: not stored - without an id a row cannot
+     * be told from the next - but kept here so the tracker can list them for fixing. Empty
+     * until this process has synced once.
+     */
+    private volatile List<AotSheetCase> unidentified = List.of();
+    /**
+     * The rows of the last sync whose id is on another row too, all of them closed (an open
+     * one stops the sync): not stored, since one id cannot be two cases, but kept for the
+     * tracker to list apart. Empty until this process has synced once.
+     */
+    private volatile List<AotSheetCase> repeated = List.of();
+    /** Whether this process has synced, so {@link #unidentified} and {@link #repeated} are filled. */
+    private volatile boolean syncedSinceStart;
     private final ObjectMapper objectMapper;
 
     public boolean isEnabled() {
@@ -90,13 +120,21 @@ public class AotSheetSyncService {
 
         SheetTable table = readTable(props);
         AotSheetRowMapper mapper = AotSheetRowMapper.forTable(table, props);
-        AotSheetRowMapper.MappedSheet mapped = mapper.mapAll(table);
+        AotSheetPreview.Suggested suggested = suggest(table.headers());
+        // Read whenever there is a column to read, closed colours chosen or not: the list
+        // of colours the sheet uses is what they are chosen from. Before a status column is
+        // saved, the one it most likely is, so the first setup can list them too.
+        String colourColumn = mapper.colourColumn() != null ? mapper.colourColumn() : suggested.status();
+        Map<Integer, String> colours = colourColumn == null ? Map.of() : readColours(props, table, colourColumn);
+        AotSheetRowMapper.MappedSheet mapped = mapper.mapAll(table, colours);
 
         Integer open = null;
+        Integer waiting = null;
         Integer closed = null;
         if (mapper.knowsClosure()) {
-            closed = (int) mapped.cases().stream().filter(c -> Boolean.TRUE.equals(c.closed())).count();
-            open = mapped.cases().size() - closed;
+            closed = count(mapped, AotSheetCase.State.CLOSED);
+            waiting = mapper.readsColour() ? count(mapped, AotSheetCase.State.WAITING) : null;
+            open = count(mapped, AotSheetCase.State.OPEN);
         }
 
         int unreadableDates = (int) table.rows().stream().filter(mapper::openDateUnreadable).count();
@@ -115,7 +153,65 @@ public class AotSheetSyncService {
                 unreadableDates,
                 open,
                 closed,
-                mapped.cases().stream().limit(Math.max(0, sampleSize)).toList());
+                mapped.cases().stream().limit(Math.max(0, sampleSize)).toList(),
+                mapped.rowsWithoutId().stream().limit(PREVIEW_ROW_LIST).toList(),
+                duplicates(mapped),
+                colourColumn,
+                colourCounts(mapped, mapper),
+                waiting,
+                suggested);
+    }
+
+    /**
+     * The column each field most likely is, by its header: the first one that matches, left
+     * to right. Only a starting point - the setup shows it in a dropdown to confirm.
+     */
+    static AotSheetPreview.Suggested suggest(List<String> headers) {
+        return new AotSheetPreview.Suggested(
+                first(headers, "ticket", "case id", "case no"),
+                first(headers, "issue date", "open date", "date"),
+                first(headers, "status"));
+    }
+
+    private static String first(List<String> headers, String... words) {
+        for (String word : words) {
+            for (String header : headers) {
+                if (SheetTable.normalise(header).contains(word)) return header;
+            }
+        }
+        return null;
+    }
+
+    /** Repeated ids, those that stop a sync first. */
+    private static List<AotSheetPreview.DuplicateId> duplicates(AotSheetRowMapper.MappedSheet mapped) {
+        Set<String> blocking = mapped.blockingDuplicateIds();
+        return mapped.duplicateRows().entrySet().stream()
+                .map(e -> new AotSheetPreview.DuplicateId(e.getKey(), e.getValue(), blocking.contains(e.getKey())))
+                .sorted(Comparator.comparing(AotSheetPreview.DuplicateId::blocksSync).reversed())
+                .limit(PREVIEW_ROW_LIST)
+                .toList();
+    }
+
+    private static int count(AotSheetRowMapper.MappedSheet mapped, AotSheetCase.State state) {
+        return (int) mapped.cases().stream().filter(c -> c.state() == state).count();
+    }
+
+    /** Each colour the colour column uses, on how many rows, most used first. */
+    private static List<AotSheetPreview.ColourCount> colourCounts(AotSheetRowMapper.MappedSheet mapped,
+                                                                  AotSheetRowMapper mapper) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        mapped.cases().stream()
+                .map(AotSheetCase::colour)
+                .filter(Objects::nonNull)
+                .forEach(colour -> counts.merge(colour, 1, Integer::sum));
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .map(e -> new AotSheetPreview.ColourCount(e.getKey(), e.getValue(), mapper.isClosedColour(e.getKey())))
+                .toList();
+    }
+
+    private Map<Integer, String> readColours(AotSheetProperties props, SheetTable table, String column) {
+        return reader.readColours(props.getSpreadsheetId(), props.getTab(), props.getHeaderRow(), table, column);
     }
 
     /**
@@ -123,7 +219,9 @@ public class AotSheetSyncService {
      *
      * <p>Refuses rather than guesses whenever the result would be wrong in a way nobody
      * would notice: sync switched off, identity or closure not configured, one of those
-     * columns renamed on the sheet, an empty read, or an id on two rows.
+     * columns renamed on the sheet, an empty read, or an id on two rows of which one is
+     * still open. An id repeated on closed rows only is skipped instead: the log goes back
+     * to 2023, and merging two closed cases changes nothing on the pending list.
      */
     @Transactional
     public SyncResult sync() {
@@ -156,13 +254,24 @@ public class AotSheetSyncService {
             log.warn("AOT sheet: columns not found, their fields stay empty: {}", mapper.missingHeaders());
         }
 
-        AotSheetRowMapper.MappedSheet mapped = mapper.mapAll(table);
-        if (!mapped.duplicateIds().isEmpty()) {
-            throw new IllegalStateException("These ids are on more than one row of the AOT sheet: "
-                    + mapped.duplicateIds().stream().limit(20).collect(Collectors.joining(", "))
+        Map<Integer, String> colours = mapper.readsColour() ? readColours(props, table, mapper.colourColumn()) : Map.of();
+        AotSheetRowMapper.MappedSheet mapped = mapper.mapAll(table, colours);
+        Set<String> blocking = mapped.blockingDuplicateIds();
+        if (!blocking.isEmpty()) {
+            throw new IllegalStateException("These ids are on more than one row of the AOT sheet, "
+                    + "and at least one of those rows is still open: "
+                    + blocking.stream()
+                            .limit(20)
+                            .map(id -> id + " (rows " + mapped.duplicateRows().get(id).stream()
+                                    .map(String::valueOf).collect(Collectors.joining(", ")) + ")")
+                            .collect(Collectors.joining("; "))
                     + ". Each case needs its own id; nothing was synced.");
         }
-        List<AotSheetCase> cases = mapped.identified();
+        if (!mapped.duplicateIds().isEmpty()) {
+            log.warn("AOT sheet: {} id(s) repeated on closed rows only; those rows were skipped and are listed apart",
+                    mapped.duplicateIds().size());
+        }
+        List<AotSheetCase> cases = mapped.syncable();
         if (cases.isEmpty()) {
             throw new IllegalStateException("No row of the AOT sheet has a value in '"
                     + props.getRowIdHeader() + "'; nothing was synced.");
@@ -183,7 +292,8 @@ public class AotSheetSyncService {
         int created = 0;
         int updated = 0;
         int statusChanges = 0;
-        int closedByStatus = 0;
+        int closedCount = 0;
+        int waitingCount = 0;
         Set<String> seen = new HashSet<>();
 
         for (AotSheetCase c : cases) {
@@ -192,7 +302,9 @@ public class AotSheetSyncService {
 
             CaseTicket ticket = existing.get(itemId);
             boolean isNew = ticket == null;
+            boolean wasOpen = !isNew && ticket.isPresent();
             String previousStatus = null;
+            String previousSupStatus = null;
             if (isNew) {
                 ticket = CaseTicket.builder()
                         .source(CaseSource.GOOGLE_SHEET)
@@ -201,24 +313,36 @@ public class AotSheetSyncService {
                         .build();
             } else {
                 previousStatus = ticket.getStatus();
+                previousSupStatus = ticket.getSupStatus();
             }
 
             apply(ticket, c, rowsByNumber.get(c.sheetRow()), props.getTab(), now);
             tickets.save(ticket);
             if (isNew) created++; else updated++;
-            if (Boolean.TRUE.equals(c.closed())) closedByStatus++;
+            if (c.state() == AotSheetCase.State.CLOSED) {
+                closedCount++;
+                // Blue now, white last time: AOT has just sent the old part back, and
+                // claiming it from the manufacturer is RAASPAL's step to record.
+                if (wasOpen) markOldPartBack(spreadsheetId, c.rowId(), today, OffsetDateTime.now());
+            }
+            if (c.state() == AotSheetCase.State.WAITING) waitingCount++;
 
-            if (isNew || !same(previousStatus, c.status())) {
-                if (recordStatus(ticket, c.status(), today)) statusChanges++;
+            // The sup status carries "waiting for its part", so a row turning blue is a
+            // change worth a history row even though its status text stays the same.
+            if (isNew || !same(previousStatus, c.status()) || !same(previousSupStatus, ticket.getSupStatus())) {
+                if (recordStatus(ticket, c.status(), ticket.getSupStatus(), today)) statusChanges++;
             }
         }
 
         // Only rows deleted from the sheet: every row still on it was just written.
         int removed = tickets.markAbsent(CaseSource.GOOGLE_SHEET, spreadsheetId, seen, now);
+        unidentified = mapped.cases().stream().filter(c -> c.rowId() == null).toList();
+        repeated = mapped.identified().stream().filter(c -> mapped.duplicateRows().containsKey(c.rowId())).toList();
+        syncedSinceStart = true;
 
-        log.info("Synced AOT sheet {}: {} rows, {} new, {} updated, {} closed by status, "
+        log.info("Synced AOT sheet {}: {} rows, {} new, {} updated, {} closed, {} waiting for a part, "
                         + "{} removed from the sheet, {} skipped without id, {} status changes",
-                spreadsheetId, cases.size(), created, updated, closedByStatus, removed,
+                spreadsheetId, cases.size(), created, updated, closedCount, waitingCount, removed,
                 mapped.withoutId(), statusChanges);
 
         return new SyncResult(spreadsheetId, cases.size(), created, updated, removed, 0, statusChanges);
@@ -271,7 +395,8 @@ public class AotSheetSyncService {
                 cell(raw, props.getRequestedPartHeader()),
                 cell(raw, props.getRepairByHeader()),
                 t.getSolution(),
-                t.getStatus());
+                t.getStatus(),
+                WAITING_FOR_PART.equals(t.getSupStatus()));
     }
 
     private Map<String, Object> readRaw(String json) {
@@ -313,21 +438,60 @@ public class AotSheetSyncService {
         ticket.setBranchRaw(c.site());
         ticket.setRobotModel(c.model());
         ticket.setStatus(c.status());
+        // The sheet has no Sup Status of its own; this is where a hold goes, worded so that
+        // the SLA rules' "on hold" match stops the clock.
+        ticket.setSupStatus(supStatus(c));
         ticket.setMainIssue(c.problem());
         // The RE's verification note is the sheet's nearest thing to a solution.
         ticket.setSolution(c.verifyNote());
         ticket.setOpenDate(c.openDate());
-        ticket.setRawColumns(rawColumns(row));
+        ticket.setRawColumns(rawColumns(row, c));
         ticket.setLastSyncedAt(now);
         ticket.setPresent(!Boolean.TRUE.equals(c.closed()));
     }
 
-    /** Every cell of the row, mapped or not, so a column needed later is already stored. */
-    private String rawColumns(SheetRow row) {
+    /** The last sync's rows without a case id, for listing apart; see {@link #unidentified}. */
+    public List<AotSheetCase> unidentifiedRows() {
+        return unidentified;
+    }
+
+    /** Whether this process has synced since it started; until then the lists apart are empty. */
+    public boolean syncedSinceStart() {
+        return syncedSinceStart;
+    }
+
+    /** The last sync's rows sharing an id with another row, for listing apart; see {@link #repeated}. */
+    public List<AotSheetCase> repeatedRows() {
+        return repeated;
+    }
+
+    /** Starts the claim step for a ticket, unless it already has one. */
+    private void markOldPartBack(String spreadsheetId, String ticketNo, LocalDate today, OffsetDateTime now) {
+        if (claims.findBySpreadsheetIdAndTicketNo(spreadsheetId, ticketNo).isPresent()) return;
+        claims.save(AotgaClaim.builder()
+                .spreadsheetId(spreadsheetId)
+                .ticketNo(ticketNo)
+                .oldPartBackOn(today)
+                .createdAt(now)
+                .updatedAt(now)
+                .build());
+    }
+
+    /** A held row's Sup Status: waiting for its part. */
+    static String supStatus(AotSheetCase c) {
+        return c.state() == AotSheetCase.State.WAITING ? WAITING_FOR_PART : null;
+    }
+
+    /**
+     * Every cell of the row, mapped or not, so a column needed later is already stored;
+     * and the colour, when it was read.
+     */
+    private String rawColumns(SheetRow row, AotSheetCase c) {
         if (row == null) return null;
         try {
             Map<String, Object> raw = new LinkedHashMap<>();
             raw.put("_sheetRow", row.rowNumber());
+            if (c.colour() != null) raw.put(RAW_COLOUR, c.colour());
             raw.putAll(row.cells());
             return objectMapper.writeValueAsString(raw);
         } catch (Exception e) {
@@ -337,19 +501,21 @@ public class AotSheetSyncService {
     }
 
     /**
-     * A status-history row when the status moved - the same rule as the monday sync,
-     * which keeps its version private. The sheet has no Sup Status, so that stays null.
+     * A status-history row when the status or the sup status moved - the same rule as the
+     * monday sync, which keeps its version private. The sup status is the sheet's
+     * "waiting for its part", so the day a waiting row turns closed is on record too.
      *
      * <p>Only called for new rows and rows whose status changed since the last sync, so
      * an unchanged sheet costs no history queries at all.
      */
-    private boolean recordStatus(CaseTicket ticket, String status, LocalDate today) {
+    private boolean recordStatus(CaseTicket ticket, String status, String supStatus, LocalDate today) {
         CaseTicketStatusHistory todays =
                 history.findByCaseTicketIdAndObservedOn(ticket.getId(), today).orElse(null);
 
         if (todays != null) {
-            if (same(todays.getStatus(), status)) return false;
+            if (same(todays.getStatus(), status) && same(todays.getSupStatus(), supStatus)) return false;
             todays.setStatus(status);
+            todays.setSupStatus(supStatus);
             history.save(todays);
             return true;
         }
@@ -357,11 +523,14 @@ public class AotSheetSyncService {
         CaseTicketStatusHistory previous = history
                 .findFirstByCaseTicketIdOrderByObservedOnDescObservedAtDesc(ticket.getId())
                 .orElse(null);
-        if (previous != null && same(previous.getStatus(), status)) return false;
+        if (previous != null && same(previous.getStatus(), status) && same(previous.getSupStatus(), supStatus)) {
+            return false;
+        }
 
         history.save(CaseTicketStatusHistory.builder()
                 .caseTicketId(ticket.getId())
                 .status(status)
+                .supStatus(supStatus)
                 .observedOn(today)
                 .build());
         return true;

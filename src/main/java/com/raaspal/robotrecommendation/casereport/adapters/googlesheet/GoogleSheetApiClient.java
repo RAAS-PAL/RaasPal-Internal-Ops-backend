@@ -16,10 +16,14 @@ import org.springframework.web.client.RestClientResponseException;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
 
 /**
- * Read-only client for the Google Sheets API v4: one call returns every value on a tab.
+ * Read-only client for the Google Sheets API v4: one call returns every value on a tab,
+ * another the background colours of one column.
  *
  * <p>Authenticates as a service account, so the sheet must be shared with that account's
  * email as a Viewer - exactly like sharing it with a person. A sheet that is not shared
@@ -97,21 +101,95 @@ public class GoogleSheetApiClient {
      *                              account, an unknown tab, or a transport failure
      */
     public List<List<Object>> readTab(String spreadsheetId, String tab) {
-        String range = "'" + tab.replace("'", "''") + "'";
+        String range = quote(tab);
+        JsonNode body = withRetry(() -> get(spreadsheetId, range), spreadsheetId, tab);
+        JsonNode values = body == null ? null : body.path("values");
+        if (values == null || !values.isArray()) {
+            return List.of();
+        }
+        return objectMapper.convertValue(values, new TypeReference<List<List<Object>>>() {
+        });
+    }
 
-        JsonNode body;
+    /**
+     * The background colour of every cell in one column, from {@code fromRow} down, by the
+     * row number the sheet shows. A cell nobody filled reads as white ({@code #ffffff}).
+     *
+     * <p>The colour as the sheet displays it ({@code effectiveFormat}), so a colour set by a
+     * conditional-formatting rule counts the same as one painted by hand. Only that one
+     * field of one column is requested, so the answer stays small however wide the tab is.
+     *
+     * @param column  the column's letter, {@code N}
+     * @param fromRow the first row to read, as the sheet numbers it
+     * @throws GoogleSheetException as {@link #readTab} does
+     */
+    public Map<Integer, String> readColumnColours(String spreadsheetId, String tab, String column, int fromRow) {
+        String range = quote(tab) + "!" + column + fromRow + ":" + column;
+        JsonNode body = withRetry(() -> getColours(spreadsheetId, range), spreadsheetId, tab);
+        return coloursByRow(body, fromRow);
+    }
+
+    /**
+     * The colours out of a {@code spreadsheets.get} answer, by row number. Google leaves
+     * out a trailing run of rows with nothing in them, and gives a row with no format as
+     * an empty object.
+     */
+    static Map<Integer, String> coloursByRow(JsonNode body, int fromRow) {
+        Map<Integer, String> colours = new LinkedHashMap<>();
+        if (body == null) return colours;
+        JsonNode data = body.path("sheets").path(0).path("data").path(0);
+        // startRow is 0-based and omitted when 0.
+        int firstRow = data.has("startRow") ? data.path("startRow").asInt() + 1 : fromRow;
+        JsonNode rows = data.path("rowData");
+        for (int i = 0; i < rows.size(); i++) {
+            JsonNode cell = rows.path(i).path("values").path(0);
+            // An empty cell can come without an effective format; its own fill is the
+            // next best answer.
+            JsonNode format = cell.has("effectiveFormat") ? cell.path("effectiveFormat") : cell.path("userEnteredFormat");
+            colours.put(firstRow + i, hex(format));
+        }
+        return colours;
+    }
+
+    /**
+     * {@code #rrggbb}, lower case. Google sends each channel as 0-1 and leaves a channel out
+     * when it is 0, so pure blue arrives as {@code {"blue": 1}}; no colour at all is white.
+     */
+    static String hex(JsonNode format) {
+        JsonNode colour = format.path("backgroundColorStyle").path("rgbColor");
+        if (colour.isMissingNode() || colour.isEmpty()) {
+            colour = format.path("backgroundColor");
+        }
+        if (colour.isMissingNode()) {
+            return "#ffffff";
+        }
+        return String.format("#%02x%02x%02x",
+                channel(colour, "red"), channel(colour, "green"), channel(colour, "blue"));
+    }
+
+    private static int channel(JsonNode colour, String name) {
+        return (int) Math.round(Math.max(0, Math.min(1, colour.path(name).asDouble(0))) * 255);
+    }
+
+    private static String quote(String tab) {
+        return "'" + tab.replace("'", "''") + "'";
+    }
+
+    /**
+     * One retry, for timeouts and dropped connections only - an HTTP error status is
+     * deterministic and is not repeated.
+     */
+    private JsonNode withRetry(Supplier<JsonNode> call, String spreadsheetId, String tab) {
         try {
-            body = get(spreadsheetId, range);
+            return call.get();
         } catch (RestClientResponseException e) {
             throw translate(e, spreadsheetId, tab);
         } catch (GoogleSheetException e) {
             throw e;
         } catch (Exception e) {
-            // One retry, for timeouts and dropped connections only - an HTTP error status
-            // is deterministic and is not repeated.
             log.warn("Google Sheets read failed ({}), retrying once", e.getMessage());
             try {
-                body = get(spreadsheetId, range);
+                return call.get();
             } catch (RestClientResponseException retryError) {
                 throw translate(retryError, spreadsheetId, tab);
             } catch (GoogleSheetException retryError) {
@@ -121,13 +199,6 @@ public class GoogleSheetApiClient {
                         "Google Sheets read failed twice: " + retryError.getMessage(), retryError);
             }
         }
-
-        JsonNode values = body == null ? null : body.path("values");
-        if (values == null || !values.isArray()) {
-            return List.of();
-        }
-        return objectMapper.convertValue(values, new TypeReference<List<List<Object>>>() {
-        });
     }
 
     private JsonNode get(String spreadsheetId, String range) {
@@ -137,6 +208,21 @@ public class GoogleSheetApiClient {
                         .queryParam("dateTimeRenderOption", "SERIAL_NUMBER")
                         .queryParam("majorDimension", "ROWS")
                         .build(spreadsheetId, range))
+                .header("Authorization", "Bearer " + accessToken())
+                .retrieve()
+                .body(JsonNode.class);
+    }
+
+    private JsonNode getColours(String spreadsheetId, String range) {
+        return sheets.get()
+                .uri(uri -> uri.path("/spreadsheets/{id}")
+                        .queryParam("ranges", "{range}")
+                        .queryParam("includeGridData", "true")
+                        .queryParam("fields", "{fields}")
+                        .build(spreadsheetId, range,
+                                "sheets(data(startRow,rowData(values("
+                                        + "effectiveFormat(backgroundColor,backgroundColorStyle),"
+                                        + "userEnteredFormat(backgroundColor,backgroundColorStyle)))))"))
                 .header("Authorization", "Bearer " + accessToken())
                 .retrieve()
                 .body(JsonNode.class);

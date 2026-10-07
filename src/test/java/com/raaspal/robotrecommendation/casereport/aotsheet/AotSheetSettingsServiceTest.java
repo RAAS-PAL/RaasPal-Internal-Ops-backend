@@ -30,6 +30,60 @@ class AotSheetSettingsServiceTest {
                 .isInstanceOf(BadRequestException.class);
     }
 
+    @Test
+    void closedColoursAreStoredTidyAndATypoIsRefused() {
+        assertThat(AotSheetSettingsService.closedColours(" #C9DAF8, c9daf8 ,#ffffff ")).isEqualTo("#c9daf8, #ffffff");
+        assertThat(AotSheetSettingsService.closedColours("  ")).isNull();
+        assertThatThrownBy(() -> AotSheetSettingsService.closedColours("#c9daf8, light blue"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("light blue");
+    }
+
+    @Test
+    void savedColoursReachTheEffectiveSettings() {
+        AotSheetSettingsService service = new AotSheetSettingsService(new AotSheetProperties(), null, null);
+
+        AotSheetProperties effective = service.overlay(CaseSourceSheet.builder()
+                .sourceKey(CaseSourceSheet.AOT).sheetUrl("x").spreadsheetId(ID).tab("Case").headerRow(1)
+                .statusHeader("Status Case").closedColours("#c9daf8, #a4c2f4").build());
+
+        assertThat(effective.getColourHeader()).isEmpty();
+        assertThat(effective.colourColumn()).isEqualTo("Status Case");
+        assertThat(effective.getClosedColours()).containsExactly("#c9daf8", "#a4c2f4");
+        assertThat(effective.readsColour()).isTrue();
+    }
+
+    @Test
+    void colourNamesKeepOnlyWhatSaysSomething() {
+        List<AotSheetProperties.ColourLabel> kept = AotSheetSettingsService.colourLabels(List.of(
+                new AotSheetProperties.ColourLabel("#FFFF00", "  Waiting for AOT "),
+                new AotSheetProperties.ColourLabel("#ffffff", " "),          // no name
+                new AotSheetProperties.ColourLabel("#c9daf8", "Done"),       // its stage says it
+                new AotSheetProperties.ColourLabel("#F4CCCC", "ignored name", true), // means nothing
+                AotSheetProperties.ColourLabel.ignore("#C9DAF8")),           // old part back wins
+                "#c9daf8");
+
+        assertThat(kept).containsExactly(new AotSheetProperties.ColourLabel("#ffff00", "Waiting for AOT"),
+                AotSheetProperties.ColourLabel.ignore("#f4cccc"));
+        assertThatThrownBy(() -> AotSheetSettingsService.colourLabels(List.of(
+                new AotSheetProperties.ColourLabel("yellow", "x")), null))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void savedColourNamesReachTheEffectiveSettings() {
+        AotSheetSettingsService service = new AotSheetSettingsService(new AotSheetProperties(), null, null);
+
+        AotSheetProperties effective = service.overlay(CaseSourceSheet.builder()
+                .sourceKey(CaseSourceSheet.AOT).sheetUrl("x").spreadsheetId(ID).tab("Case").headerRow(1)
+                .colourLabels("[{\"colour\":\"#ffff00\",\"label\":\"Waiting for AOT\"},"
+                        + "{\"colour\":\"#f4cccc\",\"label\":null,\"ignored\":true}]").build());
+
+        assertThat(effective.getColourLabels()).containsExactly(
+                new AotSheetProperties.ColourLabel("#ffff00", "Waiting for AOT"),
+                AotSheetProperties.ColourLabel.ignore("#f4cccc"));
+    }
+
     /** The saved row decides the sheet and columns; the descriptive column names stay. */
     @Test
     void savedSettingsWinOverTheProperties() {

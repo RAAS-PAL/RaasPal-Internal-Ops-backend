@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -133,6 +134,127 @@ class AotSheetRowMapperTest {
 
         props.setClosedStatuses(List.of("Closed"));
         assertThat(props.notReadyForSync()).isEmpty();
+    }
+
+    /**
+     * The AOT team's rule: a blue row is closed; a closed status on a row that is still
+     * white is fixed and waiting for AOTGA to return the part; no status is open.
+     */
+    @Test
+    void theColourDecidesClosedAndAClosedStatusWithoutItIsWaiting() {
+        AotSheetProperties props = props();
+        props.setStatusHeader("Status");
+        props.setClosedStatuses(List.of("ปิด"));
+        props.setClosedColours(List.of("#C9DAF8"));
+        SheetTable table = table(
+                row(1, "", "", 45133, "", "", "", "", "", "", "", "ปิด"),
+                row(2, "", "", 45133, "", "", "", "", "", "", "", "ปิด"),
+                row(3, "", "", 45133, "", "", "", "", "", "", "", ""),
+                row(4, "", "", 45133, "", "", "", "", "", "", "", "ปิด"));
+        AotSheetRowMapper mapper = mapper(props);
+
+        List<AotSheetCase> cases = mapper.mapAll(table, Map.of(
+                2, "#c9daf8",     // blue
+                3, "#ffffff",     // white
+                4, "#ffffff",     // white, nothing in the status
+                5, "#ffff00")).cases(); // a colour nobody chose: not closed
+
+        assertThat(mapper.readsColour()).isTrue();
+        assertThat(mapper.colourColumn()).isEqualTo("Status");
+        assertThat(cases).extracting(AotSheetCase::state).containsExactly(
+                AotSheetCase.State.CLOSED, AotSheetCase.State.WAITING,
+                AotSheetCase.State.OPEN, AotSheetCase.State.WAITING);
+        assertThat(cases).extracting(AotSheetCase::closed).containsExactly(true, false, false, false);
+        assertThat(cases.get(0).colour()).isEqualTo("#c9daf8");
+    }
+
+    /** Without colours chosen, a closed status closes the case, as before. */
+    @Test
+    void withoutClosedColoursTheStatusAloneCloses() {
+        AotSheetProperties props = props();
+        props.setStatusHeader("Status");
+        props.setClosedStatuses(List.of("ปิด"));
+        SheetTable table = table(row(1, "", "", 45133, "", "", "", "", "", "", "", "ปิด"));
+        AotSheetRowMapper mapper = mapper(props);
+
+        AotSheetCase c = mapper.mapAll(table, Map.of(2, "#ffffff")).cases().get(0);
+
+        assertThat(mapper.readsColour()).isFalse();
+        assertThat(c.state()).isEqualTo(AotSheetCase.State.CLOSED);
+    }
+
+    /** A colour column of its own, renamed on the sheet, must stop the sync like the status would. */
+    @Test
+    void aMissingColourColumnIsCriticalOnceColoursDecideClosure() {
+        AotSheetProperties props = props();
+        props.setRowIdHeader("n");
+        props.setStatusHeader("Status");
+        props.setColourHeader("Row colour");
+        props.setClosedColours(List.of("#c9daf8"));
+
+        AotSheetRowMapper mapper = mapper(props);
+
+        assertThat(mapper.missingCriticalHeaders()).containsExactly("Row colour");
+        assertThat(mapper.readsColour()).isFalse();
+    }
+
+    @Test
+    void coloursAreReadInEveryUsualSpelling() {
+        assertThat(AotSheetRowMapper.normaliseColour("#C9DAF8")).isEqualTo("#c9daf8");
+        assertThat(AotSheetRowMapper.normaliseColour(" c9daf8 ")).isEqualTo("#c9daf8");
+        assertThat(AotSheetRowMapper.normaliseColour("blue")).isNull();
+        assertThat(AotSheetRowMapper.normaliseColour("#c9d")).isNull();
+    }
+
+    /** Colours alone are a way to tell closure; the status values are then optional. */
+    @Test
+    void closedColoursAloneAreEnoughToSync() {
+        AotSheetProperties props = props();
+        props.setRowIdHeader("n");
+        props.setStatusHeader("Status");
+        props.setClosedColours(List.of("#c9daf8"));
+        assertThat(props.notReadyForSync()).isEmpty();
+
+        props.setStatusHeader("");
+        assertThat(props.notReadyForSync()).containsExactly(
+                "colours that mean closed but no column to read the colour from");
+    }
+
+    /** Each repeated id comes with the rows it is on, so it can be found and fixed. */
+    @Test
+    void repeatedIdsComeWithTheirRows() {
+        AotSheetProperties props = props();
+        props.setRowIdHeader("n");
+        SheetTable table = table(row(776, "a"), row(777, "b"), row(776, "c"), row("", "d"));
+
+        AotSheetRowMapper.MappedSheet mapped = mapper(props).mapAll(table);
+
+        assertThat(mapped.duplicateRows()).containsExactly(Map.entry("776", List.of(2, 4)));
+        assertThat(mapped.rowsWithoutId()).containsExactly(5);
+    }
+
+    /**
+     * A repeated id stops the sync only when one of its rows is still open; repeated on
+     * closed rows alone, those rows are skipped and the rest syncs.
+     */
+    @Test
+    void aRepeatedIdBlocksOnlyWhenOneOfItsRowsIsOpen() {
+        AotSheetProperties props = props();
+        props.setRowIdHeader("n");
+        props.setStatusHeader("Status");
+        props.setClosedStatuses(List.of("ปิด"));
+        SheetTable table = table(
+                row(10, "", "", 45133, "", "", "", "", "", "", "", "ปิด"),
+                row(10, "", "", 45133, "", "", "", "", "", "", "", "ปิด"),
+                row(11, "", "", 45133, "", "", "", "", "", "", "", "ปิด"),
+                row(11, "", "", 45133, "", "", "", "", "", "", "", ""),
+                row(12, "", "", 45133, "", "", "", "", "", "", "", ""));
+
+        AotSheetRowMapper.MappedSheet mapped = mapper(props).mapAll(table);
+
+        assertThat(mapped.duplicateIds()).containsExactly("10", "11");
+        assertThat(mapped.blockingDuplicateIds()).containsExactly("11");
+        assertThat(mapped.syncable()).extracting(AotSheetCase::rowId).containsExactly("12");
     }
 
     @Test
