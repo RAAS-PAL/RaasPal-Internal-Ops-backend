@@ -15,6 +15,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -39,6 +41,24 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserResponse getById(UUID id) {
         return UserResponse.from(getEntity(id));
+    }
+
+    /** The periods a pending-case tab can open on. */
+    static final Set<String> CASE_PERIODS = Set.of("DAILY", "WEEKLY", "MONTHLY", "ALL");
+
+    /**
+     * The period someone's pending-case tabs open on, chosen by them for themselves.
+     * Blank goes back to the default.
+     */
+    @Transactional
+    public UserResponse setCasePeriodDefault(UUID id, String cadence) {
+        String value = cadence == null || cadence.isBlank() ? null : cadence.trim().toUpperCase(Locale.ROOT);
+        if (value != null && !CASE_PERIODS.contains(value)) {
+            throw new BadRequestException("'" + cadence + "' is not a period. Pick DAILY, WEEKLY, MONTHLY or ALL.");
+        }
+        User user = getEntity(id);
+        user.setCasePeriodDefault(value);
+        return UserResponse.from(userRepository.save(user));
     }
 
     @Transactional(readOnly = true)

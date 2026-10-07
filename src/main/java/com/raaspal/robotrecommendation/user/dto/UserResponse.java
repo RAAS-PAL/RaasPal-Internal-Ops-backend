@@ -13,7 +13,9 @@ public record UserResponse(
         Role role,
         boolean active,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        /** The period their pending-case tabs open on: DAILY, WEEKLY, MONTHLY or ALL; null is MONTHLY. */
+        String casePeriodDefault
 ) {
     public static UserResponse from(User user) {
         return new UserResponse(
@@ -23,7 +25,8 @@ public record UserResponse(
                 user.getRole(),
                 user.isActive(),
                 user.getCreatedAt(),
-                user.getUpdatedAt()
+                user.getUpdatedAt(),
+                user.getCasePeriodDefault()
         );
     }
 }
