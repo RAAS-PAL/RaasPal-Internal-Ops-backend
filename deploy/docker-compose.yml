@@ -29,10 +29,9 @@ services:
       # 8 GB box. Without this the JVM sizes its heap from the host's total RAM
       # and can be killed by the kernel under load.
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70"
-          # The database shares this box now. Without a cap the JVM could take
-         # 70% of all 8 GB (5.3 GB) and starve it; 70% of 2 GB is a 1.4 GB heap.
-      mem_limit: 2g
-
+    # The database shares this box now. Without a cap the JVM could take 70% of
+    # all 8 GB (5.3 GB) and starve it; 70% of 2 GB is a 1.4 GB heap.
+    mem_limit: 2g
     healthcheck:
       # /actuator/health answers 401 until it is permitted in SecurityConfig,
       # and a 401 still proves the app is up and routing. Accept both.
@@ -48,10 +47,6 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
-
-volumes:
-  uploads:
-  pgdata:
 
   # PostgreSQL for the API, on this box. Supabase is in Sydney, ~0.17 s per
   # query from here; this is under a millisecond. Port bound to 127.0.0.1:
@@ -81,3 +76,7 @@ volumes:
       options:
         max-size: "20m"
         max-file: "5"
+
+volumes:
+  uploads:
+  pgdata:
