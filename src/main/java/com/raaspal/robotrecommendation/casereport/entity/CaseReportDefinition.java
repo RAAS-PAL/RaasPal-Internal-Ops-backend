@@ -34,8 +34,6 @@ public class CaseReportDefinition {
     public static final String MK_PENDING = "MK_PENDING";
     public static final String CLEANING_PENDING = "CLEANING_PENDING";
     public static final String MAKRO_PENDING = "MAKRO_PENDING";
-    /** The airports' sheet: spare-part turnaround rather than an SLA. */
-    public static final String AOTGA_PENDING = "AOTGA_PENDING";
     /** Every other delivery customer, under MK's SLA rule. */
     public static final String DELIVERY_PENDING = "DELIVERY_PENDING";
     /** Held cases from both boards, except the airports'. The only two-board sheet. */
@@ -43,7 +41,7 @@ public class CaseReportDefinition {
 
     /** Every sheet, in tab order: what the daily freeze and the intraday refresh walk. */
     public static final List<String> SHEETS = List.of(
-            MK_PENDING, CLEANING_PENDING, MAKRO_PENDING, AOTGA_PENDING, DELIVERY_PENDING, ON_HOLD_PENDING);
+            MK_PENDING, CLEANING_PENDING, MAKRO_PENDING, DELIVERY_PENDING, ON_HOLD_PENDING);
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

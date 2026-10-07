@@ -29,6 +29,21 @@ public class GoogleSheetReader {
     }
 
     /**
+     * The background colour of one column's cells under the header, by row number.
+     *
+     * @param header a header of {@code table}, as {@link SheetTable#header} returned it: its
+     *               place in the header list is its column, hidden columns included
+     */
+    public Map<Integer, String> readColours(String spreadsheetId, String tab, int headerRow,
+                                            SheetTable table, String header) {
+        int column = table.headers().indexOf(header);
+        if (column < 0) {
+            throw new IllegalArgumentException("No column named '" + header + "' in the table");
+        }
+        return client.readColumnColours(spreadsheetId, tab, columnLetter(column), headerRow + 1);
+    }
+
+    /**
      * The shaping alone, without the API call.
      *
      * <p>A column with a blank header is kept, under its letter ({@code Column B}), rather

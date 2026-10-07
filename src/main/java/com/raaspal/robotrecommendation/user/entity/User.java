@@ -39,6 +39,10 @@ public class User {
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
 
+    /** The period their pending-case tabs open on; null is the default, MONTHLY (V68). */
+    @Column(name = "case_period_default", length = 8)
+    private String casePeriodDefault;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

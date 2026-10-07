@@ -10,6 +10,8 @@ import java.time.LocalDate;
  *                 configured or the cell is empty
  * @param closed   null when no closure column is configured - unknown, which is not
  *                 the same as open
+ * @param colour   the row's background colour, {@code #rrggbb}; null when no colour is read
+ * @param state    open, waiting for its part, or closed; null when closure is unknown
  */
 public record AotSheetCase(int sheetRow,
                            String rowId,
@@ -24,5 +26,14 @@ public record AotSheetCase(int sheetRow,
                            String repairBy,
                            String status,
                            LocalDate closeDate,
-                           Boolean closed) {
+                           Boolean closed,
+                           String colour,
+                           State state) {
+
+    /**
+     * Where a case stands. {@link #WAITING} only exists when closure is read by colour: the
+     * status says closed but the row is not highlighted, because the robot is fixed and
+     * AOTGA has not returned the broken part yet. It stays pending.
+     */
+    public enum State { OPEN, WAITING, CLOSED }
 }

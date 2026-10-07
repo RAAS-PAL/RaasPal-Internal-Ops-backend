@@ -13,7 +13,6 @@ import com.raaspal.robotrecommendation.casereport.repository.CaseReportDefinitio
 import com.raaspal.robotrecommendation.casereport.repository.CaseReportRunRepository;
 import com.raaspal.robotrecommendation.casereport.service.CaseReportExcelWriter;
 import com.raaspal.robotrecommendation.casereport.service.CaseReportRunService;
-import com.raaspal.robotrecommendation.casereport.service.AotgaReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.CleaningPendingReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.MkPendingReportGenerator;
 import com.raaspal.robotrecommendation.casereport.service.OnHoldReportGenerator;
@@ -76,7 +75,7 @@ class CaseReportRunServiceEditTest {
         when(runs.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service = new CaseReportRunService(definitions, runs, generator,
-                mock(CleaningPendingReportGenerator.class), mock(AotgaReportGenerator.class),
+                mock(CleaningPendingReportGenerator.class),
                 mock(OnHoldReportGenerator.class),
                 new SlaCalculator(List.of("Bangkok")), json, new CaseReportExcelWriter(),
                 // No database here: a template over a mock manager just runs the callback.

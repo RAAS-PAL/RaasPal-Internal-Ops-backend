@@ -62,6 +62,22 @@ public class CaseSourceSheet {
     @Column(name = "close_date_header", columnDefinition = "TEXT")
     private String closeDateHeader;
 
+    /** The column whose cell colour is read; null means the status column (V65). */
+    @Column(name = "colour_header", columnDefinition = "TEXT")
+    private String colourHeader;
+
+    /** Comma-separated {@code #rrggbb} colours that mean closed (V65). */
+    @Column(name = "closed_colours", columnDefinition = "TEXT")
+    private String closedColours;
+
+    /** JSON: names given to other colours, as {@code [{"colour","label"}]} (V65). */
+    @Column(name = "colour_labels", columnDefinition = "TEXT")
+    private String colourLabels;
+
+    /** The column the issue date is read from; null means "Issue Date" (V65). */
+    @Column(name = "open_date_header", columnDefinition = "TEXT")
+    private String openDateHeader;
+
     @Column(name = "sync_enabled", nullable = false)
     private boolean syncEnabled;
 

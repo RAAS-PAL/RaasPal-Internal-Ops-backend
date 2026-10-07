@@ -1,6 +1,7 @@
 package com.raaspal.robotrecommendation.casereport.scheduler;
 
 import com.raaspal.robotrecommendation.casereport.aotsheet.AotSheetAutoSync;
+import com.raaspal.robotrecommendation.casereport.aotsheet.AotgaTracker;
 import com.raaspal.robotrecommendation.casereport.entity.CaseReportDefinition;
 import com.raaspal.robotrecommendation.casereport.service.CaseReportRunService;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
@@ -27,21 +28,23 @@ class CaseReportRefreshSchedulerTest {
 
     private final CaseReportRunService runService = mock(CaseReportRunService.class);
     private final AotSheetAutoSync aotSheet = mock(AotSheetAutoSync.class);
+    private final AotgaTracker aotga = mock(AotgaTracker.class);
 
     @Test
     void everySheetIsRegeneratedForTheDayAndAFailureCostsOnlyItsOwnSheet() {
         when(runService.rowsFor(anyString(), eq(DAY), anyBoolean())).thenReturn(List.of());
         when(runService.rowsFor(CaseReportDefinition.CLEANING_PENDING, DAY, true))
                 .thenThrow(new IllegalStateException("monday timed out"));
-        when(runService.rowsFor(CaseReportDefinition.AOTGA_PENDING, DAY, true))
+        when(runService.rowsFor(CaseReportDefinition.MAKRO_PENDING, DAY, true))
                 .thenThrow(new BadRequestException("already sent"));
 
-        new CaseReportRefreshScheduler(runService, aotSheet).refreshAll(DAY);
+        new CaseReportRefreshScheduler(runService, aotSheet, aotga).refreshAll(DAY);
 
         for (String code : CaseReportDefinition.SHEETS) {
             verify(runService).rowsFor(code, DAY, true);
         }
         verify(aotSheet).syncIfDue(any());
+        verify(aotga).recordToday();
     }
 
     /** The sheet rides along with the cycle, and its trouble is its own. */
@@ -50,7 +53,7 @@ class CaseReportRefreshSchedulerTest {
         when(runService.rowsFor(anyString(), eq(DAY), anyBoolean())).thenReturn(List.of());
         when(aotSheet.syncIfDue(any())).thenThrow(new IllegalStateException("Google is down"));
 
-        new CaseReportRefreshScheduler(runService, aotSheet).refreshAll(DAY);
+        new CaseReportRefreshScheduler(runService, aotSheet, aotga).refreshAll(DAY);
 
         for (String code : CaseReportDefinition.SHEETS) {
             verify(runService).rowsFor(code, DAY, true);

@@ -34,6 +34,15 @@ public interface CaseReportRunRepository extends JpaRepository<CaseReportRun, UU
     Optional<CaseReportRun> findForUpdate(@Param("definitionId") UUID definitionId,
                                           @Param("runDate") LocalDate runDate);
 
+    /** The latest run on or before a day: what a public link shows, without generating one. */
+    Optional<CaseReportRun> findFirstByDefinitionIdAndRunDateLessThanEqualOrderByRunDateDesc(UUID definitionId,
+                                                                                            LocalDate runDate);
+
+    /** Up to {@code page}'s size of runs on or before a day, newest first. */
+    List<CaseReportRun> findByDefinitionIdAndRunDateLessThanEqualOrderByRunDateDesc(UUID definitionId,
+                                                                                   LocalDate runDate,
+                                                                                   org.springframework.data.domain.Pageable page);
+
     /** Recent runs first, for a history list. */
     List<CaseReportRun> findTop30ByDefinitionIdOrderByRunDateDesc(UUID definitionId);
 }

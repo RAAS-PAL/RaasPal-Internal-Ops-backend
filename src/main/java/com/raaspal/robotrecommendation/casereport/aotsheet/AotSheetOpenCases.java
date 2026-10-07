@@ -27,6 +27,8 @@ public record AotSheetOpenCases(boolean linked,
      *
      * @param rowId the sheet's own case id, without the spreadsheet prefix
      * @param days  whole days since the open date, not counting it, as the pending sheets count
+     * @param waitingForPart fixed, and waiting for AOTGA to return the broken part: still
+     *                       pending, but on hold, so not late
      */
     public record Item(String rowId,
                        String ticketNo,
@@ -39,6 +41,7 @@ public record AotSheetOpenCases(boolean linked,
                        String requestedPart,
                        String repairBy,
                        String verifyNote,
-                       String status) {
+                       String status,
+                       boolean waitingForPart) {
     }
 }

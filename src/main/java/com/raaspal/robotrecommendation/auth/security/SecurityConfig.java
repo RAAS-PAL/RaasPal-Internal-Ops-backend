@@ -97,6 +97,11 @@ public class SecurityConfig {
                                 "/api/v1/reports/email",
                                 "/api/v1/customers/announcements"
                         ).hasAnyRole("ADMIN", "RAASPAL_TEAM")
+                        // Public links to a pending-case details page reach customers the
+                        // same way, so making and managing them is for the same people.
+                        // Opening one is under /api/v1/reports/public/** above.
+                        .requestMatchers("/api/v1/case-reports/share-links/**")
+                        .hasAnyRole("ADMIN", "RAASPAL_TEAM")
                         // Everything else requires a valid JWT
                         .anyRequest().authenticated()
                 )
