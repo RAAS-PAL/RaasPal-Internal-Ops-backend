@@ -39,7 +39,7 @@ class CaseReportExcelWriterTest {
         return new CaseReportRow(no, project, branch, "Pudu 1", "PD9112214736023",
                 "แบตลดลงเร็ว", "รอ QT", open, onSite, days, sla, sla == null ? null : sla.label(),
                 null, null, null, null, null,
-                "กรุงเทพมหานคร", null, null, "item-" + no, false, false);
+                "กรุงเทพมหานคร", null, null, String.valueOf(1_846_000_000L + no), false, false);
     }
 
     private static Workbook read(byte[] bytes) throws IOException {
@@ -62,7 +62,8 @@ class CaseReportExcelWriterTest {
             assertThat(sheet.getSheetName()).isEqualTo("MK pending cases");
             assertThat(sheet.getRow(0).getCell(0).getStringCellValue()).isEqualTo("MK pending cases — 14 September 2026");
             assertThat(headers(sheet)).containsExactly(
-                    "No", "Project", "Branch", "Robot", "SN", "Problem", "Solution", "Open Date", "RE On Site", "Days", "SLA");
+                    "No", "Case ID", "Project", "Branch", "Robot", "SN", "Problem", "Solution", "Open Date", "RE On Site",
+                    "Days", "SLA");
         }
     }
 
@@ -72,10 +73,10 @@ class CaseReportExcelWriterTest {
         byte[] makro = writer.write(definition(CaseReportDefinition.MAKRO_PENDING, "Makro pending"), AS_OF, List.of());
 
         try (Workbook wb = read(cleaning)) {
-            assertThat(headers(wb.getSheetAt(0))).startsWith("No", "Project", "Robot").doesNotContain("Branch");
+            assertThat(headers(wb.getSheetAt(0))).startsWith("No", "Case ID", "Project", "Robot").doesNotContain("Branch");
         }
         try (Workbook wb = read(makro)) {
-            assertThat(headers(wb.getSheetAt(0))).startsWith("No", "Branch", "Robot").doesNotContain("Project");
+            assertThat(headers(wb.getSheetAt(0))).startsWith("No", "Case ID", "Branch", "Robot").doesNotContain("Project");
         }
     }
 
@@ -89,11 +90,13 @@ class CaseReportExcelWriterTest {
             Row r = wb.getSheetAt(0).getRow(3);
             assertThat(r.getCell(0).getCellType()).isEqualTo(CellType.NUMERIC);
             assertThat(r.getCell(0).getNumericCellValue()).isEqualTo(1.0);
-            assertThat(r.getCell(7).getLocalDateTimeCellValue().toLocalDate()).isEqualTo(LocalDate.of(2026, 8, 15));
-            assertThat(r.getCell(8).getLocalDateTimeCellValue().toLocalDate()).isEqualTo(LocalDate.of(2026, 9, 12));
-            assertThat(r.getCell(9).getNumericCellValue()).isEqualTo(30.0);
-            assertThat(r.getCell(10).getStringCellValue()).isEqualTo("over SLA");
-            assertThat(r.getCell(5).getStringCellValue()).isEqualTo("แบตลดลงเร็ว");
+            assertThat(r.getCell(1).getCellType()).isEqualTo(CellType.STRING);
+            assertThat(r.getCell(1).getStringCellValue()).isEqualTo("1846000001");
+            assertThat(r.getCell(8).getLocalDateTimeCellValue().toLocalDate()).isEqualTo(LocalDate.of(2026, 8, 15));
+            assertThat(r.getCell(9).getLocalDateTimeCellValue().toLocalDate()).isEqualTo(LocalDate.of(2026, 9, 12));
+            assertThat(r.getCell(10).getNumericCellValue()).isEqualTo(30.0);
+            assertThat(r.getCell(11).getStringCellValue()).isEqualTo("over SLA");
+            assertThat(r.getCell(6).getStringCellValue()).isEqualTo("แบตลดลงเร็ว");
         }
     }
 
@@ -105,18 +108,33 @@ class CaseReportExcelWriterTest {
 
         try (Workbook wb = read(bytes)) {
             Row r = wb.getSheetAt(0).getRow(3);
-            assertThat(r.getCell(2).getCellType()).isEqualTo(CellType.BLANK);
-            assertThat(r.getCell(7).getCellType()).isEqualTo(CellType.BLANK);
+            assertThat(r.getCell(3).getCellType()).isEqualTo(CellType.BLANK);
             assertThat(r.getCell(8).getCellType()).isEqualTo(CellType.BLANK);
             assertThat(r.getCell(9).getCellType()).isEqualTo(CellType.BLANK);
-            assertThat(r.getCell(10).getStringCellValue()).isEmpty();
+            assertThat(r.getCell(10).getCellType()).isEqualTo(CellType.BLANK);
+            assertThat(r.getCell(11).getStringCellValue()).isEmpty();
             // Unknown is deliberately uncoloured - see SlaStatus.
-            assertThat(r.getCell(10).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.NO_FILL);
+            assertThat(r.getCell(11).getCellStyle().getFillPattern()).isEqualTo(FillPatternType.NO_FILL);
         }
     }
 
     /** Index of the SLA column on an MK sheet, which prints both site columns. */
-    private static final int SLA = 10;
+    private static final int SLA = 11;
+
+    /** A row added by hand has no monday case, so no Case ID; a monday row has its item id. */
+    @Test
+    void caseIdIsTheMondayItemIdAndBlankForARowAddedByHand() throws IOException {
+        CaseReportRow manual = new CaseReportRow(2, "MK", "M1", "Pudu 1", null, "x", null, null, null, null,
+                SlaStatus.UNKNOWN, "", null, null, null, null, null, null, null, null,
+                CaseReportRow.MANUAL_PREFIX + "abc", true, false);
+        byte[] bytes = writer.write(definition(CaseReportDefinition.MK_PENDING, "MK pending cases"), AS_OF, List.of(
+                row(1, "MK", "M154", AS_OF, null, 0, SlaStatus.WITHIN), manual));
+
+        try (Workbook wb = read(bytes)) {
+            assertThat(wb.getSheetAt(0).getRow(3).getCell(1).getStringCellValue()).isEqualTo("1846000001");
+            assertThat(wb.getSheetAt(0).getRow(4).getCell(1).getCellType()).isEqualTo(CellType.BLANK);
+        }
+    }
 
     @Test
     void tintsTheSlaCellRedAmberOrGreenByStatus() throws IOException {
@@ -169,6 +187,12 @@ class CaseReportExcelWriterTest {
     void filenameIsLowerCaseHyphenatedWithTheDate() {
         assertThat(writer.filename(definition(CaseReportDefinition.MK_PENDING, "x"), AS_OF)).isEqualTo("mk-pending-2026-09-14.xlsx");
         assertThat(writer.filename(definition(CaseReportDefinition.CLEANING_PENDING, "x"), AS_OF)).isEqualTo("cleaning-pending-2026-09-14.xlsx");
+        // A part of the sheet picked on its details page says which.
+        assertThat(writer.filename(definition(CaseReportDefinition.MK_PENDING, "x"), AS_OF,
+                LocalDate.of(2026, 9, 14), LocalDate.of(2026, 9, 18)))
+                .isEqualTo("mk-pending-2026-09-14-opened-2026-09-14-to-2026-09-18.xlsx");
+        assertThat(writer.filename(definition(CaseReportDefinition.MK_PENDING, "x"), AS_OF, AS_OF, AS_OF))
+                .isEqualTo("mk-pending-2026-09-14-opened-2026-09-14.xlsx");
     }
 
     /** Excel refuses a sheet name over 31 characters or containing certain punctuation. */

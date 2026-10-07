@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -60,7 +61,6 @@ public class CaseReportRunService {
     private final CaseReportRunRepository runs;
     private final MkPendingReportGenerator mkGenerator;
     private final CleaningPendingReportGenerator cleaningGenerator;
-    private final AotgaReportGenerator aotgaGenerator;
     private final OnHoldReportGenerator onHoldGenerator;
     private final SlaCalculator slaCalculator;
     private final ObjectMapper objectMapper;
@@ -92,11 +92,23 @@ public class CaseReportRunService {
      */
     @Transactional
     public Export export(String definitionCode, LocalDate asOf) {
+        return export(definitionCode, asOf, null, null);
+    }
+
+    /**
+     * The sheet for a date narrowed to the cases opened between two days, as its details
+     * page shows it when a day, week or month is picked; both null for the whole sheet.
+     */
+    @Transactional
+    public Export export(String definitionCode, LocalDate asOf, LocalDate from, LocalDate to) {
         CaseReportDefinition definition = requireDefinition(definitionCode);
         List<CaseReportRow> rows = rowsFor(definitionCode, asOf, false).stream()
                 .filter(row -> !row.removed())
+                .filter(row -> from == null || (row.openDate() != null
+                        && !row.openDate().isBefore(from) && !row.openDate().isAfter(to)))
                 .toList();
-        return new Export(excelWriter.write(definition, asOf, rows), excelWriter.filename(definition, asOf));
+        return new Export(excelWriter.write(definition, asOf, from, to, rows),
+                excelWriter.filename(definition, asOf, from, to));
     }
 
     /**
@@ -503,6 +515,32 @@ public class CaseReportRunService {
         log.info("Discarded the {} run for {}", definitionCode, asOf);
     }
 
+    /** A stored run's rows, the day they describe, and when they were generated. */
+    public record Stored(LocalDate runDate, LocalDateTime generatedAt, List<CaseReportRow> rows) {
+    }
+
+    /**
+     * The latest run stored on or before a day, as stored: nothing is generated. This is
+     * what a public link shows, so opening one can never read monday or freeze a day early.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Stored> latestStored(String definitionCode, LocalDate onOrBefore) {
+        return runs.findFirstByDefinitionIdAndRunDateLessThanEqualOrderByRunDateDesc(
+                        requireDefinition(definitionCode).getId(), onOrBefore)
+                .map(r -> new Stored(r.getRunDate(), r.getGeneratedAt(), parse(r.getRowsJson())));
+    }
+
+    /** Up to {@code limit} stored runs on or before a day, newest first, as stored. */
+    @Transactional(readOnly = true)
+    public List<Stored> recentStored(String definitionCode, LocalDate onOrBefore, int limit) {
+        return runs.findByDefinitionIdAndRunDateLessThanEqualOrderByRunDateDesc(
+                        requireDefinition(definitionCode).getId(), onOrBefore,
+                        org.springframework.data.domain.PageRequest.of(0, limit))
+                .stream()
+                .map(r -> new Stored(r.getRunDate(), r.getGeneratedAt(), parse(r.getRowsJson())))
+                .toList();
+    }
+
     /** The stored run for a date, if there is one. */
     @Transactional(readOnly = true)
     public CaseReportRun findRun(String definitionCode, LocalDate asOf) {
@@ -514,7 +552,7 @@ public class CaseReportRunService {
                                          CaseReportDefinition definition,
                                          LocalDate asOf) {
         // Each code named explicitly rather than falling through to a default, so adding
-        // AOTGA is a compile-time obligation and not a silent wrong report.
+        // a sheet is a compile-time obligation and not a silent wrong report.
         return switch (code) {
             case CaseReportDefinition.MK_PENDING ->
                     mkGenerator.generate(MkPendingReportGenerator.Scope.MK, asOf);
@@ -524,7 +562,6 @@ public class CaseReportRunService {
                     cleaningGenerator.generate(CleaningPendingReportGenerator.Scope.CLEANING, asOf);
             case CaseReportDefinition.MAKRO_PENDING ->
                     cleaningGenerator.generate(CleaningPendingReportGenerator.Scope.MAKRO, asOf);
-            case CaseReportDefinition.AOTGA_PENDING -> aotgaGenerator.generate(asOf);
             case CaseReportDefinition.ON_HOLD_PENDING -> onHoldGenerator.generate(asOf);
             default -> throw new BadRequestException("No generator is wired for report " + code);
         };

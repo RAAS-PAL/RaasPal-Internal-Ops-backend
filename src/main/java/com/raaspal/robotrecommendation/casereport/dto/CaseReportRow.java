@@ -193,6 +193,15 @@ public record CaseReportRow(
                 null, null, null, sourceItemId, false, false);
     }
 
+    /**
+     * The case's "Case ID" as monday shows it: the item's id, which both ticket boards
+     * display in their Case ID column. None for a row added by hand.
+     */
+    public static String caseIdOf(CaseReportRow row) {
+        String id = row.sourceItemId();
+        return id != null && !id.isEmpty() && id.chars().allMatch(Character::isDigit) ? id : null;
+    }
+
     /** The same row under a different number, for renumbering after rows come and go. */
     public CaseReportRow withNo(int newNo) {
         return new CaseReportRow(newNo, project, branch, robot, serialNumber, problem,

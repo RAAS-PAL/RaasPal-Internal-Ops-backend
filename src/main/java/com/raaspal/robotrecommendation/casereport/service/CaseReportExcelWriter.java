@@ -48,18 +48,52 @@ public class CaseReportExcelWriter {
     /** Excel column widths are in 1/256ths of a character. */
     private static final int CHAR = 256;
 
+    /** Which of the optional columns a workbook prints. */
+    public record Layout(boolean board, boolean project, boolean branch) {
+
+        /**
+         * Each sheet's, as its recipients have always had it: MK both Project and Branch,
+         * Cleaning only Project, Makro only Branch; On Hold also says which board.
+         */
+        public static Layout of(String code) {
+            return new Layout(CaseReportDefinition.ON_HOLD_PENDING.equals(code),
+                    !CaseReportDefinition.MAKRO_PENDING.equals(code),
+                    !CaseReportDefinition.CLEANING_PENDING.equals(code));
+        }
+    }
+
     public byte[] write(CaseReportDefinition definition, LocalDate asOf, List<CaseReportRow> rows) {
-        List<Column> columns = columnsFor(definition.getCode());
+        return write(definition, asOf, null, null, rows);
+    }
+
+    /** The sheet for a date, of the cases opened from {@code from} to {@code to}; both null for all. */
+    public byte[] write(CaseReportDefinition definition, LocalDate asOf, LocalDate from, LocalDate to,
+                        List<CaseReportRow> rows) {
+        String heading = definition.getName() + " — " + TITLE_DATE.format(asOf)
+                + (from == null ? "" : from.equals(to)
+                        ? ", cases opened " + TITLE_DATE.format(from)
+                        : ", cases opened " + TITLE_DATE.format(from) + " – " + TITLE_DATE.format(to));
+        return write(heading, definition.getName(), Layout.of(definition.getCode()), rows);
+    }
+
+    /**
+     * Any list of cases in the sheet's format: a pending tab's cases for a period, say.
+     *
+     * @param heading the line above the table
+     * @param tabName the worksheet's name; cut to what Excel allows
+     */
+    public byte[] write(String heading, String tabName, Layout layout, List<CaseReportRow> rows) {
+        List<Column> columns = columnsFor(layout);
 
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             Styles styles = new Styles(workbook);
-            Sheet sheet = workbook.createSheet(sheetName(definition));
+            Sheet sheet = workbook.createSheet(sheetName(tabName));
 
-            // Title row, merged across the table: which sheet, and the date it is for.
+            // Title row, merged across the table: which cases, and the date they are for.
             Row title = sheet.createRow(0);
             title.setHeightInPoints(22);
             Cell titleCell = title.createCell(0);
-            titleCell.setCellValue(definition.getName() + " — " + TITLE_DATE.format(asOf));
+            titleCell.setCellValue(heading);
             titleCell.setCellStyle(styles.title);
             sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, columns.size() - 1));
 
@@ -99,7 +133,7 @@ public class CaseReportExcelWriter {
             return out.toByteArray();
         } catch (IOException e) {
             // Writing to memory; the only way this throws is a POI internal fault.
-            throw new UncheckedIOException("Could not build the " + definition.getCode() + " workbook", e);
+            throw new UncheckedIOException("Could not build the workbook " + heading, e);
         }
     }
 
@@ -108,12 +142,18 @@ public class CaseReportExcelWriter {
      * it survives every mail client and file system the team sends it through.
      */
     public String filename(CaseReportDefinition definition, LocalDate asOf) {
-        return definition.getCode().toLowerCase().replace('_', '-') + "-" + asOf + ".xlsx";
+        return filename(definition, asOf, null, null);
+    }
+
+    /** {@code mk-pending-2026-10-07.xlsx}, or {@code …-opened-2026-10-05-to-2026-10-09.xlsx} for a part of it. */
+    public String filename(CaseReportDefinition definition, LocalDate asOf, LocalDate from, LocalDate to) {
+        String base = definition.getCode().toLowerCase().replace('_', '-') + "-" + asOf;
+        return base + (from == null ? "" : "-opened-" + from + (from.equals(to) ? "" : "-to-" + to)) + ".xlsx";
     }
 
     /** Excel caps sheet names at 31 characters and bans a handful of punctuation. */
-    private static String sheetName(CaseReportDefinition definition) {
-        String name = definition.getName().replaceAll("[\\\\/?*\\[\\]:]", " ").trim();
+    private static String sheetName(String tabName) {
+        String name = tabName.replaceAll("[\\\\/?*\\[\\]:]", " ").trim();
         return name.length() <= 31 ? name : name.substring(0, 31).trim();
     }
 
@@ -151,17 +191,16 @@ public class CaseReportExcelWriter {
         };
     }
 
-    private static List<Column> columnsFor(String code) {
-        if (CaseReportDefinition.AOTGA_PENDING.equals(code)) {
-            return aotgaColumns();
-        }
-        boolean project = !CaseReportDefinition.MAKRO_PENDING.equals(code);
-        boolean branch = !CaseReportDefinition.CLEANING_PENDING.equals(code);
+    private static List<Column> columnsFor(Layout layout) {
+        boolean project = layout.project();
+        boolean branch = layout.branch();
         // Two boards on one sheet: say which, or a branch name alone is ambiguous.
-        boolean board = CaseReportDefinition.ON_HOLD_PENDING.equals(code);
+        boolean board = layout.board();
 
         List<Column> columns = new ArrayList<>();
         columns.add(Column.number("No", 6, r -> (double) r.no()));
+        // Text, not a number: a ten-digit id would print as 1.8E+9.
+        columns.add(Column.text("Case ID", 13, CaseReportRow::caseIdOf));
         if (board) columns.add(Column.text("Board", 10, r -> boardLabel(r.board())));
         if (project) columns.add(Column.text("Project", 14, CaseReportRow::project));
         if (branch) columns.add(Column.text("Branch", 22, CaseReportRow::branch));
@@ -173,29 +212,6 @@ public class CaseReportExcelWriter {
         columns.add(Column.date("RE On Site", 13, CaseReportRow::reOnSite));
         columns.add(Column.number("Days", 7, r -> r.days() == null ? null : r.days().doubleValue()));
         columns.add(Column.tintedText("SLA", 12, CaseReportRow::slaLabel));
-        return columns;
-    }
-
-    /**
-     * The {@code RAW_AOTGA} layout, in the RE team's column order. No Solution, RE On
-     * Site or SLA; five part-tracking columns instead. Nothing here takes the SLA tint —
-     * the sheet does not judge the case, it tracks the part.
-     */
-    private static List<Column> aotgaColumns() {
-        List<Column> columns = new ArrayList<>();
-        columns.add(Column.number("No", 6, r -> (double) r.no()));
-        columns.add(Column.text("Project", 14, CaseReportRow::project));
-        columns.add(Column.text("Robot", 8, CaseReportRow::robot));
-        columns.add(Column.wrap("SN", 22, r -> oneSerialPerLine(r.serialNumber())));
-        columns.add(Column.wrap("Problem", 30, CaseReportRow::problem));
-        columns.add(Column.wrap("Required Part", 26, CaseReportRow::requiredPart));
-        columns.add(Column.wrap("Waiting", 30, CaseReportRow::waiting));
-        columns.add(Column.text("Waiting From", 16, CaseReportRow::waitingFrom));
-        columns.add(Column.date("Open Date", 13, CaseReportRow::openDate));
-        columns.add(Column.number("Days", 7, r -> r.days() == null ? null : r.days().doubleValue()));
-        columns.add(Column.date("Part Received", 14, CaseReportRow::partReceived));
-        columns.add(Column.number("Aging After Received", 12,
-                r -> r.agingAfterReceived() == null ? null : r.agingAfterReceived().doubleValue()));
         return columns;
     }
 
