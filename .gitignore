@@ -53,3 +53,4 @@ deploy/*.pem
 # (e.g. docs/autoxing/zara-import.sql carries customer contacts). Nothing in the build
 # reads it; it stays on disk locally, out of the repo.
 docs/
+deploy/db.env

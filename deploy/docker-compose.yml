@@ -29,6 +29,10 @@ services:
       # 8 GB box. Without this the JVM sizes its heap from the host's total RAM
       # and can be killed by the kernel under load.
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70"
+          # The database shares this box now. Without a cap the JVM could take
+         # 70% of all 8 GB (5.3 GB) and starve it; 70% of 2 GB is a 1.4 GB heap.
+      mem_limit: 2g
+
     healthcheck:
       # /actuator/health answers 401 until it is permitted in SecurityConfig,
       # and a 401 still proves the app is up and routing. Accept both.
@@ -47,3 +51,33 @@ services:
 
 volumes:
   uploads:
+  pgdata:
+
+  # PostgreSQL for the API, on this box. Supabase is in Sydney, ~0.17 s per
+  # query from here; this is under a millisecond. Port bound to 127.0.0.1:
+  # never reachable from the internet, only through an SSH tunnel.
+  db:
+    image: postgres:17-alpine
+    container_name: raaspal-db
+    restart: unless-stopped
+    env_file: ./db.env
+    environment:
+      POSTGRES_DB: raaspal
+      POSTGRES_USER: raaspal
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "effective_cache_size=768MB", "-c", "max_connections=50"]
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 1g
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raaspal -d raaspal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
