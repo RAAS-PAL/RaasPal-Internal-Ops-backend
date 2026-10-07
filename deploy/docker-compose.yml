@@ -59,6 +59,11 @@ services:
     environment:
       POSTGRES_DB: raaspal
       POSTGRES_USER: raaspal
+      # Sort text the way Supabase does (ICU en-US: apple, Banana, cherry).
+      # The image's default libc collation on Alpine sorts by byte
+      # (Banana, apple, cherry), and would reorder name lists, Thai included.
+      # Applies only when the data volume is first created.
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US"
     command: ["postgres", "-c", "shared_buffers=256MB", "-c", "effective_cache_size=768MB", "-c", "max_connections=50"]
     ports:
       - "127.0.0.1:5432:5432"
