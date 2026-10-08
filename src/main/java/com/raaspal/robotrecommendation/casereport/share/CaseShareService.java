@@ -135,6 +135,16 @@ public class CaseShareService {
 
     static final int MAX_TITLE = 300;
 
+    /** Links to delete for good, by id; at most {@link #MAX_DELETE} at once. */
+    public record DeleteRequest(List<UUID> ids) {
+    }
+
+    /** @param deleted how many of the ids were links; unknown ones are skipped */
+    public record DeleteResult(int deleted) {
+    }
+
+    static final int MAX_DELETE = 1000;
+
     public record ExpiryRequest(Integer days) {
     }
 
@@ -334,6 +344,27 @@ public class CaseShareService {
             link.setRevokedAt(OffsetDateTime.now());
             log.info("Stopped sharing a {} link", link.getKind());
         }
+    }
+
+    /**
+     * Deletes links for good, from the links page: they stop working at once and leave the
+     * list, opening one says it is unknown. Ids already gone are skipped, so deleting twice
+     * is harmless. Unlike Stop sharing nothing is kept, so the page asks first.
+     */
+    @Transactional
+    public DeleteResult delete(List<UUID> ids) {
+        Set<UUID> distinct = ids == null ? Set.of()
+                : ids.stream().filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        if (distinct.isEmpty()) {
+            throw new BadRequestException("Pick at least one link to delete.");
+        }
+        if (distinct.size() > MAX_DELETE) {
+            throw new BadRequestException("Delete at most " + MAX_DELETE + " links at once.");
+        }
+        List<CaseShareLink> found = links.findAllById(distinct);
+        links.deleteAll(found);
+        log.info("Deleted {} share link(s)", found.size());
+        return new DeleteResult(found.size());
     }
 
     // ── The visitor's side ──────────────────────────────────────────────────────────

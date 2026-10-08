@@ -285,6 +285,29 @@ class CaseShareServiceTest {
         assertThatThrownBy(() -> service.all("someday")).isInstanceOf(BadRequestException.class);
     }
 
+    /** Deleting: each id once, unknown ones skipped, nothing asked is refused, and a cap. */
+    @Test
+    void deletingRemovesTheLinksGivenAndSkipsUnknownOnes() {
+        CaseShareLink one = link("SHEET", "mk");
+        CaseShareLink two = link("CASE", "mk");
+        UUID gone = UUID.randomUUID();
+        when(links.findAllById(any())).thenReturn(List.of(one, two));
+
+        CaseShareService.DeleteResult result = service.delete(Arrays.asList(one.getId(), two.getId(), one.getId(), null, gone));
+
+        assertThat(result.deleted()).isEqualTo(2);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Iterable<UUID>> asked = ArgumentCaptor.forClass(Iterable.class);
+        verify(links).findAllById(asked.capture());
+        assertThat(asked.getValue()).containsExactly(one.getId(), two.getId(), gone);
+        verify(links).deleteAll(List.of(one, two));
+
+        assertThatThrownBy(() -> service.delete(List.of())).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.delete(null)).isInstanceOf(BadRequestException.class);
+        List<UUID> tooMany = java.util.stream.Stream.generate(UUID::randomUUID).limit(CaseShareService.MAX_DELETE + 1).toList();
+        assertThatThrownBy(() -> service.delete(tooMany)).isInstanceOf(BadRequestException.class);
+    }
+
     private static CaseShareLink link(String kind, String sheet) {
         return CaseShareLink.builder().id(UUID.randomUUID()).token("tok").kind(kind).sheet(sheet)
                 .createdAt(OffsetDateTime.now().minusDays(2)).expiresAt(OffsetDateTime.now().plusDays(28)).build();

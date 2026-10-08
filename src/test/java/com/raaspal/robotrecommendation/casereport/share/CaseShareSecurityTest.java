@@ -12,6 +12,8 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -45,6 +47,8 @@ class CaseShareSecurityTest {
     void anonymousCallersCannotShareButCanOpenALink() throws Exception {
         mockMvc.perform(get(LINKS).param("kind", "SHEET").param("sheet", "mk")).andExpect(status().isUnauthorized());
         mockMvc.perform(get(LINKS + "/all")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(LINKS + "/delete").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ids\":[\"" + UUID.randomUUID() + "\"]}")).andExpect(status().isUnauthorized());
         mockMvc.perform(post(LINKS).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isUnauthorized());
         // Public, so an unknown link is "not found" rather than "sign in".
@@ -56,6 +60,8 @@ class CaseShareSecurityTest {
     void warehouseLoginsCannotShare() throws Exception {
         mockMvc.perform(get(LINKS).param("kind", "SHEET").param("sheet", "mk")).andExpect(status().isForbidden());
         mockMvc.perform(get(LINKS + "/all")).andExpect(status().isForbidden());
+        mockMvc.perform(post(LINKS + "/delete").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ids\":[\"" + UUID.randomUUID() + "\"]}")).andExpect(status().isForbidden());
         mockMvc.perform(post(LINKS).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isForbidden());
     }
@@ -124,5 +130,24 @@ class CaseShareSecurityTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("STOPPED"))
                 .andExpect(jsonPath("$.data.rows").isEmpty());
+    }
+
+    /** Delete a link for good: it leaves the list and opening it says it is unknown. */
+    @Test
+    @WithMockUser(roles = "RAASPAL_TEAM")
+    void theReTeamDeletesALinkForGood() throws Exception {
+        String created = mockMvc.perform(post(LINKS).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode link = objectMapper.readTree(created).path("data");
+
+        mockMvc.perform(post(LINKS + "/delete").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[\"" + link.path("id").asText() + "\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(1));
+
+        mockMvc.perform(get(LINKS + "/all")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.id == '" + link.path("id").asText() + "')]").isEmpty());
+        mockMvc.perform(get(PUBLIC + link.path("token").asText()).with(anonymous())).andExpect(status().isNotFound());
     }
 }
