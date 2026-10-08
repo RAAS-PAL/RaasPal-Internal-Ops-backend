@@ -44,6 +44,7 @@ class CaseShareSecurityTest {
     @WithAnonymousUser
     void anonymousCallersCannotShareButCanOpenALink() throws Exception {
         mockMvc.perform(get(LINKS).param("kind", "SHEET").param("sheet", "mk")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(LINKS + "/all")).andExpect(status().isUnauthorized());
         mockMvc.perform(post(LINKS).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isUnauthorized());
         // Public, so an unknown link is "not found" rather than "sign in".
@@ -54,6 +55,7 @@ class CaseShareSecurityTest {
     @WithMockUser(roles = "INVENTORY_STAFF")
     void warehouseLoginsCannotShare() throws Exception {
         mockMvc.perform(get(LINKS).param("kind", "SHEET").param("sheet", "mk")).andExpect(status().isForbidden());
+        mockMvc.perform(get(LINKS + "/all")).andExpect(status().isForbidden());
         mockMvc.perform(post(LINKS).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isForbidden());
     }

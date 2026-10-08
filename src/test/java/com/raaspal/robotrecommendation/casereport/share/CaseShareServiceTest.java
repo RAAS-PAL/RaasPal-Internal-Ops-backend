@@ -254,6 +254,37 @@ class CaseShareServiceTest {
         assertThat(closed.pm()).isNull();
     }
 
+    /**
+     * The links page: every link with what it shows and whether it still works; a case
+     * keeps the tab it was shared from. Made-up titles.
+     */
+    @Test
+    void theLinksPageListsEveryLinkWithItsTitleTabAndStatus() {
+        when(links.save(any(CaseShareLink.class))).thenAnswer(i -> i.getArgument(0));
+        CaseShareService.LinkView made = service.create(new CaseShareService.CreateRequest(
+                "CASE", "cleaning", "pcs", null, null, null, null, null, "item-7", null,
+                "  Case · B01 Somewhere · Pudu 1  "), null);
+        assertThat(made.title()).isEqualTo("Case · B01 Somewhere · Pudu 1");
+        assertThat(made.view()).isEqualTo("pcs");
+        assertThat(made.status()).isEqualTo(CaseShareService.LinkStatus.ACTIVE);
+        assertThatThrownBy(() -> service.create(new CaseShareService.CreateRequest(
+                "CASE", "cleaning", "payroll", null, null, null, null, null, "item-7", null, null), null))
+                .isInstanceOf(BadRequestException.class);
+
+        CaseShareLink live = link("SHEET", "mk");
+        CaseShareLink ended = link("SHEET", "mk");
+        ended.setExpiresAt(OffsetDateTime.now().minusDays(1));
+        CaseShareLink stopped = link("CASE", "mk");
+        stopped.setRevokedAt(OffsetDateTime.now().minusHours(2));
+        when(links.findAllByOrderByCreatedAtDesc()).thenReturn(List.of(live, ended, stopped));
+
+        assertThat(service.all(null)).extracting(CaseShareService.LinkView::status).containsExactly(
+                CaseShareService.LinkStatus.ACTIVE, CaseShareService.LinkStatus.EXPIRED, CaseShareService.LinkStatus.STOPPED);
+        assertThat(service.all("expired")).extracting(CaseShareService.LinkView::id).containsExactly(ended.getId());
+        assertThat(service.all("ALL")).hasSize(3);
+        assertThatThrownBy(() -> service.all("someday")).isInstanceOf(BadRequestException.class);
+    }
+
     private static CaseShareLink link(String kind, String sheet) {
         return CaseShareLink.builder().id(UUID.randomUUID()).token("tok").kind(kind).sheet(sheet)
                 .createdAt(OffsetDateTime.now().minusDays(2)).expiresAt(OffsetDateTime.now().plusDays(28)).build();
