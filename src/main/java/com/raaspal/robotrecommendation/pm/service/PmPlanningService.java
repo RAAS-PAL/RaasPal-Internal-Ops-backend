@@ -136,10 +136,15 @@ public class PmPlanningService {
         // variable-length list needs either an array function (Postgres-only, so the
         // H2 tests could not run it) or a rebuilt statement per request, and this
         // filter usually removes a handful of chains from a few thousand rows.
-        if (!filter.filtersCompanies()) {
+        // Ended contracts go the same way: they are not tracked unless asked for
+        // (user, 2026-10-08), so nothing they owe counts as late or undated.
+        if (!filter.filtersCompanies() && filter.includeEnded()) {
             return rows;
         }
-        return rows.stream().filter(row -> !filter.excludes(row.getCompany())).toList();
+        return rows.stream()
+                .filter(row -> filter.includeEnded() || !contractEnded(row.getContractGroup()))
+                .filter(row -> !filter.excludes(row.getCompany()))
+                .toList();
     }
 
     /**
@@ -219,7 +224,7 @@ public class PmPlanningService {
                 byStatus.getOrDefault(PmStatusBucket.COMPLETED.name(), 0L),
                 byStatus.getOrDefault(PmStatusBucket.UNPLANNED.name(), 0L),
                 overdue,
-                visitRepository.countUndated(filter.serviceLine()));
+                visitRepository.countUndated(filter.serviceLine(), filter.includeEnded()));
     }
 
     /**
@@ -275,7 +280,8 @@ public class PmPlanningService {
             return new PmYearResponse.Row(first.getContractId(), first.getItemName(), first.getCustomerName(),
                     first.getProject(), first.getServiceLine(), first.getProvince(), first.getRegion(),
                     first.getZone(), first.getRobotModel(), first.getRobotCount(), total, cells,
-                    first.getDistrict(), first.getContactPhone(), first.getContactEmail(), first.getSiteItemId());
+                    first.getDistrict(), first.getContactPhone(), first.getContactEmail(), first.getSiteItemId(),
+                    contractEnded(first.getContractGroup()));
         }
 
         /**

@@ -51,14 +51,15 @@ public class PmPlanningController {
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String q,
             @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
-            @RequestParam(name = "company", required = false) List<String> company) {
+            @RequestParam(name = "company", required = false) List<String> company,
+            @RequestParam(name = "ended", required = false) String ended) {
 
         int resolvedYear = year != null ? year : LocalDate.now().getYear();
         if (resolvedYear < 2000 || resolvedYear > 2100) {
             throw new BadRequestException("year must be between 2000 and 2100");
         }
         PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
-                excludeCompany, company);
+                excludeCompany, company).withEnded(ended);
         return ResponseEntity.ok(ApiResponse.success(planningService.year(resolvedYear, filter)));
     }
 
@@ -83,7 +84,8 @@ public class PmPlanningController {
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String q,
             @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
-            @RequestParam(name = "company", required = false) List<String> company) {
+            @RequestParam(name = "company", required = false) List<String> company,
+            @RequestParam(name = "ended", required = false) String ended) {
 
         LocalDate rangeFrom;
         LocalDate rangeTo;
@@ -103,7 +105,7 @@ public class PmPlanningController {
         }
 
         PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
-                excludeCompany, company);
+                excludeCompany, company).withEnded(ended);
         return ResponseEntity.ok(ApiResponse.success(
                 planningService.range(rangeFrom, rangeTo, includeUndated, filter)));
     }
@@ -157,10 +159,11 @@ public class PmPlanningController {
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String q,
             @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
-            @RequestParam(name = "company", required = false) List<String> company) {
+            @RequestParam(name = "company", required = false) List<String> company,
+            @RequestParam(name = "ended", required = false) String ended) {
 
         PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
-                excludeCompany, company);
+                excludeCompany, company).withEnded(ended);
         return ResponseEntity.ok(ApiResponse.success(planningService.undated(filter)));
     }
 
