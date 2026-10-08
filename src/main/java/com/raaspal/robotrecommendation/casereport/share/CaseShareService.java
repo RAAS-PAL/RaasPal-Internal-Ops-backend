@@ -10,6 +10,7 @@ import com.raaspal.robotrecommendation.casereport.service.SlaStatus;
 import com.raaspal.robotrecommendation.casereport.view.CaseViews;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
+import com.raaspal.robotrecommendation.pm.service.PmPublicService;
 import com.raaspal.robotrecommendation.user.entity.User;
 import com.raaspal.robotrecommendation.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,9 @@ import java.util.stream.Collectors;
  *       (user, 2026-10-07); all time is every open case.</li>
  *   <li><b>CASE</b> - one case: live while it is on an open list, then its last state,
  *       marked closed with the day it left (user, 2026-10-07).</li>
+ *   <li><b>VISIT</b> - one PM visit, and <b>SITE</b> - one PM site's schedule: read from the
+ *       plan as it is now; once gone from the plan, said so. Never the site's contact
+ *       (user, 2026-10-08).</li>
  * </ul>
  *
  * <p>Nothing is ever generated for a visitor: links read the stored sheets and AOT's kept
@@ -64,6 +68,11 @@ public class CaseShareService {
     public static final String SHEET = "SHEET";
     public static final String VIEW = "VIEW";
     public static final String CASE = "CASE";
+    public static final String VISIT = "VISIT";
+    public static final String SITE = "SITE";
+
+    /** The "sheet" a PM link is stored under. */
+    public static final String PM = "pm";
 
     /** AOT's tracker: a CASE link's sheet, and (as {@link #AOT_VIEW}) a tab. */
     public static final String AOTGA = "aotga";
@@ -84,21 +93,24 @@ public class CaseShareService {
     private final CaseReportRunService runs;
     private final CaseViews views;
     private final AotgaTracker aotga;
+    private final PmPublicService pm;
     private final UserRepository users;
     private final ObjectMapper objectMapper;
 
     // ── What the console sends and sees ─────────────────────────────────────────────
 
     /**
-     * @param kind      SHEET, VIEW or CASE
+     * @param kind      SHEET, VIEW, CASE, VISIT or SITE
      * @param sheet     SHEET: the details page. CASE: the case's sheet, or aotga
      * @param view      VIEW: the tab - internal, pcs, makro, ifs, mk, on-hold or aot
      * @param scope     VIEW on a tab of both boards: BOTH (default), CLEANING or DELIVERY
      * @param customers SHEET, and VIEW on a tab that mixes customers: whose cases; empty or
      *                  null for every case
      * @param cadence   VIEW: DAILY, WEEKLY, MONTHLY or ALL, as picked
-     * @param from      VIEW: the period's first day; none for ALL
-     * @param caseKey   CASE: the monday item id, or the AOT ticket number
+     * @param from      VIEW: the period's first day; none for ALL. SITE: the first day of the
+     *                  visits shown (a year), with {@code to}; neither for every visit
+     * @param caseKey   CASE: the monday item id, or the AOT ticket number. VISIT: the visit's
+     *                  monday subitem id. SITE: the site's monday item id
      * @param days      how long the link works; 30 when not given, 1 to 365
      */
     public record CreateRequest(String kind, String sheet, String view, String scope, List<String> customers,
@@ -180,6 +192,7 @@ public class CaseShareService {
      * @param caseStatus CASE: open, or closed - no longer on any open list
      * @param lastSeen   CASE, closed: the last day it was on one
      * @param closedOn   CASE, closed: the first day it was not, when known
+     * @param pm         VISIT and SITE: the site and its visit (or visits); null once gone from the plan
      */
     public record PublicView(Status status,
                              String kind,
@@ -198,7 +211,8 @@ public class CaseShareService {
                              List<PublicAotCase> cases,
                              CaseStatus caseStatus,
                              LocalDate lastSeen,
-                             LocalDate closedOn) {
+                             LocalDate closedOn,
+                             PmPublicService.Shown pm) {
     }
 
     // ── The team's side ─────────────────────────────────────────────────────────────
@@ -225,6 +239,17 @@ public class CaseShareService {
                         .cadence(cadence)
                         .periodFrom(from)
                         .periodTo(to);
+            }
+            case VISIT, SITE -> {
+                String key = request.caseKey() == null ? "" : request.caseKey().trim();
+                boolean found = !key.isEmpty() && key.length() <= 64
+                        && (VISIT.equals(kind) ? pm.visit(key) : pm.site(key)).isPresent();
+                if (!found) throw new BadRequestException(VISIT.equals(kind) ? "Which visit?" : "Which site?");
+                link.sheet(PM).caseKey(key);
+                if (SITE.equals(kind) && (request.from() != null || request.to() != null)) {
+                    CaseViews.requirePeriod(request.from(), request.to());
+                    link.periodFrom(request.from()).periodTo(request.to());
+                }
             }
             default -> {
                 String sheet = AOTGA.equals(request.sheet()) ? AOTGA : CaseViews.requireSheet(request.sheet());
@@ -288,6 +313,7 @@ public class CaseShareService {
             case SHEET -> openSheet(link, today);
             case VIEW -> AOT_VIEW.equals(link.getView()) ? openAotView(link, today) : openView(link, today);
             case CASE -> AOTGA.equals(link.getSheet()) ? openAotCase(link, today) : openCase(link, today);
+            case VISIT, SITE -> openPm(link, today);
             default -> throw new IllegalStateException("A share link of unknown kind " + link.getKind());
         };
     }
@@ -353,6 +379,15 @@ public class CaseShareService {
         return caseShown(link, last == null ? null : last.day(), null, List.of(),
                 last == null ? List.of() : List.of(publicAot(last.item())),
                 CaseStatus.CLOSED, last == null ? null : last.day(), last == null ? null : last.gone());
+    }
+
+    /** A PM visit or site as the plan has it now; closed, with nothing shown, once it is gone. */
+    private PublicView openPm(CaseShareLink link, LocalDate today) {
+        PmPublicService.Shown shown = (VISIT.equals(link.getKind()) ? pm.visit(link.getCaseKey())
+                : pm.site(link.getCaseKey(), link.getPeriodFrom(), link.getPeriodTo())).orElse(null);
+        PublicView view = caseShown(link, today, null, List.of(), List.of(),
+                shown != null ? CaseStatus.OPEN : CaseStatus.CLOSED, null, null);
+        return withPm(view, shown);
     }
 
     // ── The rules, kept apart so they can be tested without a database ──────────────
@@ -471,7 +506,7 @@ public class CaseShareService {
 
     static String kind(String kind) {
         String k = kind == null ? "" : kind.trim().toUpperCase(Locale.ROOT);
-        if (k.equals(SHEET) || k.equals(VIEW) || k.equals(CASE)) return k;
+        if (k.equals(SHEET) || k.equals(VIEW) || k.equals(CASE) || k.equals(VISIT) || k.equals(SITE)) return k;
         throw new BadRequestException("Unknown kind of link: " + kind);
     }
 
@@ -489,7 +524,7 @@ public class CaseShareService {
 
     private PublicView ended(CaseShareLink link, Status status, OffsetDateTime endedAt) {
         return new PublicView(status, link.getKind(), link.getSheet(), link.getView(), null, null, null, null, null,
-                null, endedAt, null, null, List.of(), List.of(), null, null, null);
+                null, endedAt, null, null, List.of(), List.of(), null, null, null, null);
     }
 
     private PublicView shown(CaseShareLink link, LocalDate asOf, OffsetDateTime updatedAt,
@@ -502,7 +537,13 @@ public class CaseShareService {
                                  LocalDate closedOn) {
         return new PublicView(Status.OK, link.getKind(), link.getSheet(), link.getView(), link.getScope(),
                 read(link.getCustomers()), link.getCadence(), link.getPeriodFrom(), link.getPeriodTo(),
-                link.getExpiresAt(), null, asOf, updatedAt, rows, cases, caseStatus, lastSeen, closedOn);
+                link.getExpiresAt(), null, asOf, updatedAt, rows, cases, caseStatus, lastSeen, closedOn, null);
+    }
+
+    private static PublicView withPm(PublicView v, PmPublicService.Shown shown) {
+        return new PublicView(v.status(), v.kind(), v.sheet(), v.view(), v.scope(), v.customers(), v.cadence(),
+                v.from(), v.to(), v.expiresAt(), v.endedAt(), v.asOf(), v.updatedAt(), v.rows(), v.cases(),
+                v.caseStatus(), v.lastSeen(), v.closedOn(), shown);
     }
 
     private List<LinkView> views(List<CaseShareLink> list) {

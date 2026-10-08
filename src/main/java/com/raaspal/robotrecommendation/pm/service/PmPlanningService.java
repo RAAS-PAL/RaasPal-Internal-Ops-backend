@@ -183,7 +183,7 @@ public class PmPlanningService {
     }
 
     /** Positive days past a missed plan date, or null when nothing is owed. */
-    private static Integer daysOverdue(LocalDate planDate, String statusBucket, LocalDate today) {
+    static Integer daysOverdue(LocalDate planDate, String statusBucket, LocalDate today) {
         if (planDate == null || PmStatusBucket.COMPLETED.name().equals(statusBucket) || !planDate.isBefore(today)) {
             return null;
         }

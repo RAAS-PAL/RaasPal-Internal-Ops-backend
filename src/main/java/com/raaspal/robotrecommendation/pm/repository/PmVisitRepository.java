@@ -120,6 +120,22 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
                                @Param("owner") String owner,
                                @Param("q") String q);
 
+    /** One visit, by its monday subitem id: what a visit's public link shows. */
+    @Query(value = VISIT_SELECT + """
+               AND v.source_item_id = :itemId
+            """, nativeQuery = true)
+    List<VisitRow> findByVisitItemId(@Param("itemId") String itemId);
+
+    /**
+     * A site's visits, by the site's monday item id: what its public link shows - dated
+     * visits by date, then the undated ones in PM order.
+     */
+    @Query(value = VISIT_SELECT + """
+               AND c.source_item_id = :siteItemId
+             ORDER BY v.plan_date NULLS LAST, v.pm_sequence NULLS LAST, v.visit_name
+            """, nativeQuery = true)
+    List<VisitRow> findBySiteItemId(@Param("siteItemId") String siteItemId);
+
     /** One visit as the month view lists it. */
     interface VisitRow {
         UUID getVisitId();
