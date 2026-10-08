@@ -49,11 +49,20 @@ public class PmPlanChange implements Persistable<UUID> {
     @Column(name = "undoes_change_id")
     private UUID undoesChangeId;
 
-    /** Null when the visit had no plan date before. */
+    /**
+     * Which date the change moved: the Action date from 2026-10-08 (the planner no longer
+     * moves Plan dates), the Plan date for the changes logged before.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "date_field", nullable = false, length = 8)
+    @Builder.Default
+    private DateField dateField = DateField.PLAN;
+
+    /** The {@link #dateField}'s date before; null when the visit had none. */
     @Column(name = "old_plan_date")
     private LocalDate oldPlanDate;
 
-    /** Null only when an undo took the visit back to having no plan date. */
+    /** The {@link #dateField}'s date after; null only when an undo took it back to none. */
     @Column(name = "new_plan_date")
     private LocalDate newPlanDate;
 
@@ -76,6 +85,12 @@ public class PmPlanChange implements Persistable<UUID> {
     public enum Action {
         MOVE,
         UNDO
+    }
+
+    /** A visit's two dates: the one the contract plans, and the one the visit is (or was) done on. */
+    public enum DateField {
+        PLAN,
+        ACTION
     }
 
     @Override

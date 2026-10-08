@@ -10,6 +10,7 @@ import com.raaspal.robotrecommendation.pm.dto.PmPlanDateChange.Outcome;
 import com.raaspal.robotrecommendation.pm.entity.PmContract;
 import com.raaspal.robotrecommendation.pm.entity.PmPlanChange;
 import com.raaspal.robotrecommendation.pm.entity.PmPlanChange.Action;
+import com.raaspal.robotrecommendation.pm.entity.PmPlanChange.DateField;
 import com.raaspal.robotrecommendation.pm.entity.PmServiceLine;
 import com.raaspal.robotrecommendation.pm.entity.PmStatusBucket;
 import com.raaspal.robotrecommendation.pm.entity.PmVisit;
@@ -42,6 +43,7 @@ class PmPlanChangeServiceTest {
     private static final String SUBITEM_BOARD = "2444194682";
     private static final String ITEM = "9001";
     private static final String ACTOR = "planner@raaspal.com";
+    private static final LocalDate JUNE_1 = LocalDate.of(2026, 6, 1);
     private static final LocalDate JUNE_10 = LocalDate.of(2026, 6, 10);
     private static final LocalDate JUNE_12 = LocalDate.of(2026, 6, 12);
     private static final LocalDate JUNE_17 = LocalDate.of(2026, 6, 17);
@@ -69,6 +71,7 @@ class PmPlanChangeServiceTest {
         board.setServiceLine(PmServiceLine.CLEANING);
         board.setSubitemBoardId(SUBITEM_BOARD);
         board.getSubitemColumns().setPlanDate("date");
+        board.getSubitemColumns().setActionDate("date6");
         board.getSubitemColumns().setStatus("status");
         props.getBoards().add(board);
 
@@ -79,14 +82,17 @@ class PmPlanChangeServiceTest {
                 .pmContractId(UUID.randomUUID())
                 .sourceBoardId(SUBITEM_BOARD)
                 .sourceItemId(ITEM)
-                .planDate(JUNE_10)
+                .planDate(JUNE_1)
+                .actionDate(JUNE_10)
                 .statusBucket(PmStatusBucket.PLANNED)
                 .isPresent(true)
                 .build();
         when(visits.findById(visit.getId())).thenReturn(Optional.of(visit));
     }
 
+    /** monday's date and status: for a move, the Action date; for an older move's undo, the Plan date. */
     private void mondayHas(LocalDate date, String time, String status) {
+        when(writer.read(SUBITEM_BOARD, ITEM, "date6", "status")).thenReturn(new Snapshot(date, time, status));
         when(writer.read(SUBITEM_BOARD, ITEM, "date", "status")).thenReturn(new Snapshot(date, time, status));
     }
 
@@ -110,14 +116,17 @@ class PmPlanChangeServiceTest {
         PmPlanDateChange result = service.move(visit.getId(), JUNE_17, JUNE_10, false, ACTOR);
 
         assertThat(result.outcome()).isEqualTo(Outcome.MOVED);
-        assertThat(result.previousPlanDate()).isEqualTo(JUNE_10);
-        assertThat(result.planDate()).isEqualTo(JUNE_17);
-        verify(writer).write(SUBITEM_BOARD, ITEM, "date", JUNE_17, null);
-        assertThat(visit.getPlanDate()).isEqualTo(JUNE_17);
+        assertThat(result.previousDate()).isEqualTo(JUNE_10);
+        assertThat(result.date()).isEqualTo(JUNE_17);
+        verify(writer).write(SUBITEM_BOARD, ITEM, "date6", JUNE_17, null);
+        assertThat(visit.getActionDate()).isEqualTo(JUNE_17);
+        // The Plan date is the contract's: never moved.
+        assertThat(visit.getPlanDate()).isEqualTo(JUNE_1);
         verify(visits).save(visit);
 
         PmPlanChange row = logged();
         assertThat(row.getAction()).isEqualTo(Action.MOVE);
+        assertThat(row.getDateField()).isEqualTo(DateField.ACTION);
         assertThat(row.getOldPlanDate()).isEqualTo(JUNE_10);
         assertThat(row.getNewPlanDate()).isEqualTo(JUNE_17);
         assertThat(row.getChangedBy()).isEqualTo(ACTOR);
@@ -133,7 +142,7 @@ class PmPlanChangeServiceTest {
 
         service.move(visit.getId(), JUNE_17, JUNE_10, false, ACTOR);
 
-        verify(writer).write(SUBITEM_BOARD, ITEM, "date", JUNE_17, "09:30:00");
+        verify(writer).write(SUBITEM_BOARD, ITEM, "date6", JUNE_17, "09:30:00");
     }
 
     @Test
@@ -143,10 +152,10 @@ class PmPlanChangeServiceTest {
         PmPlanDateChange result = service.move(visit.getId(), JUNE_17, JUNE_10, false, ACTOR);
 
         assertThat(result.outcome()).isEqualTo(Outcome.CHANGED_ON_MONDAY);
-        assertThat(result.planDate()).isEqualTo(JUNE_12);
+        assertThat(result.date()).isEqualTo(JUNE_12);
         verifyNothingWritten();
         // The mirror catches up, so a reload shows what monday has.
-        assertThat(visit.getPlanDate()).isEqualTo(JUNE_12);
+        assertThat(visit.getActionDate()).isEqualTo(JUNE_12);
         verify(visits).save(visit);
     }
 
@@ -177,7 +186,7 @@ class PmPlanChangeServiceTest {
         PmPlanDateChange result = service.move(visit.getId(), JUNE_17, JUNE_10, true, ACTOR);
 
         assertThat(result.outcome()).isEqualTo(Outcome.MOVED);
-        verify(writer).write(SUBITEM_BOARD, ITEM, "date", JUNE_17, null);
+        verify(writer).write(SUBITEM_BOARD, ITEM, "date6", JUNE_17, null);
         assertThat(logged().isConfirmedCompleted()).isTrue();
     }
 
@@ -241,6 +250,7 @@ class PmPlanChangeServiceTest {
         return change;
     }
 
+    /** A move logged before 2026-10-08 changed the Plan date: undoing it puts the Plan date back. */
     @Test
     void undoPutsTheOldDateBackAndRecordsTheUndo() {
         PmPlanChange moved = latestMove(JUNE_10, JUNE_17);
@@ -269,6 +279,24 @@ class PmPlanChangeServiceTest {
         service.undo(moved.getId(), false, ACTOR);
 
         verify(writer).write(SUBITEM_BOARD, ITEM, "date", null, null);
+    }
+
+    /** A move since 2026-10-08 changed the Action date: its undo puts that back, not the Plan date. */
+    @Test
+    void undoOfAnActionDateMovePutsTheActionDateBack() {
+        PmPlanChange moved = latestMove(JUNE_10, JUNE_17);
+        moved.setDateField(DateField.ACTION);
+        visit.setActionDate(JUNE_17);
+        mondayHas(JUNE_17, null, "Planning");
+
+        PmPlanDateChange result = service.undo(moved.getId(), false, ACTOR);
+
+        assertThat(result.outcome()).isEqualTo(Outcome.MOVED);
+        assertThat(result.field()).isEqualTo("ACTION");
+        verify(writer).write(SUBITEM_BOARD, ITEM, "date6", JUNE_10, null);
+        assertThat(visit.getActionDate()).isEqualTo(JUNE_10);
+        assertThat(visit.getPlanDate()).isEqualTo(JUNE_1);
+        assertThat(logged().getDateField()).isEqualTo(DateField.ACTION);
     }
 
     @Test

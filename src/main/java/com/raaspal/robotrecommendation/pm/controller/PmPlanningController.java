@@ -109,16 +109,17 @@ public class PmPlanningController {
     }
 
     /**
-     * Moves one visit to a new plan date, on monday and then here. Open to everyone who
-     * can see the planner; who moved what is recorded in {@code pm_plan_change}.
+     * Moves one visit's Action date, on monday and then here - the Plan date is the
+     * contract's and is never moved (user, 2026-10-08). Open to everyone who can see the
+     * planner; who moved what is recorded in {@code pm_plan_change}.
      */
-    @PatchMapping("/visits/{visitId}/plan-date")
-    public ResponseEntity<ApiResponse<PmPlanDateChange>> movePlanDate(
+    @PatchMapping("/visits/{visitId}/action-date")
+    public ResponseEntity<ApiResponse<PmPlanDateChange>> moveActionDate(
             @PathVariable UUID visitId,
             @RequestBody PmPlanDateRequest request,
             Authentication authentication) {
         return ResponseEntity.ok(ApiResponse.success(planChangeService.move(
-                visitId, request.planDate(), request.seenPlanDate(), request.confirmed(), actor(authentication))));
+                visitId, request.date(), request.seenDate(), request.confirmed(), actor(authentication))));
     }
 
     /** The latest moves and undos, newest first: who moved what, and what can still be undone. */

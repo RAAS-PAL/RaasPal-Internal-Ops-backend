@@ -50,6 +50,20 @@ class PmPublicServiceTest {
         assertThat(none.visits()).isEmpty();
     }
 
+    /**
+     * Overdue counts from the Action date when there is one: a visit rescheduled ahead is not
+     * late until that day passes too; without one, from the Plan date; never once completed.
+     */
+    @Test
+    void overdueCountsFromTheActionDateWhenThereIsOne() {
+        LocalDate planPassed = LocalDate.of(2026, 10, 1);
+        assertThat(PmPlanningService.daysOverdue(planPassed, LocalDate.of(2026, 10, 15), "PLANNED", TODAY)).isNull();
+        assertThat(PmPlanningService.daysOverdue(planPassed, LocalDate.of(2026, 10, 6), "PLANNED", TODAY)).isEqualTo(2);
+        assertThat(PmPlanningService.daysOverdue(planPassed, null, "PLANNED", TODAY)).isEqualTo(7);
+        assertThat(PmPlanningService.daysOverdue(null, LocalDate.of(2026, 10, 6), "UNPLANNED", TODAY)).isEqualTo(2);
+        assertThat(PmPlanningService.daysOverdue(planPassed, LocalDate.of(2026, 10, 6), "COMPLETED", TODAY)).isNull();
+    }
+
     @Test
     void nothingIsShownOnceTheVisitIsOffThePlan() {
         assertThat(PmPublicService.shown(List.of(), TODAY)).isEmpty();

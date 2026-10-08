@@ -10,6 +10,7 @@ import com.raaspal.robotrecommendation.pm.dto.PmPlanDateChange.Outcome;
 import com.raaspal.robotrecommendation.pm.entity.PmContract;
 import com.raaspal.robotrecommendation.pm.entity.PmPlanChange;
 import com.raaspal.robotrecommendation.pm.entity.PmPlanChange.Action;
+import com.raaspal.robotrecommendation.pm.entity.PmPlanChange.DateField;
 import com.raaspal.robotrecommendation.pm.entity.PmStatusBucket;
 import com.raaspal.robotrecommendation.pm.entity.PmVisit;
 import com.raaspal.robotrecommendation.pm.repository.PmContractRepository;
@@ -57,14 +58,18 @@ public class PmPlanChangeService {
     private final PmMondayProperties props;
     private final PmMondayWriter writer;
 
-    public PmPlanDateChange move(UUID visitId, LocalDate newDate, LocalDate seenPlanDate,
+    /**
+     * Moves a visit's Action date. The Plan date is the contract's and is never moved from
+     * the planner (user, 2026-10-08); a visit with no plan date gets an Action date the same way.
+     */
+    public PmPlanDateChange move(UUID visitId, LocalDate newDate, LocalDate seenDate,
                                  boolean confirmCompleted, String actor) {
         if (newDate == null) {
-            throw new BadRequestException("planDate is required");
+            throw new BadRequestException("date is required");
         }
         PmVisit visit = visits.findById(visitId)
                 .orElseThrow(() -> new ResourceNotFoundException("PM visit", "id", visitId));
-        return apply(visit, newDate, seenPlanDate, confirmCompleted, actor, null);
+        return apply(visit, DateField.ACTION, newDate, seenDate, confirmCompleted, actor, null);
     }
 
     /**
@@ -91,7 +96,9 @@ public class PmPlanChangeService {
         }
         PmVisit visit = visits.findById(change.getPmVisitId())
                 .orElseThrow(() -> new ResourceNotFoundException("PM visit", "id", change.getPmVisitId()));
-        return apply(visit, change.getOldPlanDate(), change.getNewPlanDate(), confirmCompleted, actor, changeId);
+        // The date the move changed: its Action date, or the Plan date for a move logged before.
+        return apply(visit, change.getDateField(), change.getOldPlanDate(), change.getNewPlanDate(),
+                confirmCompleted, actor, changeId);
     }
 
     /** The latest moves and undos, newest first, with whether each can still be undone. */
@@ -125,19 +132,21 @@ public class PmPlanChangeService {
                     row.getAction().name(), row.getOldPlanDate(), row.getNewPlanDate(),
                     row.isConfirmedCompleted(), row.getChangedBy(), row.getChangedAt(),
                     isUndone,
-                    row.getAction() == Action.MOVE && !isUndone && latestForVisit && visit != null));
+                    row.getAction() == Action.MOVE && !isUndone && latestForVisit && visit != null,
+                    row.getDateField().name()));
         }
         return out;
     }
 
     /**
-     * Sets a visit's plan date on monday and in the mirror, after the checks every write
+     * Sets one of a visit's dates on monday and in the mirror, after the checks every write
      * shares, and logs it.
      *
+     * @param field    the Action date for a move; for an undo, the date its move changed
      * @param expected the date monday must still hold for the write to go ahead
      * @param undoes   the move this reverses; null for a move
      */
-    private PmPlanDateChange apply(PmVisit visit, LocalDate target, LocalDate expected,
+    private PmPlanDateChange apply(PmVisit visit, DateField field, LocalDate target, LocalDate expected,
                                    boolean confirmCompleted, String actor, UUID undoes) {
         if (!visit.isPresent()) {
             throw new IllegalStateException("This visit is no longer on monday");
@@ -150,21 +159,26 @@ public class PmPlanChangeService {
                         "No PM board is configured for subitem board " + visit.getSourceBoardId()))
                 .getSubitemColumns();
         String statusColumn = columns.getStatus() == null || columns.getStatus().isBlank() ? null : columns.getStatus();
+        String dateColumn = field == DateField.ACTION ? columns.getActionDate() : columns.getPlanDate();
+        if (dateColumn == null || dateColumn.isBlank()) {
+            throw new IllegalStateException("No " + field.name().toLowerCase() + " date column is configured for this PM board");
+        }
+        String name = field.name();
 
         PmMondayWriter.Snapshot now = writer.read(
-                visit.getSourceBoardId(), visit.getSourceItemId(), columns.getPlanDate(), statusColumn);
+                visit.getSourceBoardId(), visit.getSourceItemId(), dateColumn, statusColumn);
 
         if (!Objects.equals(now.planDate(), expected)) {
             // Changed on monday since the planner last synced. Catch the mirror up so a
             // reload shows monday's date, and hand the choice back to the person.
-            if (!Objects.equals(visit.getPlanDate(), now.planDate())) {
-                visit.setPlanDate(now.planDate());
+            if (!Objects.equals(dateOf(visit, field), now.planDate())) {
+                setDate(visit, field, now.planDate());
                 visits.save(visit);
             }
-            return new PmPlanDateChange(visit.getId(), Outcome.CHANGED_ON_MONDAY, expected, now.planDate(), null);
+            return new PmPlanDateChange(visit.getId(), Outcome.CHANGED_ON_MONDAY, expected, now.planDate(), null, name);
         }
         if (Objects.equals(target, now.planDate())) {
-            return new PmPlanDateChange(visit.getId(), Outcome.UNCHANGED, now.planDate(), now.planDate(), null);
+            return new PmPlanDateChange(visit.getId(), Outcome.UNCHANGED, now.planDate(), now.planDate(), null, name);
         }
 
         // monday's word on completion, not the mirror's: a visit finished this morning
@@ -172,12 +186,12 @@ public class PmPlanChangeService {
         PmStatusBucket status = statusColumn != null ? PmStatusBucket.fromRaw(now.status()) : visit.getStatusBucket();
         boolean completed = status == PmStatusBucket.COMPLETED;
         if (completed && !confirmCompleted) {
-            return new PmPlanDateChange(visit.getId(), Outcome.NEEDS_CONFIRMATION, now.planDate(), now.planDate(), null);
+            return new PmPlanDateChange(visit.getId(), Outcome.NEEDS_CONFIRMATION, now.planDate(), now.planDate(), null, name);
         }
 
-        writer.write(visit.getSourceBoardId(), visit.getSourceItemId(), columns.getPlanDate(), target, now.time());
+        writer.write(visit.getSourceBoardId(), visit.getSourceItemId(), dateColumn, target, now.time());
 
-        visit.setPlanDate(target);
+        setDate(visit, field, target);
         visits.save(visit);
         PmPlanChange logged = changes.save(PmPlanChange.builder()
                 .id(UUID.randomUUID())
@@ -186,16 +200,26 @@ public class PmPlanChangeService {
                 .sourceItemId(visit.getSourceItemId())
                 .action(undoes == null ? Action.MOVE : Action.UNDO)
                 .undoesChangeId(undoes)
+                .dateField(field)
                 .oldPlanDate(now.planDate())
                 .newPlanDate(target)
                 .confirmedCompleted(completed)
                 .changedBy(actor)
                 .changedAt(OffsetDateTime.now())
                 .build());
-        log.info("PM visit {} (monday item {}) {} from {} to {} by {}{}",
+        log.info("PM visit {} (monday item {}) {} {} date from {} to {} by {}{}",
                 visit.getId(), visit.getSourceItemId(), undoes == null ? "moved" : "moved back (undo)",
-                now.planDate(), target, actor, completed ? ", confirmed although completed" : "");
+                name.toLowerCase(), now.planDate(), target, actor, completed ? ", confirmed although completed" : "");
 
-        return new PmPlanDateChange(visit.getId(), Outcome.MOVED, now.planDate(), target, logged.getId());
+        return new PmPlanDateChange(visit.getId(), Outcome.MOVED, now.planDate(), target, logged.getId(), name);
+    }
+
+    private static LocalDate dateOf(PmVisit visit, DateField field) {
+        return field == DateField.ACTION ? visit.getActionDate() : visit.getPlanDate();
+    }
+
+    private static void setDate(PmVisit visit, DateField field, LocalDate date) {
+        if (field == DateField.ACTION) visit.setActionDate(date);
+        else visit.setPlanDate(date);
     }
 }

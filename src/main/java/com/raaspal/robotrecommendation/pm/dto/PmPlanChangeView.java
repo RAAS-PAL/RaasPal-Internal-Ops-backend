@@ -12,9 +12,10 @@ import java.util.UUID;
  * @param undone    a later undo reversed this move
  * @param undoable  a move that is the visit's latest change and not undone yet; whether
  *                  monday still agrees is only known when the undo is tried
+ * @param field     which date it moved: ACTION, or PLAN for moves before 2026-10-08
  */
 public record PmPlanChangeView(UUID id, UUID visitId, String itemId, String visitName, String siteName, String serviceLine,
                                String action, LocalDate oldPlanDate, LocalDate newPlanDate,
                                boolean confirmedCompleted, String changedBy, OffsetDateTime changedAt,
-                               boolean undone, boolean undoable) {
+                               boolean undone, boolean undoable, String field) {
 }

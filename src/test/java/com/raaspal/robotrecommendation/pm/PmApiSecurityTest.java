@@ -26,9 +26,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PmApiSecurityTest {
 
     private static final String BASE = "/api/v1/pm";
-    private static final String MOVE = BASE + "/visits/00000000-0000-0000-0000-000000000001/plan-date";
+    private static final String MOVE = BASE + "/visits/00000000-0000-0000-0000-000000000001/action-date";
     private static final String UNDO = BASE + "/plan-changes/00000000-0000-0000-0000-000000000001/undo";
-    private static final String MOVE_BODY = "{\"planDate\":\"2026-06-17\",\"seenPlanDate\":\"2026-06-10\"}";
+    private static final String MOVE_BODY = "{\"date\":\"2026-06-17\",\"seenDate\":\"2026-06-10\"}";
 
     @Autowired
     private MockMvc mockMvc;

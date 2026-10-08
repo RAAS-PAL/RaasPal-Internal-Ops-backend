@@ -9,13 +9,14 @@ import java.util.UUID;
  * <p>The outcomes other than {@link Outcome#MOVED} are answers, not errors: each says
  * why nothing was written, in a form the planner can act on and translate.
  *
- * @param previousPlanDate the date monday held before; null when it had none
- * @param planDate         the date monday holds now
- * @param changeId         the log row this wrote, which an undo names; null when nothing was written
+ * @param field        which date it was: ACTION for a move, or for the undo of an older
+ *                     plan-date move, PLAN
+ * @param previousDate the date monday held before; null when it had none
+ * @param date         the date monday holds now
+ * @param changeId     the log row this wrote, which an undo names; null when nothing was written
  */
-public record PmPlanDateChange(UUID visitId, Outcome outcome, LocalDate previousPlanDate, LocalDate planDate,
-                               UUID changeId) {
-
+public record PmPlanDateChange(UUID visitId, Outcome outcome, LocalDate previousDate, LocalDate date,
+                               UUID changeId, String field) {
     public enum Outcome {
         /** Written to monday and to the mirror, and logged. */
         MOVED,
