@@ -87,6 +87,8 @@ public class PmMondayProperties {
             addIfSet(ids, columns.province);
             addIfSet(ids, columns.region);
             addIfSet(ids, columns.district);
+            addIfSet(ids, columns.phone);
+            addIfSet(ids, columns.email);
             addIfSet(ids, columns.location);
             addIfSet(ids, columns.contractType);
             addIfSet(ids, columns.warrantyTimeline);
@@ -122,6 +124,10 @@ public class PmMondayProperties {
         private String province;
         private String region;
         private String district;
+        /** The site contact's phone; the contact's name is {@link #customerName} (ชื่อลูกค้า). */
+        private String phone;
+        /** The site contact's email. */
+        private String email;
         private String location;
         private String contractType;
         private String warrantyTimeline;

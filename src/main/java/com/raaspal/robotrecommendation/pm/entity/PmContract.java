@@ -69,6 +69,17 @@ public class PmContract implements Persistable<UUID> {
     @Column(name = "district_raw", columnDefinition = "TEXT")
     private String districtRaw;
 
+    /**
+     * The site's contact, as the board's Phone and Email columns hold it. The contact's
+     * name is {@link #customerNameRaw} (ชื่อลูกค้า). Shown to the team only - never on a
+     * public link (user, 2026-10-08).
+     */
+    @Column(name = "contact_phone", columnDefinition = "TEXT")
+    private String contactPhone;
+
+    @Column(name = "contact_email", columnDefinition = "TEXT")
+    private String contactEmail;
+
     /** Canonical province from {@code ProvinceResolver}, or UNASSIGNED. */
     @Column(name = "province_resolved", length = 64)
     private String provinceResolved;

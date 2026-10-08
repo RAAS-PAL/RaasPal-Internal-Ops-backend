@@ -66,6 +66,32 @@ class PmItemMapperTest {
         return new MondayColumnValue(id, "location", text, value, null);
     }
 
+    /**
+     * The site contact: the address from the email column's own field, never its display
+     * label; the phone as typed; the text when a column has no raw value. Made-up contact.
+     */
+    @Test
+    void readsTheSiteContactFromItsPhoneAndEmailColumns() {
+        board.getColumns().setDistrict("district_col");
+        board.getColumns().setPhone("phone_col");
+        board.getColumns().setEmail("email_col");
+        PmContract contract = mapper.toContract(
+                item("7", "Some site",
+                        text("district_col", "บางนา"),
+                        json("phone_col", "0812345678", "{\"phone\":\"0812345678\",\"countryShortName\":\"TH\"}"),
+                        json("email_col", "Front desk", "{\"email\":\"desk@example.com\",\"text\":\"Front desk\"}")),
+                board, null, NOW);
+
+        assertThat(contract.getDistrictRaw()).isEqualTo("บางนา");
+        assertThat(contract.getContactPhone()).isEqualTo("0812345678");
+        assertThat(contract.getContactEmail()).isEqualTo("desk@example.com");
+
+        PmContract textOnly = mapper.toContract(item("8", "Other site", text("phone_col", " 021234567 ")),
+                board, null, NOW);
+        assertThat(textOnly.getContactPhone()).isEqualTo("021234567");
+        assertThat(textOnly.getContactEmail()).isNull();
+    }
+
     @Test
     void derivesRegionAndZoneFromProvinceAndKeepsMondaysOwnRegionOnlyForDiagnosis() {
         PmContract contract = mapper.toContract(

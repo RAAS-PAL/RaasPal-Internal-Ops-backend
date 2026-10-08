@@ -25,6 +25,7 @@ public record PmMonthResponse(LocalDate from, LocalDate to, PmSummary summary, L
                       String timeText, String statusRaw, String statusBucket, Integer daysOverdue,
                       String ownerNames, UUID contractId, String contractName, String customerName, String project,
                       String serviceLine, String province, String region, String zone, String robotModel,
-                      Integer robotCount, String contractType, String contractGroup, boolean contractEnded) {
+                      Integer robotCount, String contractType, String contractGroup, boolean contractEnded,
+                      String district, String contactPhone, String contactEmail, String siteItemId) {
     }
 }
