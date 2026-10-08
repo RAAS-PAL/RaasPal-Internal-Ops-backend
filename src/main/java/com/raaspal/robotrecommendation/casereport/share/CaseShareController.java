@@ -73,6 +73,12 @@ public class CaseShareController {
         return ApiResponse.success("Stopped sharing");
     }
 
+    /** Deletes links for good: {@code {"ids":[…]}}. The links page asks before it sends. */
+    @PostMapping("/api/v1/case-reports/share-links/delete")
+    public ApiResponse<CaseShareService.DeleteResult> delete(@RequestBody CaseShareService.DeleteRequest request) {
+        return ApiResponse.success(shares.delete(request.ids()));
+    }
+
     /**
      * What a link shows, for anyone who has it. Not cached anywhere on the way, and not
      * for search engines: it is current cases, and it is only for whom it was sent to.
