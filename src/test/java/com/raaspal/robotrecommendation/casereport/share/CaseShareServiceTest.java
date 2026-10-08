@@ -8,6 +8,7 @@ import com.raaspal.robotrecommendation.casereport.service.SlaStatus;
 import com.raaspal.robotrecommendation.casereport.view.CaseViews;
 import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
+import com.raaspal.robotrecommendation.pm.service.PmPublicService;
 import com.raaspal.robotrecommendation.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -37,7 +38,8 @@ class CaseShareServiceTest {
     private final CaseShareLinkRepository links = mock(CaseShareLinkRepository.class);
     private final CaseReportRunService runs = mock(CaseReportRunService.class);
     private final AotgaTracker aotga = mock(AotgaTracker.class);
-    private final CaseShareService service = new CaseShareService(links, runs, mock(CaseViews.class), aotga,
+    private final PmPublicService pm = mock(PmPublicService.class);
+    private final CaseShareService service = new CaseShareService(links, runs, mock(CaseViews.class), aotga, pm,
             mock(UserRepository.class), new ObjectMapper());
 
     private static CaseReportRow row(int no, String project) {
@@ -198,6 +200,58 @@ class CaseShareServiceTest {
 
         when(links.findById(stopped.getId())).thenReturn(Optional.of(stopped));
         assertThatThrownBy(() -> service.extend(stopped.getId(), 30)).isInstanceOf(BadRequestException.class);
+    }
+
+    /**
+     * A PM visit or site link: made only for one on the plan, read from the plan as it is,
+     * and said to be gone - with nothing shown - once it is off it. Made-up site.
+     */
+    @Test
+    void aPmVisitOrSiteLinkFollowsThePlanAndSaysWhenItIsGone() {
+        var site = new PmPublicService.Site("Sample Site", "CLEANING", "Sample District", "Sample Province", "EAST",
+                "Model X", 1, false);
+        var shown = new PmPublicService.Shown(site, List.of(new PmPublicService.Visit("501", "PM1", 1,
+                LocalDate.of(2026, 10, 20), null, null, "PLANNED", null, null)));
+        when(pm.visit("501")).thenReturn(Optional.of(shown));
+        when(pm.site("900")).thenReturn(Optional.empty());
+        when(pm.site("901")).thenReturn(Optional.of(shown));
+        when(pm.site(eq("901"), any(), any())).thenReturn(Optional.of(shown));
+        when(links.save(any(CaseShareLink.class))).thenAnswer(i -> i.getArgument(0));
+
+        CaseShareService.LinkView made = service.create(new CaseShareService.CreateRequest(
+                "visit", null, null, null, null, null, null, null, " 501 ", null), null);
+        assertThat(made.kind()).isEqualTo("VISIT");
+        assertThat(made.sheet()).isEqualTo("pm");
+        assertThat(made.caseKey()).isEqualTo("501");
+        assertThatThrownBy(() -> service.create(new CaseShareService.CreateRequest(
+                "SITE", null, null, null, null, null, null, null, "900", null), null))
+                .isInstanceOf(BadRequestException.class);
+        // A site shared for the year picked keeps its first and last day; for every visit, neither.
+        CaseShareService.LinkView year = service.create(new CaseShareService.CreateRequest(
+                "SITE", null, null, null, null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), "901", null), null);
+        assertThat(year.from()).isEqualTo(LocalDate.of(2026, 1, 1));
+        assertThat(year.to()).isEqualTo(LocalDate.of(2026, 12, 31));
+        assertThat(service.create(new CaseShareService.CreateRequest(
+                "SITE", null, null, null, null, null, null, null, "901", null), null).from()).isNull();
+        assertThatThrownBy(() -> service.create(new CaseShareService.CreateRequest(
+                "SITE", null, null, null, null, null, LocalDate.of(2026, 1, 1), null, "901", null), null))
+                .isInstanceOf(BadRequestException.class);
+
+        CaseShareLink visit = link("VISIT", "pm");
+        visit.setCaseKey("501");
+        when(links.findByToken("visit")).thenReturn(Optional.of(visit));
+        CaseShareService.PublicView open = service.open("visit");
+        assertThat(open.caseStatus()).isEqualTo(CaseShareService.CaseStatus.OPEN);
+        assertThat(open.pm().site().name()).isEqualTo("Sample Site");
+        assertThat(open.rows()).isEmpty();
+
+        CaseShareLink gone = link("SITE", "pm");
+        gone.setCaseKey("900");
+        when(pm.site(eq("900"), any(), any())).thenReturn(Optional.empty());
+        when(links.findByToken("gone")).thenReturn(Optional.of(gone));
+        CaseShareService.PublicView closed = service.open("gone");
+        assertThat(closed.caseStatus()).isEqualTo(CaseShareService.CaseStatus.CLOSED);
+        assertThat(closed.pm()).isNull();
     }
 
     private static CaseShareLink link(String kind, String sheet) {

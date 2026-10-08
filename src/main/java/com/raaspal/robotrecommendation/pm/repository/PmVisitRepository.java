@@ -43,6 +43,10 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
                    c.id                        AS contractId,
                    c.item_name                 AS itemName,
                    c.customer_name_raw         AS customerName,
+                   c.contact_phone             AS contactPhone,
+                   c.contact_email             AS contactEmail,
+                   c.district_raw              AS district,
+                   c.source_item_id            AS siteItemId,
                    c.project_raw               AS project,
                    c.service_line              AS serviceLine,
                    c.company                   AS company,
@@ -69,6 +73,7 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
                AND (CAST(:owner AS text)       IS NULL OR v.owner_names ILIKE CONCAT('%', CAST(:owner AS text), '%'))
                AND (CAST(:q AS text)           IS NULL OR c.item_name ILIKE CONCAT('%', CAST(:q AS text), '%')
                                                        OR c.customer_name_raw ILIKE CONCAT('%', CAST(:q AS text), '%')
+                                                       OR c.district_raw ILIKE CONCAT('%', CAST(:q AS text), '%')
                                                        OR c.project_raw ILIKE CONCAT('%', CAST(:q AS text), '%'))
             """;
 
@@ -115,6 +120,22 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
                                @Param("owner") String owner,
                                @Param("q") String q);
 
+    /** One visit, by its monday subitem id: what a visit's public link shows. */
+    @Query(value = VISIT_SELECT + """
+               AND v.source_item_id = :itemId
+            """, nativeQuery = true)
+    List<VisitRow> findByVisitItemId(@Param("itemId") String itemId);
+
+    /**
+     * A site's visits, by the site's monday item id: what its public link shows - dated
+     * visits by date, then the undated ones in PM order.
+     */
+    @Query(value = VISIT_SELECT + """
+               AND c.source_item_id = :siteItemId
+             ORDER BY v.plan_date NULLS LAST, v.pm_sequence NULLS LAST, v.visit_name
+            """, nativeQuery = true)
+    List<VisitRow> findBySiteItemId(@Param("siteItemId") String siteItemId);
+
     /** One visit as the month view lists it. */
     interface VisitRow {
         UUID getVisitId();
@@ -130,7 +151,14 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
         String getOwnerNames();
         UUID getContractId();
         String getItemName();
+        /** The site contact's name (ชื่อลูกค้า). */
         String getCustomerName();
+        String getContactPhone();
+        String getContactEmail();
+        /** อำเภอ (เขต), as the board has it. */
+        String getDistrict();
+        /** The site's monday item id: what a site's public link is keyed by. */
+        String getSiteItemId();
         String getProject();
         String getServiceLine();
         String getCompany();

@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.pm.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raaspal.robotrecommendation.casereport.adapters.monday.dto.MondayColumnValue;
@@ -61,6 +62,8 @@ public class PmItemMapper {
         contract.setProjectRaw(text(item, columns.getProject()));
         contract.setCustomerNameRaw(text(item, columns.getCustomerName()));
         contract.setDistrictRaw(text(item, columns.getDistrict()));
+        contract.setContactPhone(fromValue(item, columns.getPhone(), "phone"));
+        contract.setContactEmail(fromValue(item, columns.getEmail(), "email"));
         contract.setRegionRaw(text(item, columns.getRegion()));
         contract.setContractType(text(item, columns.getContractType()));
         contract.setCompany(deriveCompany(item.name()));
@@ -262,6 +265,30 @@ public class PmItemMapper {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * A phone or email column's own field from its raw value - {@code {"phone": "…"}},
+     * {@code {"email": "…", "text": "label"}} - so a display label is never taken for the
+     * address; the column's text when there is no raw value.
+     */
+    private String fromValue(MondayItem item, String columnId, String field) {
+        if (columnId == null || columnId.isBlank()) {
+            return null;
+        }
+        String raw = item.columnRawValue(columnId);
+        if (raw != null && !raw.isBlank()) {
+            try {
+                JsonNode node = objectMapper.readTree(raw);
+                String value = node.path(field).asText(null);
+                if (value != null && !value.isBlank()) {
+                    return value.trim();
+                }
+            } catch (JsonProcessingException e) {
+                // Not JSON: fall back to the column's text below.
+            }
+        }
+        return text(item, columnId);
     }
 
     private static String text(MondayItem item, String columnId) {

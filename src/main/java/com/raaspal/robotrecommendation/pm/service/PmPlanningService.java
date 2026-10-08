@@ -96,7 +96,8 @@ public class PmPlanningService {
                 row.getContractId(), row.getItemName(), row.getCustomerName(), row.getProject(),
                 row.getServiceLine(), row.getProvince(), row.getRegion(), row.getZone(),
                 row.getRobotModel(), row.getRobotCount(), row.getContractType(),
-                row.getContractGroup(), contractEnded(row.getContractGroup()));
+                row.getContractGroup(), contractEnded(row.getContractGroup()),
+                row.getDistrict(), row.getContactPhone(), row.getContactEmail(), row.getSiteItemId());
     }
 
     /**
@@ -182,7 +183,7 @@ public class PmPlanningService {
     }
 
     /** Positive days past a missed plan date, or null when nothing is owed. */
-    private static Integer daysOverdue(LocalDate planDate, String statusBucket, LocalDate today) {
+    static Integer daysOverdue(LocalDate planDate, String statusBucket, LocalDate today) {
         if (planDate == null || PmStatusBucket.COMPLETED.name().equals(statusBucket) || !planDate.isBefore(today)) {
             return null;
         }
@@ -268,7 +269,8 @@ public class PmPlanningService {
             });
             return new PmYearResponse.Row(first.getContractId(), first.getItemName(), first.getCustomerName(),
                     first.getProject(), first.getServiceLine(), first.getProvince(), first.getRegion(),
-                    first.getZone(), first.getRobotModel(), first.getRobotCount(), total, cells);
+                    first.getZone(), first.getRobotModel(), first.getRobotCount(), total, cells,
+                    first.getDistrict(), first.getContactPhone(), first.getContactEmail(), first.getSiteItemId());
         }
 
         /**

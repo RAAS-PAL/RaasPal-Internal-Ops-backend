@@ -17,7 +17,8 @@ public record PmYearResponse(int year, int weekCount, List<Row> rows, List<WeekT
      */
     public record Row(UUID contractId, String name, String customerName, String project, String serviceLine,
                       String province, String region, String zone, String robotModel, Integer robotCount,
-                      long totalVisits, Map<Integer, Cell> cells) {
+                      long totalVisits, Map<Integer, Cell> cells, String district, String contactPhone,
+                      String contactEmail, String siteItemId) {
     }
 
     /** The visits of one contract in one week. */
