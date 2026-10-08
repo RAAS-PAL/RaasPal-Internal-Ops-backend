@@ -85,7 +85,8 @@ public class RobotStockEntry {
     private LocalDateTime previousQuantityAt;
 
     /**
-     * Where this shelf stands: IN_STOCK, DEMO, UNDER_REPAIR or RETURNED_FROM_CUSTOMER.
+     * Where this shelf stands: IN_STOCK, DEMO, UNDER_REPAIR, RETURNED_FROM_CUSTOMER or
+     * USED_READY.
      *
      * <p>Reuses the fleet enum, but only the values
      * {@link RobotUnitStatus#isStockRoomStatus} admits. RENT and SOLD describe a

@@ -84,7 +84,8 @@ public class InventoryService {
                 value == null ? BigDecimal.ZERO : value,
                 // From the warehouse's own list, not the fleet: robot_units counts
                 // machines already at customers, which is a different question.
-                robotStockRepository.sumQuantityByStatus(RobotUnitStatus.IN_STOCK),
+                robotStockRepository.sumQuantityByStatus(RobotUnitStatus.IN_STOCK)
+                        + robotStockRepository.sumQuantityByStatus(RobotUnitStatus.USED_READY),
                 robotStockRepository.sumQuantityByStatus(RobotUnitStatus.DEMO),
                 preview.stream().map(i -> InventoryItemResponse.from(i, linkedRobots(i, names))).toList());
     }

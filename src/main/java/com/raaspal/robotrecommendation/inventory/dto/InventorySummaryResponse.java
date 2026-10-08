@@ -25,7 +25,8 @@ public record InventorySummaryResponse(
         /**
          * Robots the warehouse holds and can sell or deploy, from
          * {@code robot_inventory_temp} — not from the fleet in {@code robot_units},
-         * which counts machines already at customers.
+         * which counts machines already at customers. New stock plus used units that
+         * are ready to go out again (USED_READY), the two available shelf states.
          */
         long robotsInStock,
 

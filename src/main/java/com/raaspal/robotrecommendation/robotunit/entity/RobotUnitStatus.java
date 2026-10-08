@@ -16,6 +16,11 @@ package com.raaspal.robotrecommendation.robotunit.entity;
  * — {@link #isWarehouseVisible} and {@link #isAvailable} are untouched, and the fleet
  * still accepts exactly the values it always did.
  *
+ * <p>A third store-room state, {@link #USED_READY}, followed in October 2026, also at the
+ * warehouse's request: a used robot that has been checked over and can go out again.
+ * Unlike the other two it is available, so it widens {@link #isAvailable} as well as
+ * {@link #isStockRoomStatus}; the fleet's values are still untouched.
+ *
  * <p>What a technician actually did remains a CM report ticket. These say only where
  * the unit is, never what is wrong with it.
  */
@@ -61,7 +66,17 @@ public enum RobotUnitStatus {
      * IN_STOCK because it has not been checked over yet, and promising it to another
      * customer before someone has looked at it is the mistake this prevents.
      */
-    RETURNED_FROM_CUSTOMER;
+    RETURNED_FROM_CUSTOMER,
+
+    /**
+     * Used before, checked over and ready to go out again — "Used (Ready to Use)".
+     *
+     * <p>Where a {@link #RETURNED_FROM_CUSTOMER} unit goes once someone has looked at
+     * it and found it fit. Available to deploy or rent like {@link #IN_STOCK}, but it
+     * is not new: if it is sold, it is sold as second-hand. Store-room only, like the
+     * other two shelf states — the fleet never stores it.
+     */
+    USED_READY;
 
     /**
      * Statuses the <em>fleet's</em> own stock endpoints accept.
@@ -75,7 +90,7 @@ public enum RobotUnitStatus {
     }
 
     /**
-     * Statuses RIMS records against a shelf — the four the warehouse works in.
+     * Statuses RIMS records against a shelf — the five the warehouse works in.
      *
      * <p>Wider than {@link #isWarehouseVisible}, and kept separate from it rather than
      * replacing it, because the two answer different questions: that one asks what the
@@ -85,11 +100,15 @@ public enum RobotUnitStatus {
         return this == IN_STOCK
                 || this == DEMO
                 || this == UNDER_REPAIR
-                || this == RETURNED_FROM_CUSTOMER;
+                || this == RETURNED_FROM_CUSTOMER
+                || this == USED_READY;
     }
 
-    /** Available to deploy or sell right now. Excludes demo units. */
+    /**
+     * Available to deploy, rent or sell right now. Excludes demo units. A
+     * {@link #USED_READY} unit counts, but it is sold only as second-hand.
+     */
     public boolean isAvailable() {
-        return this == IN_STOCK;
+        return this == IN_STOCK || this == USED_READY;
     }
 }

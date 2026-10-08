@@ -37,7 +37,7 @@ public record RobotStockEntryRequest(
         Integer quantity,
 
         /**
-         * IN_STOCK, DEMO, UNDER_REPAIR or RETURNED_FROM_CUSTOMER. RENT and SOLD are
+         * IN_STOCK, DEMO, UNDER_REPAIR, RETURNED_FROM_CUSTOMER or USED_READY. RENT and SOLD are
          * rejected: those describe a robot at a customer, which has no row here.
          */
         RobotUnitStatus status,

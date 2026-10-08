@@ -162,7 +162,7 @@ public class RobotStockService {
     }
 
     /**
-     * The four store-room states, and only those. RENT and SOLD describe a robot at
+     * The five store-room states, and only those. RENT and SOLD describe a robot at
      * a customer under an agreement: that is the fleet record, and this table
      * deliberately knows nothing about it.
      *
@@ -175,8 +175,8 @@ public class RobotStockService {
         if (!resolved.isStockRoomStatus()) {
             throw new BadRequestException(
                     resolved + " describes a robot at a customer and cannot be "
-                            + "recorded here. Use New Stock, Demo Unit, Under Repair "
-                            + "or Returned from Customer.");
+                            + "recorded here. Use New Stock, Demo Unit, Under Repair, "
+                            + "Returned from Customer or Used (Ready to Use).");
         }
         return resolved;
     }
