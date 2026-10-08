@@ -17,7 +17,8 @@ import java.util.Set;
  * {@code excludeCompany=} otherwise, and an include list, when present, wins.
  */
 public record PmFilter(String serviceLine, String region, String zone, String province, String status,
-                       String owner, String q, Set<String> excludedCompanies, Set<String> includedCompanies) {
+                       String owner, String q, Set<String> excludedCompanies, Set<String> includedCompanies,
+                       boolean includeEnded) {
 
     /** Turns blank query-string values into the nulls the queries expect. */
     public static PmFilter of(String serviceLine, String region, String zone, String province, String status,
@@ -30,7 +31,18 @@ public record PmFilter(String serviceLine, String region, String zone, String pr
                               List<String> includedCompanies) {
         return new PmFilter(blankToNull(serviceLine), blankToNull(region), blankToNull(zone),
                 blankToNull(province), blankToNull(status), blankToNull(owner), blankToNull(q),
-                names(excludedCompanies), names(includedCompanies));
+                names(excludedCompanies), names(includedCompanies), false);
+    }
+
+    /**
+     * With contracts that have ended - a monday group saying หมดสัญญา - or without them,
+     * as the planner is by default: their visits are no longer tracked (user, 2026-10-08).
+     *
+     * @param ended {@code show} brings them back, to look at history; anything else leaves them out
+     */
+    public PmFilter withEnded(String ended) {
+        return new PmFilter(serviceLine, region, zone, province, status, owner, q, excludedCompanies,
+                includedCompanies, "show".equalsIgnoreCase(ended == null ? null : ended.trim()));
     }
 
     /**

@@ -85,4 +85,8 @@ public class CaseShareLink {
 
     @Column(name = "last_viewed_at")
     private OffsetDateTime lastViewedAt;
+
+    /** What it shows, as the dialog named it; null for links made before V71. */
+    @Column(columnDefinition = "TEXT")
+    private String title;
 }

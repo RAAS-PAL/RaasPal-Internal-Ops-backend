@@ -51,14 +51,15 @@ public class PmPlanningController {
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String q,
             @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
-            @RequestParam(name = "company", required = false) List<String> company) {
+            @RequestParam(name = "company", required = false) List<String> company,
+            @RequestParam(name = "ended", required = false) String ended) {
 
         int resolvedYear = year != null ? year : LocalDate.now().getYear();
         if (resolvedYear < 2000 || resolvedYear > 2100) {
             throw new BadRequestException("year must be between 2000 and 2100");
         }
         PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
-                excludeCompany, company);
+                excludeCompany, company).withEnded(ended);
         return ResponseEntity.ok(ApiResponse.success(planningService.year(resolvedYear, filter)));
     }
 
@@ -83,7 +84,8 @@ public class PmPlanningController {
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String q,
             @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
-            @RequestParam(name = "company", required = false) List<String> company) {
+            @RequestParam(name = "company", required = false) List<String> company,
+            @RequestParam(name = "ended", required = false) String ended) {
 
         LocalDate rangeFrom;
         LocalDate rangeTo;
@@ -103,22 +105,23 @@ public class PmPlanningController {
         }
 
         PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
-                excludeCompany, company);
+                excludeCompany, company).withEnded(ended);
         return ResponseEntity.ok(ApiResponse.success(
                 planningService.range(rangeFrom, rangeTo, includeUndated, filter)));
     }
 
     /**
-     * Moves one visit to a new plan date, on monday and then here. Open to everyone who
-     * can see the planner; who moved what is recorded in {@code pm_plan_change}.
+     * Moves one visit's Action date, on monday and then here - the Plan date is the
+     * contract's and is never moved (user, 2026-10-08). Open to everyone who can see the
+     * planner; who moved what is recorded in {@code pm_plan_change}.
      */
-    @PatchMapping("/visits/{visitId}/plan-date")
-    public ResponseEntity<ApiResponse<PmPlanDateChange>> movePlanDate(
+    @PatchMapping("/visits/{visitId}/action-date")
+    public ResponseEntity<ApiResponse<PmPlanDateChange>> moveActionDate(
             @PathVariable UUID visitId,
             @RequestBody PmPlanDateRequest request,
             Authentication authentication) {
         return ResponseEntity.ok(ApiResponse.success(planChangeService.move(
-                visitId, request.planDate(), request.seenPlanDate(), request.confirmed(), actor(authentication))));
+                visitId, request.date(), request.seenDate(), request.confirmed(), actor(authentication))));
     }
 
     /** The latest moves and undos, newest first: who moved what, and what can still be undone. */
@@ -156,10 +159,11 @@ public class PmPlanningController {
             @RequestParam(required = false) String owner,
             @RequestParam(required = false) String q,
             @RequestParam(name = "excludeCompany", required = false) List<String> excludeCompany,
-            @RequestParam(name = "company", required = false) List<String> company) {
+            @RequestParam(name = "company", required = false) List<String> company,
+            @RequestParam(name = "ended", required = false) String ended) {
 
         PmFilter filter = PmFilter.of(serviceLine, region, zone, province, status, owner, q,
-                excludeCompany, company);
+                excludeCompany, company).withEnded(ended);
         return ResponseEntity.ok(ApiResponse.success(planningService.undated(filter)));
     }
 

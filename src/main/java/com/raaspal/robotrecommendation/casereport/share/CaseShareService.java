@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.casereport.share;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -112,10 +113,27 @@ public class CaseShareService {
      * @param caseKey   CASE: the monday item id, or the AOT ticket number. VISIT: the visit's
      *                  monday subitem id. SITE: the site's monday item id
      * @param days      how long the link works; 30 when not given, 1 to 365
+     * @param title     what it shows, in the dialog's words, for the links page; CASE also
+     *                  keeps {@code view}, the tab it was shared from, when given
      */
     public record CreateRequest(String kind, String sheet, String view, String scope, List<String> customers,
-                                String cadence, LocalDate from, LocalDate to, String caseKey, Integer days) {
+                                String cadence, LocalDate from, LocalDate to, String caseKey, Integer days,
+                                String title) {
+
+        @JsonCreator
+        public CreateRequest {
+        }
+
+        public CreateRequest(String kind, String sheet, String view, String scope, List<String> customers,
+                             String cadence, LocalDate from, LocalDate to, String caseKey, Integer days) {
+            this(kind, sheet, view, scope, customers, cadence, from, to, caseKey, days, null);
+        }
     }
+
+    /** Whether a link still works, and if not, why. */
+    public enum LinkStatus { ACTIVE, EXPIRED, STOPPED }
+
+    static final int MAX_TITLE = 300;
 
     public record ExpiryRequest(Integer days) {
     }
@@ -135,7 +153,10 @@ public class CaseShareService {
                            OffsetDateTime createdAt,
                            OffsetDateTime expiresAt,
                            int viewCount,
-                           OffsetDateTime lastViewedAt) {
+                           OffsetDateTime lastViewedAt,
+                           String title,
+                           LinkStatus status,
+                           OffsetDateTime revokedAt) {
     }
 
     // ── What a link's visitor sees ──────────────────────────────────────────────────
@@ -256,10 +277,14 @@ public class CaseShareService {
                 String key = request.caseKey() == null ? "" : request.caseKey().trim();
                 if (key.isEmpty() || key.length() > 64) throw new BadRequestException("Which case?");
                 link.sheet(sheet).caseKey(key);
+                // The tab it was shared from, so the links page lists it there: a PCS case
+                // is stored by its sheet (cleaning, say), which alone would file it under Internal.
+                if (request.view() != null && !request.view().isBlank()) link.view(requireView(request.view().trim()));
             }
         }
         OffsetDateTime now = OffsetDateTime.now();
-        CaseShareLink saved = links.save(link.createdAt(now).expiresAt(now.plusDays(days(request.days()))).build());
+        CaseShareLink saved = links.save(link.title(title(request.title()))
+                .createdAt(now).expiresAt(now.plusDays(days(request.days()))).build());
         log.info("Shared a {} link ({}{}) until {}", kind, saved.getSheet() != null ? saved.getSheet() : saved.getView(),
                 saved.getCustomers() == null ? "" : ", named customers", saved.getExpiresAt());
         return views(List.of(saved)).get(0);
@@ -272,6 +297,21 @@ public class CaseShareService {
                 .filter(l -> sheet == null || sheet.equals(l.getSheet()))
                 .filter(l -> view == null || view.equals(l.getView()))
                 .filter(l -> caseKey == null || caseKey.equals(l.getCaseKey()))
+                .toList());
+    }
+
+    /**
+     * Every link ever made, newest first, for the links page: those still working, those
+     * that ran out and those stopped - or only one of the three.
+     *
+     * @param status ACTIVE, EXPIRED or STOPPED; null or ALL for every link
+     */
+    @Transactional(readOnly = true)
+    public List<LinkView> all(String status) {
+        LinkStatus wanted = linkStatus(status);
+        OffsetDateTime now = OffsetDateTime.now();
+        return views(links.findAllByOrderByCreatedAtDesc().stream()
+                .filter(l -> wanted == null || status(l, now) == wanted)
                 .toList());
     }
 
@@ -510,6 +550,28 @@ public class CaseShareService {
         throw new BadRequestException("Unknown kind of link: " + kind);
     }
 
+    static LinkStatus status(CaseShareLink link, OffsetDateTime now) {
+        if (link.getRevokedAt() != null) return LinkStatus.STOPPED;
+        return link.getExpiresAt().isAfter(now) ? LinkStatus.ACTIVE : LinkStatus.EXPIRED;
+    }
+
+    /** ACTIVE, EXPIRED or STOPPED; null for ALL or none. */
+    static LinkStatus linkStatus(String status) {
+        if (status == null || status.isBlank() || "ALL".equalsIgnoreCase(status.trim())) return null;
+        try {
+            return LinkStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Unknown link status: " + status);
+        }
+    }
+
+    /** The dialog's words for what a link shows, trimmed; too long is cut rather than refused. */
+    static String title(String title) {
+        if (title == null || title.isBlank()) return null;
+        String t = title.trim();
+        return t.length() > MAX_TITLE ? t.substring(0, MAX_TITLE) : t;
+    }
+
     static String requireView(String view) {
         if (AOT_VIEW.equals(view)) return view;
         return CaseViews.View.of(view).slug;
@@ -552,10 +614,11 @@ public class CaseShareService {
                 .stream().collect(Collectors.toMap(User::getId,
                         u -> u.getFullName() != null && !u.getFullName().isBlank() ? u.getFullName() : u.getEmail(),
                         (a, b) -> a));
+        OffsetDateTime now = OffsetDateTime.now();
         return list.stream().map(l -> new LinkView(l.getId(), l.getToken(), l.getKind(), l.getSheet(), l.getView(),
                 l.getScope(), read(l.getCustomers()), l.getCadence(), l.getPeriodFrom(), l.getPeriodTo(),
                 l.getCaseKey(), names.get(l.getCreatedBy()), l.getCreatedAt(), l.getExpiresAt(), l.getViewCount(),
-                l.getLastViewedAt())).toList();
+                l.getLastViewedAt(), l.getTitle(), status(l, now), l.getRevokedAt())).toList();
     }
 
     private CaseShareLink require(UUID id) {

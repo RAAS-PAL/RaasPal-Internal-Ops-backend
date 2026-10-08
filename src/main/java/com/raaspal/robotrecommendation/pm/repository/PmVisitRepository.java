@@ -195,7 +195,11 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
         long getSiteCount();
     }
 
-    /** Count of visits with no plan date at all - the unscheduled backlog. */
+    /**
+     * Count of visits with no plan date at all - the unscheduled backlog - leaving out
+     * contracts that have ended (a group saying หมดสัญญา) unless they are asked for, as
+     * every list of the planner does.
+     */
     @Query(value = """
             SELECT COUNT(*)
               FROM pm_visit v
@@ -205,8 +209,9 @@ public interface PmVisitRepository extends JpaRepository<PmVisit, UUID> {
                AND v.plan_date IS NULL
                AND v.status_bucket <> 'COMPLETED'
                AND (CAST(:serviceLine AS text) IS NULL OR c.service_line = CAST(:serviceLine AS text))
+               AND (CAST(:includeEnded AS boolean) = TRUE OR COALESCE(c.group_title, '') NOT LIKE '%หมดสัญญา%')
             """, nativeQuery = true)
-    long countUndated(@Param("serviceLine") String serviceLine);
+    long countUndated(@Param("serviceLine") String serviceLine, @Param("includeEnded") boolean includeEnded);
 
     /**
      * The distinct contents of the owner column.

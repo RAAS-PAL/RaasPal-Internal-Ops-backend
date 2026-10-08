@@ -1,5 +1,6 @@
 package com.raaspal.robotrecommendation.pm;
 
+import com.raaspal.robotrecommendation.pm.dto.PmFilter;
 import com.raaspal.robotrecommendation.pm.service.PmPlanningService;
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +22,17 @@ class PmContractEndedTest {
         assertThat(ended("หมดสัญญา")).isTrue();
         assertThat(ended("Customer A Phase 4 หมดสัญญา")).isTrue();
         assertThat(ended("หมดสัญญา ในการรับประกัน")).isTrue();
+    }
+
+    /** The planner leaves ended contracts out unless the switch asks for them (user, 2026-10-08). */
+    @Test
+    void theFilterLeavesEndedContractsOutUnlessAskedFor() {
+        PmFilter plain = PmFilter.of(null, null, null, null, null, null, null, null);
+        assertThat(plain.includeEnded()).isFalse();
+        assertThat(plain.withEnded("show").includeEnded()).isTrue();
+        assertThat(plain.withEnded(" SHOW ").includeEnded()).isTrue();
+        assertThat(plain.withEnded("yes").includeEnded()).isFalse();
+        assertThat(plain.withEnded(null).includeEnded()).isFalse();
     }
 
     @Test

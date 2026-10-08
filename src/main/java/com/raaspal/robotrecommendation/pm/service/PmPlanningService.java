@@ -92,7 +92,7 @@ public class PmPlanningService {
         return new PmMonthResponse.Row(
                 row.getVisitId(), row.getItemId(), row.getVisitName(), row.getPmSequence(), row.getPlanDate(),
                 row.getActionDate(), row.getTimeText(), row.getStatusRaw(), row.getStatusBucket(),
-                daysOverdue(row.getPlanDate(), row.getStatusBucket(), today), row.getOwnerNames(),
+                daysOverdue(row.getPlanDate(), row.getActionDate(), row.getStatusBucket(), today), row.getOwnerNames(),
                 row.getContractId(), row.getItemName(), row.getCustomerName(), row.getProject(),
                 row.getServiceLine(), row.getProvince(), row.getRegion(), row.getZone(),
                 row.getRobotModel(), row.getRobotCount(), row.getContractType(),
@@ -136,10 +136,15 @@ public class PmPlanningService {
         // variable-length list needs either an array function (Postgres-only, so the
         // H2 tests could not run it) or a rebuilt statement per request, and this
         // filter usually removes a handful of chains from a few thousand rows.
-        if (!filter.filtersCompanies()) {
+        // Ended contracts go the same way: they are not tracked unless asked for
+        // (user, 2026-10-08), so nothing they owe counts as late or undated.
+        if (!filter.filtersCompanies() && filter.includeEnded()) {
             return rows;
         }
-        return rows.stream().filter(row -> !filter.excludes(row.getCompany())).toList();
+        return rows.stream()
+                .filter(row -> filter.includeEnded() || !contractEnded(row.getContractGroup()))
+                .filter(row -> !filter.excludes(row.getCompany()))
+                .toList();
     }
 
     /**
@@ -177,17 +182,22 @@ public class PmPlanningService {
      * not finished - so it is applied here, on the way into the cell.
      */
     private static String effectiveBucket(PmVisitRepository.VisitRow visit, LocalDate today) {
-        return daysOverdue(visit.getPlanDate(), visit.getStatusBucket(), today) != null
+        return daysOverdue(visit.getPlanDate(), visit.getActionDate(), visit.getStatusBucket(), today) != null
                 ? "OVERDUE"
                 : visit.getStatusBucket();
     }
 
-    /** Positive days past a missed plan date, or null when nothing is owed. */
-    static Integer daysOverdue(LocalDate planDate, String statusBucket, LocalDate today) {
-        if (planDate == null || PmStatusBucket.COMPLETED.name().equals(statusBucket) || !planDate.isBefore(today)) {
+    /**
+     * Positive days past the day a visit is due, or null when nothing is owed. It is due on
+     * its Action date when it has one - a visit rescheduled ahead is not late until that day
+     * passes too (user, 2026-10-08) - and otherwise on its Plan date.
+     */
+    static Integer daysOverdue(LocalDate planDate, LocalDate actionDate, String statusBucket, LocalDate today) {
+        LocalDate due = actionDate != null ? actionDate : planDate;
+        if (due == null || PmStatusBucket.COMPLETED.name().equals(statusBucket) || !due.isBefore(today)) {
             return null;
         }
-        return (int) ChronoUnit.DAYS.between(planDate, today);
+        return (int) ChronoUnit.DAYS.between(due, today);
     }
 
     private PmSummary summarise(List<PmVisitRepository.VisitRow> visits, PmFilter filter, LocalDate today) {
@@ -203,7 +213,7 @@ public class PmPlanningService {
             if (contracts.add(visit.getContractId()) && visit.getRobotCount() != null) {
                 robots += visit.getRobotCount();
             }
-            if (daysOverdue(visit.getPlanDate(), visit.getStatusBucket(), today) != null) {
+            if (daysOverdue(visit.getPlanDate(), visit.getActionDate(), visit.getStatusBucket(), today) != null) {
                 overdue++;
             }
         }
@@ -214,7 +224,7 @@ public class PmPlanningService {
                 byStatus.getOrDefault(PmStatusBucket.COMPLETED.name(), 0L),
                 byStatus.getOrDefault(PmStatusBucket.UNPLANNED.name(), 0L),
                 overdue,
-                visitRepository.countUndated(filter.serviceLine()));
+                visitRepository.countUndated(filter.serviceLine(), filter.includeEnded()));
     }
 
     /**
@@ -270,7 +280,8 @@ public class PmPlanningService {
             return new PmYearResponse.Row(first.getContractId(), first.getItemName(), first.getCustomerName(),
                     first.getProject(), first.getServiceLine(), first.getProvince(), first.getRegion(),
                     first.getZone(), first.getRobotModel(), first.getRobotCount(), total, cells,
-                    first.getDistrict(), first.getContactPhone(), first.getContactEmail(), first.getSiteItemId());
+                    first.getDistrict(), first.getContactPhone(), first.getContactEmail(), first.getSiteItemId(),
+                    contractEnded(first.getContractGroup()));
         }
 
         /**

@@ -21,6 +21,9 @@ public interface CaseShareLinkRepository extends JpaRepository<CaseShareLink, UU
             + "AND l.expiresAt > :now ORDER BY l.createdAt DESC")
     List<CaseShareLink> findActive(@Param("kind") String kind, @Param("now") OffsetDateTime now);
 
+    /** Every link, newest first, for the links page; a few hundred at most, so filtered in memory. */
+    List<CaseShareLink> findAllByOrderByCreatedAtDesc();
+
     /** One more opening, counted in the database so two at once both count. */
     @Modifying
     @Query("UPDATE CaseShareLink l SET l.viewCount = l.viewCount + 1, l.lastViewedAt = :at WHERE l.id = :id")

@@ -99,7 +99,7 @@ public class PmPublicService {
     }
 
     private static Visit visit(PmVisitRepository.VisitRow r, LocalDate today) {
-        Integer overdue = PmPlanningService.daysOverdue(r.getPlanDate(), r.getStatusBucket(), today);
+        Integer overdue = PmPlanningService.daysOverdue(r.getPlanDate(), r.getActionDate(), r.getStatusBucket(), today);
         return new Visit(r.getItemId(), r.getVisitName(), r.getPmSequence(), r.getPlanDate(), r.getActionDate(),
                 r.getTimeText(), overdue != null ? "OVERDUE" : r.getStatusBucket(), overdue, blankToNull(r.getOwnerNames()));
     }

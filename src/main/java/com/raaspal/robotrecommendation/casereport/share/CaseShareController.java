@@ -50,6 +50,15 @@ public class CaseShareController {
         return ApiResponse.success(shares.active(kind, sheet, view, caseKey));
     }
 
+    /**
+     * Every link, newest first, for the links page: {@code status=ACTIVE}, {@code EXPIRED} or
+     * {@code STOPPED}, or every one when left out.
+     */
+    @GetMapping("/api/v1/case-reports/share-links/all")
+    public ApiResponse<List<CaseShareService.LinkView>> all(@RequestParam(required = false) String status) {
+        return ApiResponse.success(shares.all(status));
+    }
+
     /** Moves a link's end to {@code days} from now. */
     @PutMapping("/api/v1/case-reports/share-links/{id}/expiry")
     public ApiResponse<CaseShareService.LinkView> extend(@PathVariable UUID id,
