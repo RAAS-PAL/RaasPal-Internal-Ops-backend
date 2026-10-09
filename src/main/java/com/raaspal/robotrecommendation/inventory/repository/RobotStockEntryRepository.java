@@ -4,6 +4,9 @@ import com.raaspal.robotrecommendation.inventory.dto.RobotStockEntryResponse;
 import com.raaspal.robotrecommendation.inventory.entity.RobotStockEntry;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -93,8 +96,8 @@ public interface RobotStockEntryRepository extends JpaRepository<RobotStockEntry
      */
     @Query("""
            SELECT e FROM RobotStockEntry e
-           WHERE LOWER(e.brand) = LOWER(:brand)
-             AND LOWER(e.model) = LOWER(:model)
+           WHERE LOWER(TRIM(e.brand)) = LOWER(TRIM(:brand))
+             AND LOWER(TRIM(e.model)) = LOWER(TRIM(:model))
              AND LOWER(COALESCE(e.version, '')) = LOWER(COALESCE(:version, ''))
              AND e.status = :status
            """)
@@ -102,6 +105,46 @@ public interface RobotStockEntryRepository extends JpaRepository<RobotStockEntry
                                            @Param("model") String model,
                                            @Param("version") String version,
                                            @Param("status") RobotUnitStatus status);
+
+    /** Model identity deliberately excludes status; null and empty versions agree. */
+    @Query("""
+           SELECT e FROM RobotStockEntry e
+           WHERE LOWER(TRIM(e.brand)) = LOWER(TRIM(:brand))
+             AND LOWER(TRIM(e.model)) = LOWER(TRIM(:model))
+             AND LOWER(COALESCE(e.version, '')) = LOWER(:version)
+           ORDER BY e.id
+           """)
+    List<RobotStockEntry> findModel(@Param("brand") String brand, @Param("model") String model,
+                                   @Param("version") String version);
+
+    // Lock in one order even when two operators move units in opposite directions.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+           SELECT e FROM RobotStockEntry e
+           WHERE LOWER(TRIM(e.brand)) = LOWER(TRIM(:brand))
+             AND LOWER(TRIM(e.model)) = LOWER(TRIM(:model))
+             AND LOWER(COALESCE(e.version, '')) = LOWER(:version)
+           ORDER BY e.id
+           """)
+    List<RobotStockEntry> lockModel(@Param("brand") String brand, @Param("model") String model,
+                                   @Param("version") String version);
+
+    // Insert only the new links, rather than rewriting each part's whole collection
+    // and risking removal of links added by another stock operation.
+    @Modifying
+    @Query(value = """
+            INSERT INTO inventory_item_robots (inventory_item_id, robot_stock_id)
+            SELECT inventory_item_id, :targetId FROM inventory_item_robots WHERE robot_stock_id = :sourceId
+            """, nativeQuery = true)
+    void copyPartLinks(@Param("sourceId") UUID sourceId, @Param("targetId") UUID targetId);
+
+    /**
+     * Unlinks parts from these rows. Run before deleting a whole model, so the parts
+     * stay recorded but unlinked whether or not the database enforces the cascade.
+     */
+    @Modifying
+    @Query(value = "DELETE FROM inventory_item_robots WHERE robot_stock_id IN (:ids)", nativeQuery = true)
+    void deletePartLinks(@Param("ids") Collection<UUID> ids);
 
     /** Total robots held, by status — the dashboard tiles. */
     @Query("SELECT COALESCE(SUM(e.quantity), 0) FROM RobotStockEntry e WHERE e.status = :status")

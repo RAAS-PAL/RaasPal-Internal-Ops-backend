@@ -5,10 +5,16 @@ import com.raaspal.robotrecommendation.common.exception.BadRequestException;
 import com.raaspal.robotrecommendation.common.exception.ResourceNotFoundException;
 import com.raaspal.robotrecommendation.inventory.dto.RobotStockEntryRequest;
 import com.raaspal.robotrecommendation.inventory.dto.RobotStockEntryResponse;
+import com.raaspal.robotrecommendation.inventory.dto.RobotStockMoveRequest;
+import com.raaspal.robotrecommendation.inventory.dto.RobotStockUnitsRequest;
+import com.raaspal.robotrecommendation.inventory.dto.RobotStockModelRequest;
 import com.raaspal.robotrecommendation.inventory.entity.RobotStockEntry;
 import com.raaspal.robotrecommendation.inventory.repository.RobotStockEntryRepository;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import lombok.RequiredArgsConstructor;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -31,6 +37,7 @@ import java.util.UUID;
 public class RobotStockService {
 
     private final RobotStockEntryRepository repository;
+    private final EntityManager entityManager;
 
     @Transactional(readOnly = true)
     public List<RobotStockEntryResponse> list(String keyword, RobotUnitStatus status) {
@@ -91,7 +98,7 @@ public class RobotStockService {
 
     @Transactional
     public RobotStockEntryResponse update(UUID id, RobotStockEntryRequest request, UUID actorId) {
-        RobotStockEntry entry = require(id);
+        RobotStockEntry entry = source(lockModel(id), id);
 
         RobotUnitStatus status = stockRoomStatus(request.status());
         String brand = required(request.brand(), "Brand");
@@ -119,11 +126,7 @@ public class RobotStockService {
         // Capture the old count only when it genuinely moves. Saving an edit to the
         // location with the quantity untouched must not overwrite the backup with
         // the current number — that would quietly destroy the value worth keeping.
-        if (request.quantity() != null && !request.quantity().equals(entry.getQuantity())) {
-            entry.setPreviousQuantity(entry.getQuantity());
-            entry.setPreviousQuantityAt(LocalDateTime.now());
-            entry.setQuantity(request.quantity());
-        }
+        if (request.quantity() != null) changeQuantity(entry, request.quantity(), actorId);
 
         // Absent leaves the photo alone; "" removes it. A form with no picker must
         // not wipe an existing image just by not mentioning it.
@@ -138,14 +141,176 @@ public class RobotStockService {
     /**
      * Deleting is allowed here, unlike everywhere else in the platform.
      *
-     * <p>Nothing references these rows — no telemetry, no reports, no audit trail to
-     * hollow out. A row entered by mistake is just a mistake, and forcing a soft
-     * delete would leave the warehouse list cluttered with rows that never existed
-     * in the building.
+     * <p>No telemetry or reports reference these rows, but spare-part links do:
+     * deletion cascades those links. Moves must keep a zero-count source instead.
      */
     @Transactional
     public void delete(UUID id) {
-        repository.delete(require(id));
+        repository.delete(source(lockModel(id), id));
+    }
+
+    /**
+     * Removes every status row of a model — the robot page's "Delete this model".
+     *
+     * <p>Under the same model lock as a move, so a move arriving at the same moment
+     * either commits first and is deleted with the rest, or waits and then gets the
+     * retry code. Part links are removed explicitly, not left to the foreign key's
+     * cascade: the parts stay in inventory, unlinked, on any database.
+     *
+     * @return how many status rows were removed
+     */
+    @Transactional
+    public int deleteModel(UUID id) {
+        List<RobotStockEntry> rows = lockModel(id);
+        repository.deletePartLinks(rows.stream().map(RobotStockEntry::getId).toList());
+        repository.deleteAll(rows);
+        return rows.size();
+    }
+
+    /** Both counts and newly copied part links commit together, or none of them do. */
+    @Transactional
+    public List<RobotStockEntryResponse> move(UUID id, RobotStockMoveRequest request, UUID actorId) {
+        RobotUnitStatus status = requiredStockRoomStatus(request.toStatus());
+        int quantity = positiveQuantity(request.quantity());
+        RobotStockEntry source = source(lockModel(id), id);
+        if (source.getStatus() == status) throw new BadRequestException("robot_stock.same_status");
+        if (quantity > source.getQuantity()) throw new BadRequestException("robot_stock.insufficient_units");
+        RobotStockEntry target = target(source, status);
+        int total = addedQuantity(target, quantity);
+        changeQuantity(source, source.getQuantity() - quantity, actorId);
+        changeQuantity(target, total, actorId);
+        return savedModel(source);
+    }
+
+    @Transactional
+    public List<RobotStockEntryResponse> addUnits(UUID id, RobotStockUnitsRequest request, UUID actorId) {
+        RobotUnitStatus status = requiredStockRoomStatus(request.status());
+        int quantity = positiveQuantity(request.quantity());
+        RobotStockEntry source = source(lockModel(id), id);
+        RobotStockEntry target = target(source, status);
+        changeQuantity(target, addedQuantity(target, quantity), actorId);
+        return savedModel(source);
+    }
+
+    @Transactional
+    public List<RobotStockEntryResponse> updateModel(UUID id, RobotStockModelRequest request, UUID actorId) {
+        String brand = required(request.brand(), "Brand");
+        String model = required(request.model(), "Model");
+        String version = blankToNull(request.version());
+        if (request.robotType() == null) throw new BadRequestException("robot_stock.type_required");
+        String image = validateImage(request.imageUrl());
+        List<RobotStockEntry> rows = lockModel(id);
+        var ids = rows.stream().map(RobotStockEntry::getId).toList();
+        // Check the entire identity, not just matching statuses: disjoint shelves
+        // still belong to a different model and must never silently merge.
+        if (repository.findModel(brand, model, versionKey(version)).stream()
+                .anyMatch(row -> !ids.contains(row.getId()))) {
+            throw new BadRequestException("robot_stock.model_exists");
+        }
+        for (RobotStockEntry row : rows) {
+            row.setBrand(brand);
+            row.setModel(model);
+            row.setVersion(version);
+            row.setRobotType(request.robotType());
+            // Omitted preserves each row's photo; empty explicitly removes all.
+            if (request.imageUrl() != null) row.setImageUrl(image);
+            row.setUpdatedBy(actorId);
+        }
+        return savedModel(rows.getFirst());
+    }
+
+    private List<RobotStockEntry> lockModel(UUID id) {
+        RobotStockEntry entry = require(id);
+        String brand = entry.getBrand();
+        String model = entry.getModel();
+        String version = versionKey(entry.getVersion());
+        List<RobotStockEntry> rows = repository.lockModel(brand, model, version);
+        if (rows.isEmpty()) throw changed();
+        // A waiter may have started its SELECT before another transaction inserted
+        // a new status. Re-read after acquiring the shared model rows so renames
+        // include that newly committed shelf as well.
+        rows = repository.lockModel(brand, model, version);
+        if (rows.isEmpty()) throw changed();
+        for (RobotStockEntry row : rows) {
+            // require(id) may already have cached a pre-lock count in the persistence
+            // context. A lock alone does not refresh it after waiting for a writer.
+            entityManager.refresh(row, LockModeType.PESSIMISTIC_WRITE);
+            if (!brand.trim().equalsIgnoreCase(row.getBrand().trim())
+                    || !model.trim().equalsIgnoreCase(row.getModel().trim())
+                    || !version.equalsIgnoreCase(versionKey(row.getVersion()))) throw changed();
+        }
+        source(rows, id);
+        return rows;
+    }
+
+    private static RobotStockEntry source(List<RobotStockEntry> rows, UUID id) {
+        return rows.stream().filter(row -> row.getId().equals(id)).findFirst().orElseThrow(RobotStockService::changed);
+    }
+
+    private RobotStockEntry target(RobotStockEntry source, RobotUnitStatus status) {
+        var existing = repository.findIdentity(source.getBrand(), source.getModel(), source.getVersion(), status);
+        if (existing.isPresent()) {
+            entityManager.refresh(existing.get(), LockModeType.PESSIMISTIC_WRITE);
+            return existing.get();
+        }
+        RobotStockEntry target = RobotStockEntry.builder()
+                .robotType(source.getRobotType()).brand(source.getBrand()).model(source.getModel())
+                .version(source.getVersion()).imageUrl(source.getImageUrl()).status(status).quantity(0).build();
+        try {
+            // Flush here, not at transaction exit: concurrent legacy creates can
+            // still win the unique index, and need a retry response rather than 500.
+            repository.saveAndFlush(target);
+            repository.copyPartLinks(source.getId(), target.getId());
+        } catch (DataIntegrityViolationException ex) {
+            throw changed();
+        }
+        return target;
+    }
+
+    private List<RobotStockEntryResponse> savedModel(RobotStockEntry entry) {
+        try {
+            repository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw changed();
+        }
+        return repository.findModel(entry.getBrand(), entry.getModel(), versionKey(entry.getVersion()))
+                .stream().map(RobotStockEntryResponse::from).toList();
+    }
+
+    private static void changeQuantity(RobotStockEntry entry, int quantity, UUID actorId) {
+        if (quantity < 0) throw new BadRequestException("robot_stock.invalid_quantity");
+        if (quantity != entry.getQuantity()) {
+            entry.setPreviousQuantity(entry.getQuantity());
+            entry.setPreviousQuantityAt(LocalDateTime.now());
+            entry.setQuantity(quantity);
+            entry.setUpdatedBy(actorId);
+        }
+    }
+
+    private static int addedQuantity(RobotStockEntry entry, int quantity) {
+        if (quantity > Integer.MAX_VALUE - entry.getQuantity()) {
+            throw new BadRequestException("robot_stock.quantity_too_large");
+        }
+        return entry.getQuantity() + quantity;
+    }
+
+    private static int positiveQuantity(Integer quantity) {
+        if (quantity == null || quantity < 1) throw new BadRequestException("robot_stock.invalid_quantity");
+        return quantity;
+    }
+
+    private static RobotUnitStatus requiredStockRoomStatus(RobotUnitStatus status) {
+        if (status == null || !status.isStockRoomStatus()) throw new BadRequestException("robot_stock.invalid_status");
+        return status;
+    }
+
+    private static String versionKey(String version) {
+        return version == null ? "" : version;
+    }
+
+    private static IllegalStateException changed() {
+        // UI translates this code to "Someone changed this robot, try again."
+        return new IllegalStateException("robot_stock.changed_retry");
     }
 
     /* ─── Helpers ─────────────────────────────────────────────────────────── */

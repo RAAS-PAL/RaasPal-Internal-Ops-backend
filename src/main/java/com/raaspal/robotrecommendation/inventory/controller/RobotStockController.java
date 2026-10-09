@@ -4,6 +4,9 @@ import com.raaspal.robotrecommendation.auth.security.UserPrincipal;
 import com.raaspal.robotrecommendation.common.response.ApiResponse;
 import com.raaspal.robotrecommendation.inventory.dto.RobotStockEntryRequest;
 import com.raaspal.robotrecommendation.inventory.dto.RobotStockEntryResponse;
+import com.raaspal.robotrecommendation.inventory.dto.RobotStockMoveRequest;
+import com.raaspal.robotrecommendation.inventory.dto.RobotStockUnitsRequest;
+import com.raaspal.robotrecommendation.inventory.dto.RobotStockModelRequest;
 import com.raaspal.robotrecommendation.inventory.service.RobotStockService;
 import com.raaspal.robotrecommendation.robotunit.entity.RobotUnitStatus;
 import jakarta.validation.Valid;
@@ -82,7 +85,39 @@ public class RobotStockController {
                 robotStockService.update(id, request, principal == null ? null : principal.getId()));
     }
 
-    /** Remove a row entered by mistake. Nothing references these, so it is a real delete. */
+    @PostMapping("/{id}/move")
+    @PreAuthorize(CAN_WRITE)
+    public ApiResponse<List<RobotStockEntryResponse>> move(
+            @PathVariable UUID id, @Valid @RequestBody RobotStockMoveRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.success(robotStockService.move(id, request, principal == null ? null : principal.getId()));
+    }
+
+    @PostMapping("/{id}/units")
+    @PreAuthorize(CAN_WRITE)
+    public ApiResponse<List<RobotStockEntryResponse>> addUnits(
+            @PathVariable UUID id, @Valid @RequestBody RobotStockUnitsRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.success(robotStockService.addUnits(id, request, principal == null ? null : principal.getId()));
+    }
+
+    @PutMapping("/{id}/model")
+    @PreAuthorize(CAN_WRITE)
+    public ApiResponse<List<RobotStockEntryResponse>> updateModel(
+            @PathVariable UUID id, @Valid @RequestBody RobotStockModelRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.success(robotStockService.updateModel(id, request, principal == null ? null : principal.getId()));
+    }
+
+    /** The whole model {id} belongs to, every status row, in one transaction. */
+    @DeleteMapping("/{id}/model")
+    @PreAuthorize(CAN_WRITE)
+    public ApiResponse<Void> deleteModel(@PathVariable UUID id) {
+        int removed = robotStockService.deleteModel(id);
+        return ApiResponse.success("Robot model removed (" + removed + (removed == 1 ? " state)" : " states)"));
+    }
+
+    /** Legacy row delete also cascades its part links; unit moves never call it. */
     @DeleteMapping("/{id}")
     @PreAuthorize(CAN_WRITE)
     public ApiResponse<Void> delete(@PathVariable UUID id) {
